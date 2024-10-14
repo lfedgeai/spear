@@ -39,7 +39,7 @@ func (p *ProcessTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 				if err.Error() == "EOF" {
 					break
 				}
-				log.Errorf("Error reading stdout: %v", err)
+				log.Debugf("Error reading stdout: %v", err)
 				break
 			}
 			// log.Debugf("Output: %s", buf[:n])
@@ -82,7 +82,7 @@ func (p *ProcessTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 			if err != nil {
 				break
 			}
-			log.Infof("STDERR[%s]: %s", task.name, buf[:n])
+			log.Infof("STDERR[%s]:\033[0;32m%s\033[0m", task.name, buf[:n])
 		}
 	}()
 

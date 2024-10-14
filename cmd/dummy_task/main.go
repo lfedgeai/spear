@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,62 +13,37 @@ func main() {
 
 	done := make(chan struct{})
 
-	go func() {
-		// read from stdin
-		reader := bufio.NewReader(os.Stdin)
+	hdl := rpc.NewGuestRPCHandler(
+		func(req *rpc.JsonRPCRequest) error {
+			os.Stderr.Write([]byte(fmt.Sprintf("Request: %s\n", *req.Method)))
+			return nil
+		},
+		func(resp *rpc.JsonRPCResponse) error {
+			os.Stderr.Write([]byte(fmt.Sprintf("Response: %s\n", resp.Result)))
 
-		for {
-			// read from stdin
-			data, err := reader.ReadBytes('\n')
+			// convert resp.Result to buffer
+			data, err := json.Marshal(resp.Result)
 			if err != nil {
-				panic(err)
-			}
-
-			os.Stderr.Write([]byte(fmt.Sprintf("Raw Input For Task: %s\n", data)))
-
-			var req rpc.JsonRPCRequest
-			err = req.Unmarshal([]byte(data))
-			if err == nil {
-				// request is valid
-
-				// TODO:
-
-				os.Stderr.Write([]byte(fmt.Sprintf("Request: %s\n", *req.Method)))
-				continue
-			}
-
-			var resp rpc.JsonRPCResponse
-			err = resp.Unmarshal([]byte(data))
-			if err == nil {
-				// response is valid
-
-				// print to stderr
-				os.Stderr.Write([]byte(fmt.Sprintf("Raw Response: %s\n", resp.Result)))
-
-				// convert resp.Result to buffer
-				data, err := json.Marshal(resp.Result)
-				if err != nil {
-					os.Stderr.Write([]byte(fmt.Sprintf("Error: %v\n", err)))
-					panic(err)
-				}
-
-				resp2 := openai.ChatCompletionResponse{}
-				err = resp2.Unmarshal(data)
-				if err != nil {
-					os.Stderr.Write([]byte(fmt.Sprintf("Error: %v\n", err)))
-					panic(err)
-				}
-				os.Stderr.Write([]byte(fmt.Sprintf("Response Choices: %v\n", resp2.Choices)))
-
-				// close done channel
-				close(done)
-				break
-			} else {
 				os.Stderr.Write([]byte(fmt.Sprintf("Error: %v\n", err)))
 				panic(err)
 			}
-		}
-	}()
+
+			resp2 := openai.ChatCompletionResponse{}
+			err = resp2.Unmarshal(data)
+			if err != nil {
+				os.Stderr.Write([]byte(fmt.Sprintf("Error: %v\n", err)))
+				panic(err)
+			}
+			os.Stderr.Write([]byte(fmt.Sprintf("Response Choices: %v\n", resp2.Choices)))
+
+			// close done channel
+			close(done)
+			return nil
+		},
+	)
+	hdl.SetInput(os.Stdin)
+	hdl.SetOutput(os.Stdout)
+	hdl.Run()
 
 	// read json from stdin and write to stdout
 	chatMsg := openai.ChatCompletionRequest{
