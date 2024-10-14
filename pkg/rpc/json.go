@@ -6,15 +6,15 @@ import (
 )
 
 type JsonRPCRequest struct {
-	Version string      `json:"jsonrpc"`
-	Method  string      `json:"method"`
-	Params  interface{} `json:"params,omitempty"`
-	ID      json.Number `json:"id"`
+	Version string       `json:"jsonrpc"`
+	Method  *string      `json:"method"`
+	Params  interface{}  `json:"params,omitempty"`
+	ID      *json.Number `json:"id"`
 }
 
 type JsonRPCNotification struct {
 	Version string      `json:"jsonrpc"`
-	Method  string      `json:"method"`
+	Method  *string     `json:"method"`
 	Params  interface{} `json:"params"`
 }
 
@@ -28,7 +28,7 @@ type JsonRPCResponse struct {
 	Version string        `json:"jsonrpc"`
 	Result  interface{}   `json:"result,omitempty"`
 	Error   *JsonRPCError `json:"error,omitempty"`
-	ID      json.Number   `json:"id"`
+	ID      *json.Number  `json:"id"`
 }
 
 var (
@@ -40,11 +40,12 @@ var (
 func NewJsonRPCRequest(method string, params interface{}) *JsonRPCRequest {
 	res := &JsonRPCRequest{
 		Version: "2.0",
-		Method:  method,
+		Method:  &method,
 		Params:  params,
 	}
 	idCounter++
-	res.ID = json.Number(fmt.Sprint(idCounter))
+	tmp := json.Number(fmt.Sprintf("%d", idCounter))
+	res.ID = &tmp
 	return res
 }
 
@@ -85,7 +86,14 @@ func (r *JsonRPCResponse) Marshal() ([]byte, error) {
 // Unmarshal operations
 
 func (r *JsonRPCRequest) Unmarshal(data []byte) error {
-	return json.Unmarshal(data, r)
+	err := json.Unmarshal(data, r)
+	if err != nil {
+		return err
+	}
+	if r.Method == nil || r.ID == nil {
+		return fmt.Errorf("invalid request")
+	}
+	return nil
 }
 
 func (r *JsonRPCNotification) Unmarshal(data []byte) error {
@@ -93,5 +101,15 @@ func (r *JsonRPCNotification) Unmarshal(data []byte) error {
 }
 
 func (r *JsonRPCResponse) Unmarshal(data []byte) error {
-	return json.Unmarshal(data, r)
+	err := json.Unmarshal(data, r)
+	if err != nil {
+		return err
+	}
+	if r.ID == nil {
+		return fmt.Errorf("invalid response")
+	}
+	if r.Error != nil && r.Result != nil {
+		return fmt.Errorf("invalid response")
+	}
+	return nil
 }

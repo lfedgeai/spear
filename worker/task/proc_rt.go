@@ -80,13 +80,9 @@ func (p *ProcessTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 			buf := make([]byte, maxDataSize)
 			n, err := stderr.Read(buf)
 			if err != nil {
-				if err.Error() == "EOF" {
-					break
-				}
-				log.Errorf("Error reading stderr: %v", err)
 				break
 			}
-			log.Infof("[%s]stderr: %s", task.name, buf[:n])
+			log.Infof("STDERR[%s]: %s", task.name, buf[:n])
 		}
 	}()
 

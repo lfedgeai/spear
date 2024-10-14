@@ -1,8 +1,8 @@
 package main
 
 import (
-	// cobra
 	"github.com/lfedgeai/spear/worker"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -19,6 +19,12 @@ func NewRootCmd() *cobra.Command {
 			// parse flags
 			addr, _ := cmd.Flags().GetString("addr")
 			port, _ := cmd.Flags().GetString("port")
+			verbose, _ := cmd.Flags().GetBool("verbose")
+
+			// set log level
+			if verbose {
+				worker.SetLogLevel(log.DebugLevel)
+			}
 
 			// create config
 			config := worker.NewWorkerConfig(addr, port)
@@ -32,6 +38,8 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.PersistentFlags().String("addr", "localhost", "address of the server")
 	// port flag
 	rootCmd.PersistentFlags().String("port", "8080", "port of the server")
+	// verbose flag
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
 
 	return rootCmd
 }

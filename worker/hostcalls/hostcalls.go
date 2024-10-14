@@ -49,10 +49,10 @@ func (h *HostCalls) InstallToTask(t task.Task) error {
 				continue
 			}
 
-			log.Debugf("Hostcall received request: %s", req.Method)
+			log.Debugf("Hostcall received request: %s", *req.Method)
 
 			// process request
-			if handler, ok := h.HCMap[req.Method]; ok {
+			if handler, ok := h.HCMap[*req.Method]; ok {
 				result, err := handler(req.Params)
 				if err != nil {
 					log.Errorf("Error executing hostcall: %v", err)
@@ -67,17 +67,20 @@ func (h *HostCalls) InstallToTask(t task.Task) error {
 					// send success response
 					resp := req.CreateSuccessResponse(result)
 					if data, err := resp.Marshal(); err == nil {
+						log.Debugf("Hostcall response: %s", data)
 						in <- data
+						in <- []byte("\n")
 					} else {
 						log.Errorf("Error marshalling response: %v", err)
 					}
 				}
 			} else {
-				log.Errorf("Hostcall not found: %s", req.Method)
+				log.Errorf("Hostcall not found: %s", *req.Method)
 				// send error response
 				resp := req.CreateErrorResponse(2, "method not found", nil)
 				if data, err := resp.Marshal(); err == nil {
 					in <- data
+					in <- []byte("\n")
 				} else {
 					log.Errorf("Error marshalling response: %v", err)
 				}

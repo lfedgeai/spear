@@ -8,10 +8,10 @@ clean:
 	rm -rf $(OUTPUT_DIR)
 
 worker:
-	go build -o $(OUTPUT_DIR)/worker $(PROJECT_ROOT)/cmd/worker/worker.go
+	go build -o $(OUTPUT_DIR)/worker $(PROJECT_ROOT)/cmd/worker/main.go
 
 dummy:
-	go build -o $(OUTPUT_DIR)/dummy_task $(PROJECT_ROOT)/cmd/dummy_task/dummy_task.go
+	go build -o $(OUTPUT_DIR)/dummy_task $(PROJECT_ROOT)/cmd/dummy_task/main.go
 
 test:
 	go test $(PROJECT_ROOT)/test/simple_req_test.go

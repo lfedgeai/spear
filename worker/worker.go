@@ -16,6 +16,12 @@ import (
 	"github.com/lfedgeai/spear/worker/task"
 )
 
+const maxDataResponseSize = 4096 * 1024
+
+var (
+	logLevel = log.InfoLevel
+)
+
 type WorkerConfig struct {
 	Addr string
 	Port string
@@ -66,7 +72,7 @@ func (w *Worker) addHostCalls() {
 			return nil, fmt.Errorf("error unmarshalling args: %v", err)
 		}
 
-		log.Infof("Chat request: %s", string(jsonBytes))
+		log.Infof("Chat Request: %s", string(jsonBytes))
 		// create a https request to https://api.openai.com/v1/chat/completions and use b as the request body
 		req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonBytes))
 		if err != nil {
@@ -85,15 +91,20 @@ func (w *Worker) addHostCalls() {
 			return nil, fmt.Errorf("error sending request: %v", err)
 		}
 		// read the response
-		buf := make([]byte, 4096)
+		buf := make([]byte, maxDataResponseSize)
 		n, err := resp.Body.Read(buf)
 		if err != nil && err != io.EOF {
 			return nil, fmt.Errorf("error reading response: %v", err)
 		}
-		// print the response
-		log.Infof("Response: %s", buf[:n])
+
+		respData := openai.ChatCompletionResponse{}
+		err = respData.Unmarshal(buf[:n])
+		if err != nil {
+			return nil, fmt.Errorf("error unmarshalling response: %v", err)
+		}
+
 		// return the response
-		return "OK", nil
+		return respData, nil
 	})
 }
 
@@ -102,9 +113,6 @@ func (w *Worker) addRoutes() {
 		resp.Write([]byte("OK"))
 	})
 	w.mux.HandleFunc("/", func(resp http.ResponseWriter, req *http.Request) {
-		// print all headers
-		log.Infof("Headers: %v", req.Header)
-
 		rt, err := task.NewTaskRuntime(task.TaskTypeProcess)
 		if err != nil {
 			respError(resp, fmt.Sprintf("Error: %v", err))
@@ -132,26 +140,29 @@ func (w *Worker) addRoutes() {
 
 		// write to the input channel
 		// read the body
-		buf := make([]byte, 4096)
+		buf := make([]byte, maxDataResponseSize)
 		n, err := req.Body.Read(buf)
 		if err != nil && err != io.EOF {
+			log.Errorf("Error reading body: %v", err)
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
+		method := "handle"
+		id := json.Number("0")
 		workerReq := rpc.JsonRPCRequest{
 			Version: "2.0",
-			Method:  "handle",
+			Method:  &method,
 			Params:  []interface{}{string(buf[:n])},
-			ID:      "1",
+			ID:      &id,
 		}
 		b, err := workerReq.Marshal()
 		if err != nil {
+			log.Errorf("Error marshalling request: %v", err)
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
 		in <- b
 		in <- []byte("\n")
-
 	})
 }
 
@@ -162,8 +173,13 @@ func (w *Worker) Run() {
 	}
 }
 
+func SetLogLevel(lvl log.Level) {
+	logLevel = lvl
+	log.SetLevel(logLevel)
+}
+
 func init() {
-	log.SetLevel(log.DebugLevel)
+	log.SetLevel(logLevel)
 }
 
 func respError(resp http.ResponseWriter, msg string) {
