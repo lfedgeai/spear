@@ -65,6 +65,10 @@ func (p *ProcessTask) CommChannels() (chan Message, chan Message, error) {
 	return p.in, p.out, nil
 }
 
+func (p *ProcessTask) Wait() {
+	<-p.done
+}
+
 func NewProcessTask(cfg *TaskConfig) *ProcessTask {
 	return &ProcessTask{
 		name:   cfg.Name,

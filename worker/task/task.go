@@ -50,6 +50,8 @@ type Task interface {
 	GetResult() *error
 	// get communication channel
 	CommChannels() (chan Message, chan Message, error)
+	// wait for task to finish
+	Wait()
 }
 
 // interface for taskruntime

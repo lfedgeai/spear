@@ -163,6 +163,8 @@ func (w *Worker) addRoutes() {
 		}
 		in <- b
 		in <- []byte("\n")
+
+		task.Wait()
 	})
 }
 
