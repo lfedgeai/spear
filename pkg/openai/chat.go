@@ -1,6 +1,8 @@
 package openai
 
-import "encoding/json"
+import (
+	"encoding/json"
+)
 
 type ChatCompletionRequest struct {
 	Messages []ChatMessage `json:"messages"`

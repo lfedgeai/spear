@@ -1,22 +1,19 @@
 package worker
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/lfedgeai/spear/pkg/openai"
+	"github.com/lfedgeai/spear/pkg/common"
 	"github.com/lfedgeai/spear/pkg/rpc"
 	"github.com/lfedgeai/spear/worker/hostcalls"
+	"github.com/lfedgeai/spear/worker/hostcalls/openai"
 	"github.com/lfedgeai/spear/worker/task"
 )
-
-const maxDataResponseSize = 4096 * 1024
 
 var (
 	logLevel = log.InfoLevel
@@ -58,54 +55,9 @@ func (w *Worker) Init() {
 }
 
 func (w *Worker) addHostCalls() {
-	w.hc.RegisterHostCall("chat.completion", func(args interface{}) (interface{}, error) {
-		log.Infof("Executing hostcall \"%s\" with args %v", "chat.completion", args)
-		// verify the type of args is ChatCompletionRequest
-		// use json marshal and unmarshal to verify the type
-		jsonBytes, err := json.Marshal(args)
-		if err != nil {
-			return nil, fmt.Errorf("error marshalling args: %v", err)
-		}
-		chatReq := openai.ChatCompletionRequest{}
-		err = json.Unmarshal(jsonBytes, &chatReq)
-		if err != nil {
-			return nil, fmt.Errorf("error unmarshalling args: %v", err)
-		}
-
-		log.Infof("Chat Request: %s", string(jsonBytes))
-		// create a https request to https://api.openai.com/v1/chat/completions and use b as the request body
-		req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonBytes))
-		if err != nil {
-			return nil, fmt.Errorf("error creating request: %v", err)
-		}
-
-		// get api key from environment variable
-		apiKey := os.Getenv("OPENAI_API_KEY")
-		// set the headers
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
-		// send the request
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("error sending request: %v", err)
-		}
-		// read the response
-		buf := make([]byte, maxDataResponseSize)
-		n, err := resp.Body.Read(buf)
-		if err != nil && err != io.EOF {
-			return nil, fmt.Errorf("error reading response: %v", err)
-		}
-
-		respData := openai.ChatCompletionResponse{}
-		err = respData.Unmarshal(buf[:n])
-		if err != nil {
-			return nil, fmt.Errorf("error unmarshalling response: %v", err)
-		}
-
-		// return the response
-		return respData, nil
-	})
+	for _, hc := range openai.Hostcalls {
+		w.hc.RegisterHostCall(hc)
+	}
 }
 
 func (w *Worker) addRoutes() {
@@ -140,7 +92,7 @@ func (w *Worker) addRoutes() {
 
 		// write to the input channel
 		// read the body
-		buf := make([]byte, maxDataResponseSize)
+		buf := make([]byte, common.MaxDataResponseSize)
 		n, err := req.Body.Read(buf)
 		if err != nil && err != io.EOF {
 			log.Errorf("Error reading body: %v", err)

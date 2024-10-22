@@ -19,7 +19,9 @@ func NewHostCalls() *HostCalls {
 	}
 }
 
-func (h *HostCalls) RegisterHostCall(name string, handler func(args interface{}) (interface{}, error)) error {
+func (h *HostCalls) RegisterHostCall(hc *HostCall) error {
+	name := hc.Name
+	handler := hc.Handler
 	log.Debugf("Registering hostcall: %s", name)
 	if _, ok := h.HCMap[name]; ok {
 		return fmt.Errorf("hostcall already registered: %s", name)
@@ -89,4 +91,9 @@ func (h *HostCalls) InstallToTask(t task.Task) error {
 	}()
 
 	return nil
+}
+
+type HostCall struct {
+	Name    string
+	Handler func(args interface{}) (interface{}, error)
 }

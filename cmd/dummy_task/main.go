@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"time"
 
 	// flags support
 	"flag"
@@ -35,8 +36,6 @@ func main() {
 		panic(err)
 	}
 
-	done := make(chan struct{})
-
 	hdl := rpc.NewGuestRPCHandler(
 		func(req *rpc.JsonRPCRequest) error {
 			log.Infof("Request: %s", *req.Method)
@@ -52,16 +51,20 @@ func main() {
 				panic(err)
 			}
 
-			resp2 := openai.ChatCompletionResponse{}
-			err = resp2.Unmarshal(data)
-			if err != nil {
-				log.Errorf("Error unmarshalling response: %v", err)
-				panic(err)
+			if len(data) > 1024 {
+				log.Infof("Response: %s", data[:1024])
+			} else {
+				log.Infof("Response: %s", data)
 			}
-			log.Infof("Response Choices: %v", resp2.Choices)
 
-			// close done channel
-			close(done)
+			// resp2 := openai.ChatCompletionResponse{}
+			// err = resp2.Unmarshal(data)
+			// if err != nil {
+			// 	log.Errorf("Error unmarshalling response: %v", err)
+			// 	panic(err)
+			// }
+			// log.Infof("Response Choices: %v", resp2.Choices)
+
 			return nil
 		},
 	)
@@ -84,7 +87,7 @@ func main() {
 		},
 	}
 
-	req := rpc.NewJsonRPCRequest("chat.completion", chatMsg)
+	req := rpc.NewJsonRPCRequest(openai.HostCallChatCompletion, chatMsg)
 	b, err := req.Marshal()
 	if err != nil {
 		panic(err)
@@ -92,5 +95,19 @@ func main() {
 	// write b + '\n' to output pipe
 	outPipe.Write(append(b, '\n'))
 
-	<-done
+	// send an embeddings request
+	embeddingsReq := openai.EmbeddingsRequest{
+		Model: "text-embedding-ada-002",
+		Input: "The food was delicious and the waiter...",
+	}
+
+	req2 := rpc.NewJsonRPCRequest(openai.HostCallEmbeddings, embeddingsReq)
+	b2, err := req2.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	// write b2 + '\n' to output pipe
+	outPipe.Write(append(b2, '\n'))
+
+	time.Sleep(5 * time.Second)
 }
