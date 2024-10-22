@@ -37,7 +37,9 @@ func TestSimpleReq(t *testing.T) {
 
 	// check the response
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("Error: %v", resp.Status)
+		msg := make([]byte, 1024)
+		n, _ := resp.Body.Read(msg)
+		t.Fatalf("Error: %v %s", resp.Status, msg[:n])
 	}
 
 	// close the response body

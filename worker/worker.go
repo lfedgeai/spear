@@ -161,8 +161,8 @@ func (w *Worker) addRoutes() {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
-		in <- b
-		in <- []byte("\n")
+		// output b + '\n' to the input channel
+		in <- append(b, '\n')
 
 		task.Wait()
 	})

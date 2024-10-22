@@ -68,8 +68,8 @@ func (h *HostCalls) InstallToTask(t task.Task) error {
 					resp := req.CreateSuccessResponse(result)
 					if data, err := resp.Marshal(); err == nil {
 						log.Debugf("Hostcall response: %s", data)
-						in <- data
-						in <- []byte("\n")
+						// output data + "\n"
+						in <- append(data, '\n')
 					} else {
 						log.Errorf("Error marshalling response: %v", err)
 					}
@@ -79,8 +79,8 @@ func (h *HostCalls) InstallToTask(t task.Task) error {
 				// send error response
 				resp := req.CreateErrorResponse(2, "method not found", nil)
 				if data, err := resp.Marshal(); err == nil {
-					in <- data
-					in <- []byte("\n")
+					// output data + "\n"
+					in <- append(data, '\n')
 				} else {
 					log.Errorf("Error marshalling response: %v", err)
 				}
