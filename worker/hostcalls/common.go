@@ -8,14 +8,16 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type HostCallHandler func(caller *Caller, args interface{}) (interface{}, error)
+
 type HostCalls struct {
 	// map of hostcalls
-	HCMap map[string]func(args interface{}) (interface{}, error)
+	HCMap map[string]HostCallHandler
 }
 
 func NewHostCalls() *HostCalls {
 	return &HostCalls{
-		HCMap: make(map[string]func(args interface{}) (interface{}, error)),
+		HCMap: make(map[string]HostCallHandler),
 	}
 }
 
@@ -43,11 +45,15 @@ func (h *HostCalls) InstallToTask(t task.Task) error {
 	}
 
 	go func() {
+		caller := Caller{
+			Task: &t,
+		}
 		for msg := range out {
 			// process message
 			req := &rpc.JsonRPCRequest{}
 			if err := req.Unmarshal(msg); err != nil {
 				log.Infof("not a valid request: %v", err)
+				log.Debugf("Message: %s", msg)
 				continue
 			}
 
@@ -55,7 +61,7 @@ func (h *HostCalls) InstallToTask(t task.Task) error {
 
 			// process request
 			if handler, ok := h.HCMap[*req.Method]; ok {
-				result, err := handler(req.Params)
+				result, err := handler(&caller, req.Params)
 				if err != nil {
 					log.Errorf("Error executing hostcall: %v", err)
 					// send error response
@@ -95,5 +101,9 @@ func (h *HostCalls) InstallToTask(t task.Task) error {
 
 type HostCall struct {
 	Name    string
-	Handler func(args interface{}) (interface{}, error)
+	Handler HostCallHandler
+}
+
+type Caller struct {
+	Task *task.Task
 }

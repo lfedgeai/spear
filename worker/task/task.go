@@ -37,7 +37,10 @@ const (
 // message type []bytes
 type Message []byte
 
+type TaskID int64
+
 type Task interface {
+	ID() TaskID
 	// start task
 	Start()
 	// stop task

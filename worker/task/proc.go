@@ -21,6 +21,10 @@ type ProcessTask struct {
 	done chan struct{}
 }
 
+func (p *ProcessTask) ID() TaskID {
+	return TaskID(p.cmd.Process.Pid)
+}
+
 func (p *ProcessTask) Start() {
 	p.cmd.Start()
 

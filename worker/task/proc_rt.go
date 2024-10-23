@@ -1,6 +1,7 @@
 package task
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -59,18 +60,14 @@ func (p *ProcessTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 	// create read goroutine to read and put into the channel
 	go func() {
 		defer close(task.out)
+		reader := bufio.NewReader(outPipeFile)
 		for {
-			buf := make([]byte, maxDataSize)
-			n, err := outPipeFile.Read(buf)
+			data, err := reader.ReadBytes('\n')
 			if err != nil {
-				if err.Error() == "EOF" {
-					break
-				}
-				log.Debugf("Error reading stdout: %v", err)
 				break
 			}
-			// log.Debugf("Output: %s", buf[:n])
-			task.out <- buf[:n]
+
+			task.out <- data
 
 			// check if the task is done
 			select {

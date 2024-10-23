@@ -8,8 +8,9 @@ import (
 	// flags support
 	"flag"
 
-	"github.com/lfedgeai/spear/pkg/openai"
 	"github.com/lfedgeai/spear/pkg/rpc"
+	"github.com/lfedgeai/spear/pkg/rpc/payload"
+	"github.com/lfedgeai/spear/pkg/rpc/payload/openai"
 
 	// logrus
 	log "github.com/sirupsen/logrus"
@@ -51,8 +52,8 @@ func main() {
 				panic(err)
 			}
 
-			if len(data) > 1024 {
-				log.Infof("Response: %s", data[:1024])
+			if len(data) > 2048 {
+				log.Infof("Response: %s", data[:2048])
 			} else {
 				log.Infof("Response: %s", data)
 			}
@@ -88,7 +89,7 @@ func main() {
 	}
 
 	req := rpc.NewJsonRPCRequest(openai.HostCallChatCompletion, chatMsg)
-	err = req.Send(inPipe)
+	err = req.Send(outPipe)
 	if err != nil {
 		panic(err)
 	}
@@ -100,7 +101,16 @@ func main() {
 	}
 
 	req2 := rpc.NewJsonRPCRequest(openai.HostCallEmbeddings, embeddingsReq)
-	err = req2.Send(inPipe)
+	err = req2.Send(outPipe)
+	if err != nil {
+		panic(err)
+	}
+
+	// vector store ops
+	req3 := rpc.NewJsonRPCRequest(payload.HostCallVectorStoreCreate, payload.VectorStoreCreateRequest{
+		Name: "test",
+	})
+	err = req3.Send(outPipe)
 	if err != nil {
 		panic(err)
 	}
