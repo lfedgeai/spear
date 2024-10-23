@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"time"
 
@@ -106,11 +107,22 @@ func main() {
 		panic(err)
 	}
 
+	randName := fmt.Sprintf("vdb-%d", time.Now().UnixNano())
+
 	// vector store ops
 	req3 := rpc.NewJsonRPCRequest(payload.HostCallVectorStoreCreate, payload.VectorStoreCreateRequest{
-		Name: "test",
+		Name: randName,
 	})
 	err = req3.Send(outPipe)
+	if err != nil {
+		panic(err)
+	}
+
+	// delete vector store
+	req4 := rpc.NewJsonRPCRequest(payload.HostCallVectorStoreDelete, payload.VectorStoreDeleteRequest{
+		VID: 0,
+	})
+	err = req4.Send(outPipe)
 	if err != nil {
 		panic(err)
 	}
