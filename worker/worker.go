@@ -10,8 +10,8 @@ import (
 
 	"github.com/lfedgeai/spear/pkg/common"
 	"github.com/lfedgeai/spear/pkg/rpc"
-	"github.com/lfedgeai/spear/worker/hostcalls"
-	"github.com/lfedgeai/spear/worker/hostcalls/openai"
+	hc "github.com/lfedgeai/spear/worker/hostcalls"
+	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	"github.com/lfedgeai/spear/worker/task"
 )
 
@@ -55,7 +55,7 @@ func (w *Worker) Init() {
 }
 
 func (w *Worker) addHostCalls() {
-	for _, hc := range openai.Hostcalls {
+	for _, hc := range hc.Hostcalls {
 		w.hc.RegisterHostCall(hc)
 	}
 }
