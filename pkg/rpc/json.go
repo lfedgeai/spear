@@ -3,6 +3,7 @@ package rpc
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 )
 
 type JsonRPCRequest struct {
@@ -47,6 +48,22 @@ func NewJsonRPCRequest(method string, params interface{}) *JsonRPCRequest {
 	tmp := json.Number(fmt.Sprintf("%d", idCounter))
 	res.ID = &tmp
 	return res
+}
+
+func (r *JsonRPCRequest) Send(out *os.File) error {
+	b, err := r.Marshal()
+	if err != nil {
+		return err
+	}
+	// write b + '\n' to output pipe
+	n, err := out.Write(append(b, '\n'))
+	if err != nil {
+		return err
+	}
+	if n != len(b)+1 {
+		return fmt.Errorf("error writing to output pipe")
+	}
+	return nil
 }
 
 // Marshal operations

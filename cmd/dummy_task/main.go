@@ -88,12 +88,10 @@ func main() {
 	}
 
 	req := rpc.NewJsonRPCRequest(openai.HostCallChatCompletion, chatMsg)
-	b, err := req.Marshal()
+	err = req.Send(inPipe)
 	if err != nil {
 		panic(err)
 	}
-	// write b + '\n' to output pipe
-	outPipe.Write(append(b, '\n'))
 
 	// send an embeddings request
 	embeddingsReq := openai.EmbeddingsRequest{
@@ -102,12 +100,10 @@ func main() {
 	}
 
 	req2 := rpc.NewJsonRPCRequest(openai.HostCallEmbeddings, embeddingsReq)
-	b2, err := req2.Marshal()
+	err = req2.Send(inPipe)
 	if err != nil {
 		panic(err)
 	}
-	// write b2 + '\n' to output pipe
-	outPipe.Write(append(b2, '\n'))
 
 	time.Sleep(5 * time.Second)
 }
