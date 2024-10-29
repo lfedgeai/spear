@@ -6,7 +6,8 @@ OUTPUT_DIR := $(PROJECT_ROOT)/bin
 all: clean worker workload
 
 clean:
-	rm -rf $(OUTPUT_DIR)
+	rm -rf $(OUTPUT_DIR) && \
+	find $(PROJECT_ROOT)/workload -mindepth 1 -maxdepth 2 -type d -exec test -e {}/Makefile \; -exec make -C {} clean \;
 
 worker:
 	go build -o $(OUTPUT_DIR)/worker \
