@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"strconv"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -177,8 +178,10 @@ func (w *Worker) addRoutes() {
 			return
 		}
 
+		randSrc := rand.NewSource(time.Now().UnixNano())
+		randGen := rand.New(randSrc)
 		task, err := rt.CreateTask(&task.TaskConfig{
-			Name:  fmt.Sprintf("task-%s-%d", meta.Name, rand.Intn(1000)),
+			Name:  fmt.Sprintf("task-%s-%d", meta.Name, randGen.Intn(10000)),
 			Cmd:   "/start", //"sh", //"./dummy_task",
 			Args:  []string{},
 			Image: meta.Image,
@@ -241,7 +244,7 @@ func (w *Worker) Run() {
 	}
 	w.srv = srv
 	if err := srv.ListenAndServe(); err != nil {
-		fmt.Println("Error:", err)
+		log.Infof("Error: %v", err)
 	}
 }
 
