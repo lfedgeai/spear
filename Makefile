@@ -14,7 +14,7 @@ worker:
 	$(PROJECT_ROOT)/cmd/worker/main.go
 
 test:
-	go test $(PROJECT_ROOT)/test/simple_req_test.go
+	go test -v $(PROJECT_ROOT)/test/simple_req_test.go
 
 workload:
 	find $(PROJECT_ROOT)/workload -mindepth 1 -maxdepth 2 -type d -exec test -e {}/Makefile \; -exec make -C {} \;

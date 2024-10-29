@@ -2,12 +2,39 @@ package test
 
 import (
 	"net/http"
+	"os"
 	"testing"
+	"time"
 
 	"bytes"
+
+	"github.com/lfedgeai/spear/worker"
 )
 
+var w *worker.Worker
+
+func setupTest(t *testing.T) {
+	// check OPENAI_API_KEY environment variable
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Fatalf("OPENAI_API_KEY environment variable not set")
+	}
+	// setup the test environment
+	cfg := worker.NewWorkerConfig("localhost", "8080", []string{}, true)
+	w = worker.NewWorker(cfg)
+	w.Init()
+	go w.Run()
+	time.Sleep(5 * time.Second)
+}
+
+func teardownTest(_ *testing.T) {
+	// teardown the test environment
+	w.Stop()
+}
+
 func TestSimpleReq(t *testing.T) {
+	// setup the test environment
+	setupTest(t)
+	defer teardownTest(t)
 	// send a http request to the server and check the response
 
 	// create a http client

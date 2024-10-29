@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,6 +36,7 @@ type WorkerConfig struct {
 type Worker struct {
 	cfg *WorkerConfig
 	mux *http.ServeMux
+	srv *http.Server
 
 	SearchPaths []string
 	hc          *hostcalls.HostCalls
@@ -233,9 +235,19 @@ func (w *Worker) addRoutes() {
 
 func (w *Worker) Run() {
 	log.Infof("Starting worker on %s:%s", w.cfg.Addr, w.cfg.Port)
-	if err := http.ListenAndServe(w.cfg.Addr+":"+w.cfg.Port, w.mux); err != nil {
+	srv := &http.Server{
+		Addr:    w.cfg.Addr + ":" + w.cfg.Port,
+		Handler: w.mux,
+	}
+	w.srv = srv
+	if err := srv.ListenAndServe(); err != nil {
 		fmt.Println("Error:", err)
 	}
+}
+
+func (w *Worker) Stop() {
+	log.Infof("Stopping worker")
+	w.srv.Shutdown(context.Background())
 }
 
 func SetLogLevel(lvl log.Level) {
