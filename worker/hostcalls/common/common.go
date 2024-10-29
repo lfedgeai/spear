@@ -75,7 +75,7 @@ func (h *HostCalls) InstallToTask(t task.Task) error {
 					// send success response
 					resp := req.CreateSuccessResponse(result)
 					if data, err := resp.Marshal(); err == nil {
-						log.Debugf("Hostcall response: %s", data)
+						// log.Debugf("Hostcall response: %s", data[:])
 						// output data + "\n"
 						in <- append(data, '\n')
 					} else {

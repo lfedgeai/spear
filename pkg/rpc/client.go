@@ -42,7 +42,8 @@ func (g *GuestRPCHandler) Run() {
 			// read from stdin
 			data, err := reader.ReadBytes('\n')
 			if err != nil {
-				panic(err)
+				log.Errorf("Error reading from stdin: %v", err)
+				continue
 			}
 
 			if len(data) == 0 {

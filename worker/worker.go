@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
+	"strconv"
 
 	log "github.com/sirupsen/logrus"
 
@@ -22,20 +24,29 @@ var (
 type WorkerConfig struct {
 	Addr string
 	Port string
+
+	// Search Path
+	SearchPath []string
+
+	// Debug
+	Debug bool
 }
 
 type Worker struct {
 	cfg *WorkerConfig
 	mux *http.ServeMux
 
-	hc *hostcalls.HostCalls
+	SearchPaths []string
+	hc          *hostcalls.HostCalls
 }
 
 // NewWorkerConfig creates a new WorkerConfig
-func NewWorkerConfig(addr, port string) *WorkerConfig {
+func NewWorkerConfig(addr, port string, spath []string, debug bool) *WorkerConfig {
 	return &WorkerConfig{
-		Addr: addr,
-		Port: port,
+		Addr:       addr,
+		Port:       port,
+		SearchPath: spath,
+		Debug:      debug,
 	}
 }
 
@@ -60,27 +71,127 @@ func (w *Worker) addHostCalls() {
 	}
 }
 
+func funcId(req *http.Request) (int64, error) {
+	// get request headers
+	headers := req.Header
+	// get the id from the headers
+	id := headers.Get(HeaderFuncId)
+	if id == "" {
+		return -1, fmt.Errorf("missing %s header", HeaderFuncId)
+	}
+
+	// convert id to int64
+	i, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return -1, fmt.Errorf("error parsing %s header: %v", HeaderFuncId, err)
+	}
+
+	return i, nil
+}
+
+func funcType(req *http.Request) (task.TaskType, error) {
+	// get request headers
+	headers := req.Header
+	// get the runtime from the headers
+	runtime := headers.Get(HeaderFuncType)
+	if runtime == "" {
+		return task.TaskTypeUnknown, fmt.Errorf("missing %s header", HeaderFuncType)
+	}
+
+	// convert runtime to int
+	i, err := strconv.Atoi(runtime)
+	if err != nil {
+		return task.TaskTypeUnknown, fmt.Errorf("error parsing %s header: %v", HeaderFuncType, err)
+	}
+
+	switch i {
+	case int(task.TaskTypeDocker):
+		return task.TaskTypeDocker, nil
+	case int(task.TaskTypeProcess):
+		return task.TaskTypeProcess, nil
+	case int(task.TaskTypeDylib):
+		return task.TaskTypeDylib, nil
+	case int(task.TaskTypeWasm):
+		return task.TaskTypeWasm, nil
+	default:
+		return task.TaskTypeUnknown, fmt.Errorf("invalid %s header: %s", HeaderFuncType, runtime)
+	}
+}
+
+type TaskMetaData struct {
+	Id    int64
+	Type  task.TaskType
+	Image string
+	Name  string
+}
+
+var (
+	tmpMetaData = map[int]TaskMetaData{
+		1: {
+			Id:    1,
+			Type:  task.TaskTypeDocker,
+			Image: "dummy",
+			Name:  "dummy",
+		},
+	}
+)
+
 func (w *Worker) addRoutes() {
 	w.mux.HandleFunc("/health", func(resp http.ResponseWriter, req *http.Request) {
 		resp.Write([]byte("OK"))
 	})
 	w.mux.HandleFunc("/", func(resp http.ResponseWriter, req *http.Request) {
-		rt, err := task.NewTaskRuntime(task.TaskTypeProcess)
+		// get the function id
+		taskId, err := funcId(req)
 		if err != nil {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
-		task, err := rt.CreateTask(&task.TaskConfig{
-			Name: "dummy_task",
-			Cmd:  "./dummy_task",
-			Args: []string{},
+
+		// get the function type
+		funcType, err := funcType(req)
+		if err != nil {
+			respError(resp, fmt.Sprintf("Error: %v", err))
+			return
+		}
+
+		rt, err := task.GetTaskRuntime(funcType, &task.TaskRuntimeConfig{
+			Debug: w.cfg.Debug,
 		})
 		if err != nil {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
-		w.hc.InstallToTask(task)
 
+		// get metadata from taskId
+		// TODO: implement me later
+		meta, ok := tmpMetaData[int(taskId)]
+		if !ok {
+			respError(resp, fmt.Sprintf("Error: invalid task id: %d", taskId))
+			return
+		}
+		if meta.Type != funcType {
+			respError(resp, fmt.Sprintf("Error: invalid task type: %d", funcType))
+			return
+		}
+
+		task, err := rt.CreateTask(&task.TaskConfig{
+			Name:  fmt.Sprintf("task-%s-%d", meta.Name, rand.Intn(1000)),
+			Cmd:   "/start", //"sh", //"./dummy_task",
+			Args:  []string{},
+			Image: meta.Image,
+		})
+		if err != nil {
+			respError(resp, fmt.Sprintf("Error: %v", err))
+			return
+		}
+		err = w.hc.InstallToTask(task)
+		if err != nil {
+			respError(resp, fmt.Sprintf("Error: %v", err))
+			return
+		}
+
+		log.Debugf("Starting task: %s", task.Name())
 		task.Start()
 
 		// get input output channels

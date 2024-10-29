@@ -1,6 +1,7 @@
 package task
 
 import (
+	"fmt"
 	"os/exec"
 
 	log "github.com/sirupsen/logrus"
@@ -25,7 +26,7 @@ func (p *ProcessTask) ID() TaskID {
 	return TaskID(p.cmd.Process.Pid)
 }
 
-func (p *ProcessTask) Start() {
+func (p *ProcessTask) Start() error {
 	p.cmd.Start()
 
 	p.status = TaskStatusRunning
@@ -41,16 +42,21 @@ func (p *ProcessTask) Start() {
 		// close the done channel
 		close(p.done)
 	}()
+
+	return nil
 }
 
-func (p *ProcessTask) Stop() {
+func (p *ProcessTask) Stop() error {
 	// kill process
 	if p.cmd.Process != nil {
 		if err := p.cmd.Process.Kill(); err != nil {
 			log.Errorf("Error: %v", err)
+			return err
 		}
 		p.status = TaskStatusStopped
+		return nil
 	}
+	return fmt.Errorf("process not started")
 }
 
 func (p *ProcessTask) Name() string {
@@ -69,8 +75,9 @@ func (p *ProcessTask) CommChannels() (chan Message, chan Message, error) {
 	return p.in, p.out, nil
 }
 
-func (p *ProcessTask) Wait() {
+func (p *ProcessTask) Wait() (int, error) {
 	<-p.done
+	return 0, nil
 }
 
 func NewProcessTask(cfg *TaskConfig) *ProcessTask {

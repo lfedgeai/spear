@@ -14,6 +14,10 @@ import (
 type ProcessTaskRuntime struct {
 }
 
+func NewProcessTaskRuntime() *ProcessTaskRuntime {
+	return &ProcessTaskRuntime{}
+}
+
 func (p *ProcessTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 	log.Debugf("Creating process task with name: %s", cfg.Name)
 

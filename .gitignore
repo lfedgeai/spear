@@ -2,3 +2,4 @@ bin
 bin/dummy_task
 bin/worker
 .idea
+.DS_Store

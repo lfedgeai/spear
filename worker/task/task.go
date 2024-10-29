@@ -6,19 +6,21 @@ import (
 
 type TaskConfig struct {
 	// task name
-	Name string
-	Cmd  string
-	Args []string
+	Name  string
+	Image string
+	Cmd   string
+	Args  []string
 }
 
 // task type enum
 type TaskType int
 
 const (
-	TaskTypeDocker TaskType = iota
-	TaskTypeProcess
-	TaskTypeDylib
-	TaskTypeWasm
+	TaskTypeUnknown TaskType = iota
+	TaskTypeDocker           // 1
+	TaskTypeProcess          // 2
+	TaskTypeDylib            // 3
+	TaskTypeWasm             // 4
 )
 
 // task status enum
@@ -34,17 +36,22 @@ const (
 	maxDataSize = 4096 * 1024
 )
 
+// global task runtimes
+var (
+	globalTaskRuntimes = make(map[TaskType]TaskRuntime)
+)
+
 // message type []bytes
 type Message []byte
 
-type TaskID int64
+type TaskID string
 
 type Task interface {
 	ID() TaskID
 	// start task
-	Start()
+	Start() error
 	// stop task
-	Stop()
+	Stop() error
 	// get task name
 	Name() string
 	// get task status
@@ -54,21 +61,13 @@ type Task interface {
 	// get communication channel
 	CommChannels() (chan Message, chan Message, error)
 	// wait for task to finish
-	Wait()
+	Wait() (int, error)
 }
 
 // interface for taskruntime
 type TaskRuntime interface {
 	// create task
 	CreateTask(cfg *TaskConfig) (Task, error)
-}
-
-// implement TaskRuntimeDocker
-type DockerTaskRuntime struct {
-}
-
-func (d *DockerTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
-	return nil, fmt.Errorf("not implemented")
 }
 
 // implement TaskRuntimeDylib
@@ -87,18 +86,34 @@ func (w *WasmTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
+type TaskRuntimeConfig struct {
+	Debug bool
+}
+
 // factory method for TaskRuntime
-func NewTaskRuntime(taskType TaskType) (TaskRuntime, error) {
+func GetTaskRuntime(taskType TaskType, cfg *TaskRuntimeConfig) (TaskRuntime, error) {
+	if rt, ok := globalTaskRuntimes[taskType]; ok {
+		return rt, nil
+	}
+
+	var rt TaskRuntime
+	var err error
 	switch taskType {
 	case TaskTypeDocker:
-		return &DockerTaskRuntime{}, nil
+		rt, err = NewDockerTaskRuntime(cfg)
+		if err != nil {
+			return nil, err
+		}
 	case TaskTypeProcess:
-		return &ProcessTaskRuntime{}, nil
+		rt = NewProcessTaskRuntime()
 	case TaskTypeDylib:
-		return &DylibTaskRuntime{}, nil
+		rt = &DylibTaskRuntime{}
 	case TaskTypeWasm:
-		return &WasmTaskRuntime{}, nil
+		rt = &WasmTaskRuntime{}
 	default:
 		return nil, fmt.Errorf("invalid task type")
 	}
+
+	globalTaskRuntimes[taskType] = rt
+	return rt, nil
 }

@@ -1,0 +1,8 @@
+services:
+  dummy:
+    image: dummy
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DUMMY_ENV=1

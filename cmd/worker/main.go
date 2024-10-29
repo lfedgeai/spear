@@ -20,6 +20,8 @@ func NewRootCmd() *cobra.Command {
 			addr, _ := cmd.Flags().GetString("addr")
 			port, _ := cmd.Flags().GetString("port")
 			verbose, _ := cmd.Flags().GetBool("verbose")
+			paths, _ := cmd.Flags().GetStringArray("search-path")
+			debug, _ := cmd.Flags().GetBool("debug")
 
 			// set log level
 			if verbose {
@@ -27,7 +29,8 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			// create config
-			config := worker.NewWorkerConfig(addr, port)
+			config := worker.NewWorkerConfig(addr, port, paths,
+				debug)
 			w := worker.NewWorker(config)
 			w.Init()
 			w.Run()
@@ -35,11 +38,16 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	// addr flag
-	rootCmd.PersistentFlags().String("addr", "localhost", "address of the server")
+	rootCmd.PersistentFlags().StringP("addr", "a", "localhost", "address of the server")
 	// port flag
-	rootCmd.PersistentFlags().String("port", "8080", "port of the server")
+	rootCmd.PersistentFlags().StringP("port", "p", "8080", "port of the server")
 	// verbose flag
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
+	// search path
+	rootCmd.PersistentFlags().StringArrayP("search-path", "L", []string{},
+		"search path list for the worker")
+	// debug flag
+	rootCmd.PersistentFlags().BoolP("debug", "d", false, "debug mode")
 
 	return rootCmd
 }

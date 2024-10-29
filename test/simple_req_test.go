@@ -27,7 +27,8 @@ func TestSimpleReq(t *testing.T) {
 	// add headers
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Accept", "application/json")
-	req.Header.Add("Spear-Func-Id", "1234")
+	req.Header.Add("Spear-Func-Id", "1")
+	req.Header.Add("Spear-Func-Type", "1")
 
 	// send the request
 	resp, err := client.Do(req)

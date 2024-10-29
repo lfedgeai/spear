@@ -25,26 +25,26 @@ type VectorStoreRegistry struct {
 	Client *qdrant.Client
 }
 
-func NewVectorStoreRegistry() *VectorStoreRegistry {
+func NewVectorStoreRegistry() (*VectorStoreRegistry, error) {
 	qdrantClient, err := qdrant.NewClient(&qdrant.Config{
 		Host: "localhost",
 		Port: 6334,
 	})
 	if err != nil {
 		log.Errorf("Error creating qdrant client: %v", err)
-		panic(err)
+		return nil, err
 	}
 	// list all collections
 	collections, err := qdrantClient.ListCollections(context.Background())
 	if err != nil {
 		log.Errorf("Error listing collections: %v", err)
-		panic(err)
+		return nil, err
 	}
 	log.Infof("Collections: %v", collections)
 	return &VectorStoreRegistry{
 		Stores: make([]*VectorStore, 0),
 		Client: qdrantClient,
-	}
+	}, nil
 }
 
 func (r *VectorStoreRegistry) Create(storeName string) (int, error) {
@@ -108,7 +108,11 @@ func VectorStoreCreate(caller *hostcalls.Caller, args interface{}) (interface{},
 	log.Infof("VectorStoreCreate Request: %v", req)
 	// create a new vector store
 	if _, ok := globalVectorStoreRegistries[task.ID()]; !ok {
-		globalVectorStoreRegistries[task.ID()] = NewVectorStoreRegistry()
+		val, err := NewVectorStoreRegistry()
+		if err != nil {
+			return nil, fmt.Errorf("error creating vector store registry: %v", err)
+		}
+		globalVectorStoreRegistries[task.ID()] = val
 	}
 
 	vid, err := globalVectorStoreRegistries[task.ID()].Create(req.Name)
