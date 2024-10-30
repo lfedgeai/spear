@@ -133,6 +133,33 @@ func teardownTest(_ *testing.T) {
 }
 
 func TestSimpleReq(t *testing.T) {
+	// TestSimpleReq tests simple requests to the worker
+	// ┌──────────────────┐
+	// │                  │
+	// │                  │
+	// │      Docker      │
+	// │   Vector Store   │
+	// │                  │
+	// └───────────┬──────┘
+	//        ▲    │
+	//        │    ▼
+	// ┌──────┴───────────┐
+	// │                  │
+	// │                  │
+	// │      Worker      │
+	// │                  │
+	// │                  │
+	// └────────────┬─────┘
+	//       ▲      │
+	//       │      ▼
+	// ┌─────┴────────────┐
+	// │                  │
+	// │                  │
+	// │      Task        │
+	// │                  │
+	// │                  │
+	// └──────────────────┘
+
 	// setup the test environment
 	setupTest(t)
 	defer teardownTest(t)
