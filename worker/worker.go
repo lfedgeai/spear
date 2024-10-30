@@ -244,7 +244,11 @@ func (w *Worker) Run() {
 	}
 	w.srv = srv
 	if err := srv.ListenAndServe(); err != nil {
-		log.Infof("Error: %v", err)
+		if err != http.ErrServerClosed {
+			log.Errorf("Error: %v", err)
+		} else {
+			log.Info("Server closed")
+		}
 	}
 }
 
