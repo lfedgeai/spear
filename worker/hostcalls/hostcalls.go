@@ -28,4 +28,8 @@ var Hostcalls = []*hostcalls.HostCall{
 		Name:    payload.HostCallVectorStoreInsert,
 		Handler: VectorStoreInsert,
 	},
+	{
+		Name:    payload.HostCallVectorStoreSearch,
+		Handler: VectorStoreSearch,
+	},
 }

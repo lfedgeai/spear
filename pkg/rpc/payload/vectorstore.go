@@ -3,7 +3,8 @@ package payload
 import "encoding/json"
 
 type VectorStoreCreateRequest struct {
-	Name string `json:"name"`
+	Name       string `json:"name"`
+	Dimentions uint64 `json:"dimentions"`
 }
 
 func (r *VectorStoreCreateRequest) Marshal() ([]byte, error) {
@@ -74,4 +75,28 @@ func (r *VectorStoreInsertResponse) Marshal() ([]byte, error) {
 
 func (r *VectorStoreInsertResponse) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, r)
+}
+
+type VectorStoreSearchRequest struct {
+	VID    int       `json:"vid"`
+	Vector []float32 `json:"vector"`
+	Limit  uint64    `json:"limit"`
+}
+
+func (r *VectorStoreSearchRequest) Marshal() ([]byte, error) {
+	return json.Marshal(r)
+}
+
+func (r *VectorStoreSearchRequest) Unmarshal(data []byte) error {
+	return json.Unmarshal(data, r)
+}
+
+type VectorStoreSearchResponseEntry struct {
+	Vector []float32 `json:"vector"`
+	Data   []byte    `json:"data"`
+}
+
+type VectorStoreSearchResponse struct {
+	VID     int                              `json:"vid"`
+	Entries []VectorStoreSearchResponseEntry `json:"entries"`
 }

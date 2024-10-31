@@ -48,7 +48,7 @@ func NewVectorStoreRegistry() (*VectorStoreRegistry, error) {
 	}, nil
 }
 
-func (r *VectorStoreRegistry) Create(storeName string) (int, error) {
+func (r *VectorStoreRegistry) Create(storeName string, dimensions uint64) (int, error) {
 	log.Infof("Creating vector store with name %s", storeName)
 	// duplicated store is not allowed
 	for i, store := range r.Stores {
@@ -61,7 +61,7 @@ func (r *VectorStoreRegistry) Create(storeName string) (int, error) {
 	err := r.Client.CreateCollection(context.Background(), &qdrant.CreateCollection{
 		CollectionName: storeName,
 		VectorsConfig: qdrant.NewVectorsConfig(&qdrant.VectorParams{
-			Size:     4,
+			Size:     dimensions,
 			Distance: qdrant.Distance_Cosine,
 		}),
 	})
@@ -115,6 +115,33 @@ func (r *VectorStoreRegistry) Insert(vid int, vector []float32, payload []byte) 
 	return nil
 }
 
+type VectorStoreSearchResult struct {
+	Vector []float32
+	Data   []byte
+}
+
+func (r *VectorStoreRegistry) Search(vid int, vector []float32, limit uint64) ([]*VectorStoreSearchResult, error) {
+	log.Infof("Searching vector in vector store with id %d and vector %v", vid, vector)
+	// search the vector in qdrant
+	result, err := r.Client.Query(context.Background(), &qdrant.QueryPoints{
+		CollectionName: r.Stores[vid].Name,
+		Query:          qdrant.NewQuery(vector...),
+		Limit:          &limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error querying points: %v", err)
+	}
+	ret := make([]*VectorStoreSearchResult, len(result))
+	for i, res := range result {
+		ret[i] = &VectorStoreSearchResult{
+			Vector: res.Vectors.GetVector().Data,
+			Data:   []byte(res.Payload["payload"].String()),
+		}
+	}
+	log.Infof("Search result: %v", result)
+	return ret, nil
+}
+
 func VectorStoreCreate(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
 	task := *(caller.Task)
 	log.Infof("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreCreate, args)
@@ -140,7 +167,7 @@ func VectorStoreCreate(caller *hostcalls.Caller, args interface{}) (interface{},
 		globalVectorStoreRegistries[task.ID()] = val
 	}
 
-	vid, err := globalVectorStoreRegistries[task.ID()].Create(req.Name)
+	vid, err := globalVectorStoreRegistries[task.ID()].Create(req.Name, req.Dimentions)
 	if err != nil {
 		return nil, fmt.Errorf("error creating vector store: %v", err)
 	}
@@ -214,4 +241,45 @@ func VectorStoreInsert(caller *hostcalls.Caller, args interface{}) (interface{},
 	return payload.VectorStoreInsertResponse{
 		VID: req.VID,
 	}, nil
+}
+
+func VectorStoreSearch(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
+	task := *(caller.Task)
+	log.Infof("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreSearch, args)
+	// verify the type of args is VectorStoreSearchRequest
+	// use json marshal and unmarshal to verify the type
+	jsonBytes, err := json.Marshal(args)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling args: %v", err)
+	}
+	req := payload.VectorStoreSearchRequest{}
+	err = req.Unmarshal(jsonBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	}
+
+	log.Infof("VectorStoreSearch Request: %s", string(jsonBytes))
+	// search the vector in the vector store
+	v, ok := globalVectorStoreRegistries[task.ID()]
+	if !ok {
+		return nil, fmt.Errorf("vector store registry not found")
+	}
+
+	result, err := v.Search(req.VID, req.Vector, req.Limit)
+	if err != nil {
+		return nil, fmt.Errorf("error searching vector: %v", err)
+	}
+
+	// return the response
+	res := payload.VectorStoreSearchResponse{
+		VID:     req.VID,
+		Entries: make([]payload.VectorStoreSearchResponseEntry, len(result)),
+	}
+	for i, r := range result {
+		res.Entries[i] = payload.VectorStoreSearchResponseEntry{
+			Vector: r.Vector,
+			Data:   r.Data,
+		}
+	}
+	return res, nil
 }

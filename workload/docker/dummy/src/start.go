@@ -82,19 +82,41 @@ func main() {
 
 	// vector store ops
 	req3 := rpc.NewJsonRPCRequest(payload.HostCallVectorStoreCreate, payload.VectorStoreCreateRequest{
-		Name: randName,
+		Name:       randName,
+		Dimentions: 4,
 	})
 	err = req3.Send(os.Stdout)
 	if err != nil {
 		panic(err)
 	}
 
-	req3_5 := rpc.NewJsonRPCRequest(payload.HostCallVectorStoreInsert, payload.VectorStoreInsertRequest{
+	data := [][]float32{
+		{0.05, 0.61, 0.76, 0.74},
+		{0.19, 0.81, 0.75, 0.11},
+		{0.36, 0.55, 0.47, 0.94},
+		{0.18, 0.01, 0.85, 0.80},
+		{0.24, 0.18, 0.22, 0.44},
+		{0.35, 0.08, 0.11, 0.44},
+	}
+
+	for _, v := range data {
+		req3_5 := rpc.NewJsonRPCRequest(payload.HostCallVectorStoreInsert, payload.VectorStoreInsertRequest{
+			VID:    0,
+			Vector: v,
+			Data:   []byte("test data"),
+		})
+		err = req3_5.Send(os.Stdout)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	req3_6 := rpc.NewJsonRPCRequest(payload.HostCallVectorStoreSearch, payload.VectorStoreSearchRequest{
 		VID:    0,
-		Vector: []float32{1.0, 2.0, 3.0},
-		Data:   []byte("test data"),
+		Vector: []float32{0.2, 0.1, 0.9, 0.7},
+		Limit:  1,
 	})
-	err = req3_5.Send(os.Stdout)
+	err = req3_6.Send(os.Stdout)
 	if err != nil {
 		panic(err)
 	}

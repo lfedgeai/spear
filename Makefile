@@ -13,7 +13,7 @@ worker:
 	go build -o $(OUTPUT_DIR)/worker \
 	$(PROJECT_ROOT)/cmd/worker/main.go
 
-test:
+test: workload
 	go test -v $(PROJECT_ROOT)/test/simple_req_test.go
 
 workload:
