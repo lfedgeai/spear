@@ -17,7 +17,8 @@ var (
 )
 
 type VectorStore struct {
-	Name string
+	Name   string
+	NextID uint64
 }
 
 type VectorStoreRegistry struct {
@@ -70,7 +71,8 @@ func (r *VectorStoreRegistry) Create(storeName string) (int, error) {
 
 	// create a new vector store with the given name
 	r.Stores = append(r.Stores, &VectorStore{
-		Name: storeName,
+		Name:   storeName,
+		NextID: 1,
 	})
 
 	return len(r.Stores) - 1, nil
@@ -87,6 +89,29 @@ func (r *VectorStoreRegistry) Delete(vid int) error {
 	// remove the vid-th vector store
 	r.Stores = append(r.Stores[:vid], r.Stores[vid+1:]...)
 
+	return nil
+}
+
+func (r *VectorStoreRegistry) Insert(vid int, vector []float32, payload []byte) error {
+	log.Infof("Inserting vector into vector store with id %d", vid)
+	// insert the vector into qdrant
+	opInfo, err := r.Client.Upsert(context.Background(), &qdrant.UpsertPoints{
+		CollectionName: r.Stores[vid].Name,
+		Points: []*qdrant.PointStruct{
+			{
+				Id: qdrant.NewIDNum(r.Stores[vid].NextID),
+				Payload: qdrant.NewValueMap(map[string]interface{}{
+					"payload": payload,
+				}),
+				Vectors: qdrant.NewVectors(vector...),
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("error upserting points: %v", err)
+	}
+	r.Stores[vid].NextID = r.Stores[vid].NextID + 1
+	log.Infof("Upsert operation info: %v", opInfo)
 	return nil
 }
 
@@ -175,8 +200,14 @@ func VectorStoreInsert(caller *hostcalls.Caller, args interface{}) (interface{},
 
 	log.Infof("VectorStoreInsert Request: %s", string(jsonBytes))
 	// insert the vector into the vector store
-	if _, ok := globalVectorStoreRegistries[task.ID()]; !ok {
+	v, ok := globalVectorStoreRegistries[task.ID()]
+	if !ok {
 		return nil, fmt.Errorf("vector store registry not found")
+	}
+
+	err = v.Insert(req.VID, req.Vector, req.Data)
+	if err != nil {
+		return nil, fmt.Errorf("error inserting vector: %v", err)
 	}
 
 	// return the response

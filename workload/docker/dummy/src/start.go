@@ -89,6 +89,16 @@ func main() {
 		panic(err)
 	}
 
+	req3_5 := rpc.NewJsonRPCRequest(payload.HostCallVectorStoreInsert, payload.VectorStoreInsertRequest{
+		VID:    0,
+		Vector: []float32{1.0, 2.0, 3.0},
+		Data:   []byte("test data"),
+	})
+	err = req3_5.Send(os.Stdout)
+	if err != nil {
+		panic(err)
+	}
+
 	// delete vector store
 	req4 := rpc.NewJsonRPCRequest(payload.HostCallVectorStoreDelete, payload.VectorStoreDeleteRequest{
 		VID: 0,

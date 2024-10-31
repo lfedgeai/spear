@@ -51,9 +51,9 @@ func (r *VectorStoreDeleteResponse) Unmarshal(data []byte) error {
 }
 
 type VectorStoreInsertRequest struct {
-	VID    int     `json:"vid"`
-	Vector []int64 `json:"vector"`
-	Data   []byte  `json:"data"`
+	VID    int       `json:"vid"`
+	Vector []float32 `json:"vector"`
+	Data   []byte    `json:"data"`
 }
 
 func (r *VectorStoreInsertRequest) Marshal() ([]byte, error) {
