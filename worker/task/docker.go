@@ -31,7 +31,7 @@ func (p *DockerTask) Start() error {
 
 	// get stdin and stdout
 	val, err := p.runtime.cli.ContainerAttach(context.TODO(), p.container.ID, container.AttachOptions{
-		Stream: false,
+		Stream: true,
 		Stdin:  true,
 		Stdout: false,
 		Stderr: false,
@@ -43,9 +43,13 @@ func (p *DockerTask) Start() error {
 	go func() {
 		for msg := range p.chanIn {
 			// log.Debugf("Got message for container: %s", msg)
-			_, err := p.attachResp.Conn.Write(msg)
+			// write msg and newline
+			n, err := p.attachResp.Conn.Write(msg)
 			if err != nil {
 				log.Errorf("Error writing to container: %v", err)
+			}
+			if n != len(msg) {
+				log.Errorf("Error writing to container: wrote %d bytes, expected %d", n, len(msg))
 			}
 		}
 	}()

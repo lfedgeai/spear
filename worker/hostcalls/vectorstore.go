@@ -121,7 +121,7 @@ type VectorStoreSearchResult struct {
 }
 
 func (r *VectorStoreRegistry) Search(vid int, vector []float32, limit uint64) ([]*VectorStoreSearchResult, error) {
-	log.Infof("Searching vector in vector store with id %d and vector %v", vid, vector)
+	log.Infof("Searching vector in vector store with vid %d and vector %v", vid, vector)
 	// search the vector in qdrant
 	result, err := r.Client.Query(context.Background(), &qdrant.QueryPoints{
 		CollectionName: r.Stores[vid].Name,
@@ -133,12 +133,20 @@ func (r *VectorStoreRegistry) Search(vid int, vector []float32, limit uint64) ([
 	}
 	ret := make([]*VectorStoreSearchResult, len(result))
 	for i, res := range result {
-		ret[i] = &VectorStoreSearchResult{
-			Vector: res.Vectors.GetVector().Data,
-			Data:   []byte(res.Payload["payload"].String()),
+		if res.Vectors == nil {
+			log.Infof(fmt.Sprintf("Vector is nil: %v", res))
+			ret[i] = &VectorStoreSearchResult{
+				Vector: nil,
+				Data:   []byte(res.Payload["payload"].String()),
+			}
+		} else {
+			ret[i] = &VectorStoreSearchResult{
+				Vector: res.Vectors.GetVector().Data,
+				Data:   []byte(res.Payload["payload"].String()),
+			}
 		}
 	}
-	log.Infof("Search result: %v", result)
+	log.Infof("Search result: %+v", ret)
 	return ret, nil
 }
 

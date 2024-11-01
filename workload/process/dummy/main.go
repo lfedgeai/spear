@@ -38,10 +38,10 @@ func main() {
 		panic(err)
 	}
 
-	hdl := rpc.NewGuestRPCHandler(
-		func(req *rpc.JsonRPCRequest) error {
+	hdl := rpc.NewGuestRPCManager(
+		func(req *rpc.JsonRPCRequest) (*rpc.JsonRPCResponse, error) {
 			log.Infof("Request: %s", *req.Method)
-			return nil
+			return rpc.NewJsonRPCResponse(*req.ID, nil), nil
 		},
 		func(resp *rpc.JsonRPCResponse) error {
 			log.Infof("Response: %s", resp.Result)
@@ -72,7 +72,7 @@ func main() {
 	)
 	hdl.SetInput(inPipe)
 	hdl.SetOutput(outPipe)
-	hdl.Run()
+	go hdl.Run()
 
 	// read json from stdin and write to stdout
 	chatMsg := openai.ChatCompletionRequest{

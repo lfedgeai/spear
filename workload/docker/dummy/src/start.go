@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -17,33 +16,21 @@ import (
 )
 
 func main() {
-	hdl := rpc.NewGuestRPCHandler(
-		func(req *rpc.JsonRPCRequest) error {
+	hdl := rpc.NewGuestRPCManager(
+		func(req *rpc.JsonRPCRequest) (*rpc.JsonRPCResponse, error) {
 			log.Infof("Request: %s", *req.Method)
-			return nil
+			return rpc.NewJsonRPCResponse(*req.ID, nil), nil
 		},
-		func(resp *rpc.JsonRPCResponse) error {
-			log.Infof("Response: %s", resp.Result)
-
-			// convert resp.Result to buffer
-			data, err := json.Marshal(resp.Result)
-			if err != nil {
-				log.Errorf("Error marshalling response: %v", err)
-				panic(err)
-			}
-
-			if len(data) > 2048 {
-				log.Infof("Response: %s", data[:2048])
-			} else {
-				log.Infof("Response: %s", data)
-			}
-
-			return nil
-		},
+		nil,
 	)
 	hdl.SetInput(os.Stdin)
 	hdl.SetOutput(os.Stdout)
-	hdl.Run()
+
+	hdl.RegisterIncomingHandler("handle", func(args interface{}) (interface{}, error) {
+		log.Infof("Incoming request: %v", args)
+		return "ok", nil
+	})
+	go hdl.Run()
 
 	// read json from stdin and write to stdout
 	chatMsg := openai.ChatCompletionRequest{
@@ -61,9 +48,10 @@ func main() {
 	}
 
 	req := rpc.NewJsonRPCRequest(openai.HostCallChatCompletion, chatMsg)
-	err := req.Send(os.Stdout)
-	if err != nil {
+	if resp, err := hdl.SendJsonRequest(req); err != nil {
 		panic(err)
+	} else {
+		log.Infof("Response: %v", resp)
 	}
 
 	// send an embeddings request
@@ -73,9 +61,10 @@ func main() {
 	}
 
 	req2 := rpc.NewJsonRPCRequest(openai.HostCallEmbeddings, embeddingsReq)
-	err = req2.Send(os.Stdout)
-	if err != nil {
+	if resp, err := hdl.SendJsonRequest(req2); err != nil {
 		panic(err)
+	} else {
+		log.Infof("Response: %v", resp)
 	}
 
 	randName := fmt.Sprintf("vdb-%d", time.Now().UnixNano())
@@ -85,9 +74,10 @@ func main() {
 		Name:       randName,
 		Dimentions: 4,
 	})
-	err = req3.Send(os.Stdout)
-	if err != nil {
+	if resp, err := hdl.SendJsonRequest(req3); err != nil {
 		panic(err)
+	} else {
+		log.Infof("Response: %v", resp)
 	}
 
 	data := [][]float32{
@@ -105,9 +95,10 @@ func main() {
 			Vector: v,
 			Data:   []byte("test data"),
 		})
-		err = req3_5.Send(os.Stdout)
-		if err != nil {
+		if resp, err := hdl.SendJsonRequest(req3_5); err != nil {
 			panic(err)
+		} else {
+			log.Infof("Response: %v", resp)
 		}
 	}
 
@@ -116,19 +107,19 @@ func main() {
 		Vector: []float32{0.2, 0.1, 0.9, 0.7},
 		Limit:  1,
 	})
-	err = req3_6.Send(os.Stdout)
-	if err != nil {
+	if resp, err := hdl.SendJsonRequest(req3_6); err != nil {
 		panic(err)
+	} else {
+		log.Infof("Response: %v", resp)
 	}
 
 	// delete vector store
 	req4 := rpc.NewJsonRPCRequest(payload.HostCallVectorStoreDelete, payload.VectorStoreDeleteRequest{
 		VID: 0,
 	})
-	err = req4.Send(os.Stdout)
-	if err != nil {
+	if resp, err := hdl.SendJsonRequest(req4); err != nil {
 		panic(err)
+	} else {
+		log.Infof("Response: %v", resp)
 	}
-
-	time.Sleep(5 * time.Second)
 }

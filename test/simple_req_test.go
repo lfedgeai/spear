@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"bytes"
 
 	"github.com/lfedgeai/spear/worker"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -20,6 +22,10 @@ import (
 
 var w *worker.Worker
 var vecStore *container.CreateResponse
+
+func init() {
+	log.SetLevel(log.DebugLevel)
+}
 
 func stopVectorStoreContainer() {
 	// stop the vector store container
@@ -64,6 +70,9 @@ func startVectorStoreContainer() {
 		panic(err)
 	}
 
+	// generate a random name for the container
+	name := fmt.Sprintf("qdrant-%d", time.Now().Unix())
+
 	// create the container
 	c, err := cli.ContainerCreate(context.TODO(), &container.Config{
 		Image: "qdrant/qdrant",
@@ -82,7 +91,7 @@ func startVectorStoreContainer() {
 				},
 			},
 		},
-	}, nil, nil, "qdrant")
+	}, nil, nil, name)
 	if err != nil {
 		panic(err)
 	}
@@ -197,6 +206,11 @@ func TestSimpleReq(t *testing.T) {
 		n, _ := resp.Body.Read(msg)
 		t.Fatalf("Error: %v %s", resp.Status, msg[:n])
 	}
+
+	// print body
+	msg := make([]byte, 1024)
+	n, _ := resp.Body.Read(msg)
+	fmt.Printf("Response: %s\n", msg[:n])
 
 	// close the response body
 	defer resp.Body.Close()

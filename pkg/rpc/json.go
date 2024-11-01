@@ -32,11 +32,6 @@ type JsonRPCResponse struct {
 	ID      *json.Number  `json:"id"`
 }
 
-var (
-	// global id counter
-	idCounter = 0
-)
-
 // create request
 func NewJsonRPCRequest(method string, params interface{}) *JsonRPCRequest {
 	res := &JsonRPCRequest{
@@ -44,13 +39,14 @@ func NewJsonRPCRequest(method string, params interface{}) *JsonRPCRequest {
 		Method:  &method,
 		Params:  params,
 	}
-	idCounter++
-	tmp := json.Number(fmt.Sprintf("%d", idCounter))
-	res.ID = &tmp
+	res.ID = nil
 	return res
 }
 
 func (r *JsonRPCRequest) Send(out *os.File) error {
+	if r.ID == nil {
+		return fmt.Errorf("invalid request id")
+	}
 	b, err := r.Marshal()
 	if err != nil {
 		return err
@@ -117,6 +113,26 @@ func (r *JsonRPCNotification) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, r)
 }
 
+func NewJsonRPCResponse(id json.Number, result interface{}) *JsonRPCResponse {
+	return &JsonRPCResponse{
+		Version: "2.0",
+		Result:  result,
+		ID:      &id,
+	}
+}
+
+func NewJsonRPCErrorResponse(id json.Number, code int, message string, data interface{}) *JsonRPCResponse {
+	return &JsonRPCResponse{
+		Version: "2.0",
+		Error: &JsonRPCError{
+			Code:    code,
+			Message: message,
+			Data:    data,
+		},
+		ID: &id,
+	}
+}
+
 func (r *JsonRPCResponse) Unmarshal(data []byte) error {
 	err := json.Unmarshal(data, r)
 	if err != nil {
@@ -127,6 +143,25 @@ func (r *JsonRPCResponse) Unmarshal(data []byte) error {
 	}
 	if r.Error != nil && r.Result != nil {
 		return fmt.Errorf("invalid response")
+	}
+	return nil
+}
+
+func (r *JsonRPCResponse) Send(out *os.File) error {
+	if r.ID == nil {
+		return fmt.Errorf("invalid response id")
+	}
+	b, err := r.Marshal()
+	if err != nil {
+		return err
+	}
+	// write b + '\n' to output pipe
+	n, err := out.Write(append(b, '\n'))
+	if err != nil {
+		return err
+	}
+	if n != len(b)+1 {
+		return fmt.Errorf("error writing to output pipe")
 	}
 	return nil
 }

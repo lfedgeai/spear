@@ -41,6 +41,7 @@ type Worker struct {
 
 	SearchPaths []string
 	hc          *hostcalls.HostCalls
+	commMgr     *hostcalls.CommunicationManager
 }
 
 // NewWorkerConfig creates a new WorkerConfig
@@ -54,12 +55,15 @@ func NewWorkerConfig(addr, port string, spath []string, debug bool) *WorkerConfi
 }
 
 func NewWorker(cfg *WorkerConfig) *Worker {
-	hc := hostcalls.NewHostCalls()
 	w := &Worker{
-		cfg: cfg,
-		mux: http.NewServeMux(),
-		hc:  hc,
+		cfg:     cfg,
+		mux:     http.NewServeMux(),
+		hc:      nil,
+		commMgr: hostcalls.NewCommunicationManager(),
 	}
+	hc := hostcalls.NewHostCalls(w.commMgr)
+	w.hc = hc
+	go hc.Run()
 	return w
 }
 
@@ -190,7 +194,7 @@ func (w *Worker) addRoutes() {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
-		err = w.hc.InstallToTask(task)
+		err = w.commMgr.InstallToTask(task)
 		if err != nil {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
@@ -198,13 +202,6 @@ func (w *Worker) addRoutes() {
 
 		log.Debugf("Starting task: %s", task.Name())
 		task.Start()
-
-		// get input output channels
-		in, _, err := task.CommChannels()
-		if err != nil {
-			respError(resp, fmt.Sprintf("Error: %v", err))
-			return
-		}
 
 		// write to the input channel
 		// read the body
@@ -216,21 +213,21 @@ func (w *Worker) addRoutes() {
 			return
 		}
 		method := "handle"
-		id := json.Number("0")
+		id := json.Number("1")
 		workerReq := rpc.JsonRPCRequest{
 			Version: "2.0",
 			Method:  &method,
 			Params:  []interface{}{string(buf[:n])},
 			ID:      &id,
 		}
-		b, err := workerReq.Marshal()
-		if err != nil {
-			log.Errorf("Error marshalling request: %v", err)
+
+		if r, err := w.commMgr.SendOutgoingRequest(&workerReq); err != nil {
+			log.Errorf("Error sending request: %v", err)
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
+		} else {
+			resp.Write([]byte(fmt.Sprintf("Response: %+v", r)))
 		}
-		// output b + '\n' to the input channel
-		in <- append(b, '\n')
 
 		task.Wait()
 	})
