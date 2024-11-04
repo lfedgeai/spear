@@ -11,6 +11,35 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type HostCall struct {
+	Name    string
+	Handler HostCallHandler
+}
+
+type Caller struct {
+	Task *task.Task
+}
+
+type RespChanData struct {
+	Resp   *rpc.JsonRPCResponse
+	Caller *Caller
+}
+
+type ReqChanData struct {
+	Req    *rpc.JsonRPCRequest
+	Caller *Caller
+}
+
+// communication manager for hostcalls and guest responses
+type CommunicationManager struct {
+	respCh chan *RespChanData
+	reqCh  chan *ReqChanData
+	outCh  chan task.Message
+
+	pendingRequests   map[json.Number]*requestCallback
+	pendingRequestsMu sync.RWMutex
+}
+
 type HostCallHandler func(caller *Caller, args interface{}) (interface{}, error)
 
 type HostCalls struct {
@@ -67,35 +96,6 @@ func (h *HostCalls) Run() {
 			}
 		}
 	}
-}
-
-type HostCall struct {
-	Name    string
-	Handler HostCallHandler
-}
-
-type Caller struct {
-	Task *task.Task
-}
-
-type RespChanData struct {
-	Resp   *rpc.JsonRPCResponse
-	Caller *Caller
-}
-
-type ReqChanData struct {
-	Req    *rpc.JsonRPCRequest
-	Caller *Caller
-}
-
-// communication manager for hostcalls and guest responses
-type CommunicationManager struct {
-	respCh chan *RespChanData
-	reqCh  chan *ReqChanData
-	outCh  chan task.Message
-
-	pendingRequests   map[json.Number]*requestCallback
-	pendingRequestsMu sync.RWMutex
 }
 
 func NewCommunicationManager() *CommunicationManager {

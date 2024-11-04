@@ -24,6 +24,13 @@ type GuestRPCManager struct {
 	outFile        *os.File
 }
 
+type ResquestCallback func(resp *JsonRPCResponse) error
+type reqCallbackStruct struct {
+	cb        ResquestCallback
+	timeStamp time.Time
+	autoClear bool
+}
+
 var (
 	pendingRequests   = map[json.Number]reqCallbackStruct{}
 	pendingRequestsMu = sync.RWMutex{}
@@ -32,13 +39,6 @@ var (
 
 	ResponseTimeout = 15 * time.Second
 )
-
-type ResquestCallback func(resp *JsonRPCResponse) error
-type reqCallbackStruct struct {
-	cb        ResquestCallback
-	timeStamp time.Time
-	autoClear bool
-}
 
 func NewGuestRPCManager(reqHandler JsonRPCRequestHandler, respHandler JsonRPCResponseHandler) *GuestRPCManager {
 	return &GuestRPCManager{

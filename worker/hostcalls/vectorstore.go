@@ -26,6 +26,11 @@ type VectorStoreRegistry struct {
 	Client *qdrant.Client
 }
 
+type VectorStoreSearchResult struct {
+	Vector []float32
+	Data   []byte
+}
+
 func NewVectorStoreRegistry() (*VectorStoreRegistry, error) {
 	qdrantClient, err := qdrant.NewClient(&qdrant.Config{
 		Host: "localhost",
@@ -113,11 +118,6 @@ func (r *VectorStoreRegistry) Insert(vid int, vector []float32, payload []byte) 
 	r.Stores[vid].NextID = r.Stores[vid].NextID + 1
 	log.Infof("Upsert operation info: %v", opInfo)
 	return nil
-}
-
-type VectorStoreSearchResult struct {
-	Vector []float32
-	Data   []byte
 }
 
 func (r *VectorStoreRegistry) Search(vid int, vector []float32, limit uint64) ([]*VectorStoreSearchResult, error) {

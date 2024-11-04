@@ -44,6 +44,24 @@ type Worker struct {
 	commMgr     *hostcalls.CommunicationManager
 }
 
+type TaskMetaData struct {
+	Id    int64
+	Type  task.TaskType
+	Image string
+	Name  string
+}
+
+var (
+	tmpMetaData = map[int]TaskMetaData{
+		1: {
+			Id:    1,
+			Type:  task.TaskTypeDocker,
+			Image: "dummy",
+			Name:  "dummy",
+		},
+	}
+)
+
 // NewWorkerConfig creates a new WorkerConfig
 func NewWorkerConfig(addr, port string, spath []string, debug bool) *WorkerConfig {
 	return &WorkerConfig{
@@ -124,24 +142,6 @@ func funcType(req *http.Request) (task.TaskType, error) {
 		return task.TaskTypeUnknown, fmt.Errorf("invalid %s header: %s", HeaderFuncType, runtime)
 	}
 }
-
-type TaskMetaData struct {
-	Id    int64
-	Type  task.TaskType
-	Image string
-	Name  string
-}
-
-var (
-	tmpMetaData = map[int]TaskMetaData{
-		1: {
-			Id:    1,
-			Type:  task.TaskTypeDocker,
-			Image: "dummy",
-			Name:  "dummy",
-		},
-	}
-)
 
 func (w *Worker) addRoutes() {
 	w.mux.HandleFunc("/health", func(resp http.ResponseWriter, req *http.Request) {
