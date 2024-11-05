@@ -1,0 +1,6 @@
+services:
+  dummy:
+    image: chat
+    build:
+      context: .
+      dockerfile: Dockerfile

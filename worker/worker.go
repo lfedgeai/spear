@@ -59,6 +59,12 @@ var (
 			Image: "dummy",
 			Name:  "dummy",
 		},
+		2: {
+			Id:    2,
+			Type:  task.TaskTypeDocker,
+			Image: "chat",
+			Name:  "chat",
+		},
 	}
 )
 
@@ -217,19 +223,26 @@ func (w *Worker) addRoutes() {
 		workerReq := rpc.JsonRPCRequest{
 			Version: "2.0",
 			Method:  &method,
-			Params:  []interface{}{string(buf[:n])},
+			Params:  string(buf[:n]),
 			ID:      &id,
 		}
 
-		if r, err := w.commMgr.SendOutgoingRequest(&workerReq); err != nil {
+		if r, err := w.commMgr.SendOutgoingJsonRequest(&workerReq); err != nil {
 			log.Errorf("Error sending request: %v", err)
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		} else {
-			resp.Write([]byte(fmt.Sprintf("Response: %+v", r)))
+			// convert json to string
+			if rtnMsg, err := json.Marshal(r.Result); err != nil {
+				log.Errorf("Error marshalling response: %v", err)
+				respError(resp, fmt.Sprintf("Error: %v", err))
+				return
+			} else {
+				resp.Write(rtnMsg)
+			}
 		}
 
-		task.Wait()
+		task.Stop()
 	})
 }
 

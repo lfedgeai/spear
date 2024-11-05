@@ -55,7 +55,7 @@ func ChatCompletion(caller *hostcalls.Caller, args interface{}) (interface{}, er
 		return nil, fmt.Errorf("error unmarshalling args: %v", err)
 	}
 
-	log.Infof("Chat Request: %s", string(jsonBytes))
+	log.Debugf("Chat Request: %s", string(jsonBytes))
 	// create a https request to https://api.openai.com/v1/chat/completions and use b as the request body
 	res, err := sendBufferData(bytes.NewBuffer(jsonBytes), "https://api.openai.com/v1/chat/completions")
 	if err != nil {

@@ -64,7 +64,8 @@ func main() {
 	if resp, err := hdl.SendJsonRequest(req2); err != nil {
 		panic(err)
 	} else {
-		log.Infof("Response: %v", resp)
+		msg := fmt.Sprintf("Response: %v", resp)
+		log.Infof("%.1024s", msg)
 	}
 
 	randName := fmt.Sprintf("vdb-%d", time.Now().UnixNano())
@@ -98,7 +99,7 @@ func main() {
 		if resp, err := hdl.SendJsonRequest(req3_5); err != nil {
 			panic(err)
 		} else {
-			log.Infof("Response: %v", resp)
+			log.Infof("Response: %.1024v", resp)
 		}
 	}
 

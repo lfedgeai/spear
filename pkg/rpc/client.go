@@ -112,7 +112,7 @@ func (g *GuestRPCManager) SendJsonRequest(req *JsonRPCRequest) (*JsonRPCResponse
 	// set callback to unblock
 	ch := make(chan *JsonRPCResponse, 1)
 	g.SetRequestCallback(*req.ID, func(resp *JsonRPCResponse) error {
-		log.Infof("Received response for request %s", *req.ID)
+		log.Debugf("Received response for request %s", *req.ID)
 		ch <- resp
 		return nil
 	}, true)
@@ -183,16 +183,18 @@ func (g *GuestRPCManager) Run() {
 
 			// request is valid
 			if hdl, ok := g.reqHandler[*req.Method]; ok {
-				if resp, err := hdl(&req); err != nil {
-					log.Errorf("Error handling request: %v", err)
-					if err = g.sendErrorJsonResponse(*req.ID, err); err != nil {
-						log.Errorf("Error sending error response: %v", err)
+				go func() {
+					if resp, err := hdl(&req); err != nil {
+						log.Errorf("Error handling request: %v", err)
+						if err = g.sendErrorJsonResponse(*req.ID, err); err != nil {
+							log.Errorf("Error sending error response: %v", err)
+						}
+					} else {
+						if err = resp.Send(g.outFile); err != nil {
+							log.Errorf("Error sending response: %v", err)
+						}
 					}
-				} else {
-					if err = resp.Send(g.outFile); err != nil {
-						log.Errorf("Error sending response: %v", err)
-					}
-				}
+				}()
 			} else {
 				log.Infof("No handler for method %s", *req.Method)
 				if err = g.sendErrorJsonResponse(*req.ID, fmt.Errorf("method not found")); err != nil {
@@ -217,12 +219,14 @@ func (g *GuestRPCManager) Run() {
 			callback, ok := pendingRequests[*resp.ID]
 			pendingRequestsMu.RUnlock()
 			if ok {
-				if err = callback.cb(&resp); err != nil {
-					log.Errorf("Error handling response: %v", err)
-				}
-				if callback.autoClear {
-					g.ClearRequestCallback(*resp.ID)
-				}
+				go func() {
+					if err = callback.cb(&resp); err != nil {
+						log.Errorf("Error handling response: %v", err)
+					}
+					if callback.autoClear {
+						g.ClearRequestCallback(*resp.ID)
+					}
+				}()
 			}
 		}
 	}

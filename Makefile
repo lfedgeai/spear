@@ -3,7 +3,7 @@ PROJECT_ROOT := $(shell pwd)
 OUTPUT_DIR := $(PROJECT_ROOT)/bin
 
 
-all: clean worker workload
+all: clean worker workload demo
 
 clean:
 	rm -rf $(OUTPUT_DIR) && \
@@ -18,5 +18,8 @@ test: workload
 
 workload:
 	find $(PROJECT_ROOT)/workload -mindepth 1 -maxdepth 2 -type d -exec test -e {}/Makefile \; -exec make -C {} \;
+
+demo: workload
+	go run $(PROJECT_ROOT)/cmd/demo/main.go
 
 .PHONY: all worker test workload clean

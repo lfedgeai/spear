@@ -8,14 +8,17 @@ import (
 )
 
 var Hostcalls = []*hostcalls.HostCall{
+	// chat operations
 	{
 		Name:    openai.HostCallChatCompletion,
 		Handler: openaihc.ChatCompletion,
 	},
+	// embeddings operations
 	{
 		Name:    openai.HostCallEmbeddings,
 		Handler: openaihc.Embeddings,
 	},
+	// vector store operations
 	{
 		Name:    payload.HostCallVectorStoreCreate,
 		Handler: VectorStoreCreate,
@@ -31,5 +34,22 @@ var Hostcalls = []*hostcalls.HostCall{
 	{
 		Name:    payload.HostCallVectorStoreSearch,
 		Handler: VectorStoreSearch,
+	},
+	// message passing operations
+	{
+		Name:    payload.HostCallMessagePassingRegister,
+		Handler: MessagePassingRegister,
+	},
+	{
+		Name:    payload.HostCallMessagePassingUnregister,
+		Handler: MessagePassingUnregister,
+	},
+	{
+		Name:    payload.HostCallMessagePassingLookup,
+		Handler: MessagePassingLookup,
+	},
+	{
+		Name:    payload.HostCallMessagePassingSend,
+		Handler: MessagePassingSend,
 	},
 }

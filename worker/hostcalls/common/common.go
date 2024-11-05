@@ -32,8 +32,8 @@ type ReqChanData struct {
 
 // communication manager for hostcalls and guest responses
 type CommunicationManager struct {
-	respCh chan *RespChanData
-	reqCh  chan *ReqChanData
+	respCh chan *RespChanData // incoming responses
+	reqCh  chan *ReqChanData  // incoming requests
 	outCh  chan task.Message
 
 	pendingRequests   map[json.Number]*requestCallback
@@ -77,13 +77,13 @@ func (h *HostCalls) Run() {
 				log.Errorf("Error executing hostcall: %v", err)
 				// send error response
 				resp := req.CreateErrorResponse(1, err.Error(), nil)
-				if err := h.CommMgr.SendOutgoingResponse(resp); err != nil {
+				if err := h.CommMgr.SendOutgoingJsonResponse(resp); err != nil {
 					log.Errorf("Error sending response: %v", err)
 				}
 			} else {
 				// send success response
 				resp := req.CreateSuccessResponse(result)
-				if err := h.CommMgr.SendOutgoingResponse(resp); err != nil {
+				if err := h.CommMgr.SendOutgoingJsonResponse(resp); err != nil {
 					log.Errorf("Error sending response: %v", err)
 				}
 			}
@@ -91,7 +91,7 @@ func (h *HostCalls) Run() {
 			log.Errorf("Hostcall not found: %s", *req.Method)
 			// send error response
 			resp := req.CreateErrorResponse(2, "method not found", nil)
-			if err := h.CommMgr.SendOutgoingResponse(resp); err != nil {
+			if err := h.CommMgr.SendOutgoingJsonResponse(resp); err != nil {
 				log.Errorf("Error sending response: %v", err)
 			}
 		}
@@ -144,7 +144,7 @@ func (c *CommunicationManager) InstallToTask(t task.Task) error {
 			} else {
 				resp := &rpc.JsonRPCResponse{}
 				if err := resp.Unmarshal(msg); err == nil {
-					log.Debugf("Guest response received: %s", *resp.ID)
+					log.Debugf("Guest response received: %s", msg)
 
 					// check if it is response to a pending request
 					c.pendingRequestsMu.RLock()
@@ -188,7 +188,7 @@ func (c *CommunicationManager) GetIncomingResponse() *RespChanData {
 	return <-c.respCh
 }
 
-func (c *CommunicationManager) SendOutgoingResponse(resp *rpc.JsonRPCResponse) error {
+func (c *CommunicationManager) SendOutgoingJsonResponse(resp *rpc.JsonRPCResponse) error {
 	if data, err := resp.Marshal(); err == nil {
 		c.outCh <- append(data, '\n')
 		return nil
@@ -204,7 +204,7 @@ type requestCallback struct {
 	ts        time.Time
 }
 
-func (c *CommunicationManager) SendOutgoingRequestCallback(req *rpc.JsonRPCRequest, cb func(*rpc.JsonRPCResponse) error) error {
+func (c *CommunicationManager) SendOutgoingJsonRequestCallback(req *rpc.JsonRPCRequest, cb func(*rpc.JsonRPCResponse) error) error {
 	if data, err := req.Marshal(); err == nil {
 		c.outCh <- append(data, '\n')
 
@@ -221,9 +221,9 @@ func (c *CommunicationManager) SendOutgoingRequestCallback(req *rpc.JsonRPCReque
 	return fmt.Errorf("error marshalling request")
 }
 
-func (c *CommunicationManager) SendOutgoingRequest(req *rpc.JsonRPCRequest) (*rpc.JsonRPCResponse, error) {
+func (c *CommunicationManager) SendOutgoingJsonRequest(req *rpc.JsonRPCRequest) (*rpc.JsonRPCResponse, error) {
 	ch := make(chan *rpc.JsonRPCResponse, 1)
-	if err := c.SendOutgoingRequestCallback(req, func(resp *rpc.JsonRPCResponse) error {
+	if err := c.SendOutgoingJsonRequestCallback(req, func(resp *rpc.JsonRPCResponse) error {
 		ch <- resp
 		return nil
 	}); err != nil {
