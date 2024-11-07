@@ -13,6 +13,11 @@ var Hostcalls = []*hostcalls.HostCall{
 		Name:    openai.HostCallChatCompletion,
 		Handler: openaihc.ChatCompletion,
 	},
+	// text to speech operations
+	{
+		Name:    openai.HostCallTextToSpeech,
+		Handler: openaihc.TextToSpeech,
+	},
 	// embeddings operations
 	{
 		Name:    openai.HostCallEmbeddings,

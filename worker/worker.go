@@ -154,6 +154,7 @@ func (w *Worker) addRoutes() {
 		resp.Write([]byte("OK"))
 	})
 	w.mux.HandleFunc("/", func(resp http.ResponseWriter, req *http.Request) {
+		log.Debugf("Received request: %s", req.URL.Path)
 		// get the function id
 		taskId, err := funcId(req)
 		if err != nil {
@@ -190,7 +191,7 @@ func (w *Worker) addRoutes() {
 
 		randSrc := rand.NewSource(time.Now().UnixNano())
 		randGen := rand.New(randSrc)
-		task, err := rt.CreateTask(&task.TaskConfig{
+		newTask, err := rt.CreateTask(&task.TaskConfig{
 			Name:  fmt.Sprintf("task-%s-%d", meta.Name, randGen.Intn(10000)),
 			Cmd:   "/start", //"sh", //"./dummy_task",
 			Args:  []string{},
@@ -200,14 +201,14 @@ func (w *Worker) addRoutes() {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
-		err = w.commMgr.InstallToTask(task)
+		err = w.commMgr.InstallToTask(newTask)
 		if err != nil {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
 
-		log.Debugf("Starting task: %s", task.Name())
-		task.Start()
+		log.Debugf("Starting task: %s", newTask.Name())
+		newTask.Start()
 
 		// write to the input channel
 		// read the body
@@ -227,22 +228,19 @@ func (w *Worker) addRoutes() {
 			ID:      &id,
 		}
 
-		if r, err := w.commMgr.SendOutgoingJsonRequest(&workerReq); err != nil {
-			log.Errorf("Error sending request: %v", err)
+		if r, err := w.commMgr.SendOutgoingJsonRequest(newTask, &workerReq); err != nil {
+			log.Errorf("Error sending request: %v, %v", err, workerReq)
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		} else {
-			// convert json to string
-			if rtnMsg, err := json.Marshal(r.Result); err != nil {
-				log.Errorf("Error marshalling response: %v", err)
+			if err = json.NewEncoder(resp).Encode(r.Result); err != nil {
+				log.Errorf("Error encoding response: %v", err)
 				respError(resp, fmt.Sprintf("Error: %v", err))
 				return
-			} else {
-				resp.Write(rtnMsg)
 			}
 		}
 
-		task.Stop()
+		newTask.Stop()
 	})
 }
 

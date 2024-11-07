@@ -1,10 +1,10 @@
 package rpc
 
 import (
-	"bufio"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 	"sync"
 	"time"
 
@@ -20,8 +20,8 @@ type GuestRPCManager struct {
 	reqHandler     map[string]JsonRPCRequestHandler
 	reqRawHandler  JsonRPCRequestHandler
 	respRawHandler JsonRPCResponseHandler
-	inFile         *os.File
-	outFile        *os.File
+	input          io.Reader
+	output         io.Writer
 }
 
 type ResquestCallback func(resp *JsonRPCResponse) error
@@ -37,7 +37,7 @@ var (
 
 	globalIDCounter uint64 = 1
 
-	ResponseTimeout = 15 * time.Second
+	ResponseTimeout = time.Minute
 )
 
 func NewGuestRPCManager(reqHandler JsonRPCRequestHandler, respHandler JsonRPCResponseHandler) *GuestRPCManager {
@@ -48,12 +48,12 @@ func NewGuestRPCManager(reqHandler JsonRPCRequestHandler, respHandler JsonRPCRes
 	}
 }
 
-func (g *GuestRPCManager) SetInput(i *os.File) {
-	g.inFile = i
+func (g *GuestRPCManager) SetInput(i io.Reader) {
+	g.input = i
 }
 
-func (g *GuestRPCManager) SetOutput(o *os.File) {
-	g.outFile = o
+func (g *GuestRPCManager) SetOutput(o io.Writer) {
+	g.output = o
 }
 
 func (g *GuestRPCManager) SetRequestCallback(id json.Number, callback ResquestCallback, autoClear bool) {
@@ -102,7 +102,7 @@ func (g *GuestRPCManager) SendRequest(method string, params interface{}) (interf
 
 // low level function to send a json request
 func (g *GuestRPCManager) SendJsonRequest(req *JsonRPCRequest) (*JsonRPCResponse, error) {
-	if g.outFile == nil {
+	if g.output == nil {
 		return nil, fmt.Errorf("output file not set")
 	}
 	newID := json.Number(fmt.Sprintf("%d", globalIDCounter))
@@ -117,7 +117,7 @@ func (g *GuestRPCManager) SendJsonRequest(req *JsonRPCRequest) (*JsonRPCResponse
 		return nil
 	}, true)
 
-	if err := req.Send(g.outFile); err != nil {
+	if err := req.Send(g.output); err != nil {
 		return nil, err
 	}
 
@@ -132,20 +132,34 @@ func (g *GuestRPCManager) SendJsonRequest(req *JsonRPCRequest) (*JsonRPCResponse
 
 func (g *GuestRPCManager) sendErrorJsonResponse(id json.Number, err error) error {
 	resp := NewJsonRPCErrorResponse(id, -1, err.Error(), nil)
-	if g.outFile == nil {
+	if g.output == nil {
 		return fmt.Errorf("output file not set")
 	}
-	return resp.Send(g.outFile)
+	return resp.Send(g.output)
 }
 
 func (g *GuestRPCManager) Run() {
 	// read from stdin
-	reader := bufio.NewReader(g.inFile)
+	reader := g.input
 
 	for {
-		// read from stdin
-		data, err := reader.ReadBytes('\n')
-		if err != nil {
+		// read a 64 bit uint
+		buf := make([]byte, 8)
+		if _, err := reader.Read(buf); err != nil {
+			log.Errorf("Error reading from stdin: %v", err)
+			continue
+		}
+		dataLen := binary.LittleEndian.Uint64(buf)
+
+		if dataLen == 0 {
+			log.Infof("Exiting")
+			break
+		}
+
+		log.Debugf("Got message size: %d", dataLen)
+		// read dataLen bytes
+		data := make([]byte, dataLen)
+		if _, err := io.ReadFull(reader, data); err != nil {
 			log.Errorf("Error reading from stdin: %v", err)
 			continue
 		}
@@ -155,12 +169,8 @@ func (g *GuestRPCManager) Run() {
 			break
 		}
 
-		if string(data) == "\n" {
-			continue
-		}
-
 		var req JsonRPCRequest
-		err = req.Unmarshal([]byte(data))
+		err := req.Unmarshal([]byte(data))
 		if err == nil && g.reqHandler != nil {
 			if req.Method == nil {
 				log.Errorf("Invalid request: %v", req)
@@ -174,7 +184,7 @@ func (g *GuestRPCManager) Run() {
 					log.Errorf("Error handling request: %v", err)
 				}
 				if resp != nil {
-					if err = resp.Send(g.outFile); err != nil {
+					if err = resp.Send(g.output); err != nil {
 						log.Errorf("Error sending response: %v", err)
 					}
 					continue
@@ -190,7 +200,8 @@ func (g *GuestRPCManager) Run() {
 							log.Errorf("Error sending error response: %v", err)
 						}
 					} else {
-						if err = resp.Send(g.outFile); err != nil {
+						log.Debugf("Sending response for method %s", *req.Method)
+						if err = resp.Send(g.output); err != nil {
 							log.Errorf("Error sending response: %v", err)
 						}
 					}

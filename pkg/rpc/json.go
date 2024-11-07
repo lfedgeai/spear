@@ -1,9 +1,10 @@
 package rpc
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 )
 
 type JsonRPCRequest struct {
@@ -43,7 +44,7 @@ func NewJsonRPCRequest(method string, params interface{}) *JsonRPCRequest {
 	return res
 }
 
-func (r *JsonRPCRequest) Send(out *os.File) error {
+func (r *JsonRPCRequest) Send(out io.Writer) error {
 	if r.ID == nil {
 		return fmt.Errorf("invalid request id")
 	}
@@ -51,12 +52,22 @@ func (r *JsonRPCRequest) Send(out *os.File) error {
 	if err != nil {
 		return err
 	}
-	// write b + '\n' to output pipe
-	n, err := out.Write(append(b, '\n'))
+
+	// send little endian length of b using uint64
+	length := uint64(len(b))
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, length)
+	_, err = out.Write(buf)
 	if err != nil {
 		return err
 	}
-	if n != len(b)+1 {
+
+	// write b to output pipe
+	n, err := out.Write(b)
+	if err != nil {
+		return err
+	}
+	if n != len(b) {
 		return fmt.Errorf("error writing to output pipe")
 	}
 	return nil
@@ -147,7 +158,7 @@ func (r *JsonRPCResponse) Unmarshal(data []byte) error {
 	return nil
 }
 
-func (r *JsonRPCResponse) Send(out *os.File) error {
+func (r *JsonRPCResponse) Send(out io.Writer) error {
 	if r.ID == nil {
 		return fmt.Errorf("invalid response id")
 	}
@@ -155,12 +166,22 @@ func (r *JsonRPCResponse) Send(out *os.File) error {
 	if err != nil {
 		return err
 	}
-	// write b + '\n' to output pipe
-	n, err := out.Write(append(b, '\n'))
+
+	// send little endian length of b using uint64
+	length := uint64(len(b))
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, length)
+	_, err = out.Write(buf)
 	if err != nil {
 		return err
 	}
-	if n != len(b)+1 {
+
+	// write b to output pipe
+	n, err := out.Write(b)
+	if err != nil {
+		return err
+	}
+	if n != len(b) {
 		return fmt.Errorf("error writing to output pipe")
 	}
 	return nil

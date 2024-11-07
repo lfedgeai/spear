@@ -2,6 +2,7 @@ package openai
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -98,6 +99,40 @@ func Embeddings(caller *hostcalls.Caller, args interface{}) (interface{}, error)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling response: %v", err)
 	}
+
+	// return the response
+	return respData, nil
+}
+
+func TextToSpeech(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
+	log.Infof("Executing hostcall \"%s\" with args %v", openai.HostCallTextToSpeech, args)
+	// verify the type of args is TextToSpeechRequest
+	// use json marshal and unmarshal to verify the type
+	jsonBytes, err := json.Marshal(args)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling args: %v", err)
+	}
+	t2sReq := openai.TextToSpeechRequest{}
+	err = t2sReq.Unmarshal(jsonBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	}
+
+	log.Debugf("TextToSpeech Request: %s", string(jsonBytes))
+	// create a https request to https://api.openai.com/v1/text2speech and use b as the request body
+	res, err := sendBufferData(bytes.NewBuffer(jsonBytes), "https://api.openai.com/v1/audio/speech")
+	if err != nil {
+		return nil, fmt.Errorf("error sending request: %v", err)
+	}
+
+	log.Debugf("OpenAI Response Len: %d", len(res))
+
+	respData := openai.TextToSpeechResponse{}
+	// base64 encode the audio data
+	encodedData := base64.StdEncoding.EncodeToString(res)
+	respData.EncodedAudio = encodedData
+
+	log.Debugf("Encoded Response Len in hostcall: %d", len(respData.EncodedAudio))
 
 	// return the response
 	return respData, nil

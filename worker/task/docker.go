@@ -2,7 +2,10 @@ package task
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
+	"net"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -17,6 +20,10 @@ type DockerTask struct {
 	attachResp *types.HijackedResponse
 	chanIn     chan Message
 	chanOut    chan Message
+
+	secret    int64 // used for tcp auth
+	conn      net.Conn
+	connReady chan struct{}
 }
 
 func (p *DockerTask) ID() TaskID {
@@ -29,6 +36,61 @@ func (p *DockerTask) Start() error {
 		return err
 	}
 
+	go func() {
+		<-p.connReady
+		log.Infof("Connection ready for task %s", p.name)
+
+		// input goroutine
+		go func() {
+			for {
+				// read a int64 data size
+				buf := make([]byte, 8)
+				_, err := p.conn.Read(buf)
+				if err != nil {
+					if err == io.EOF {
+						log.Infof("Connection closed for task %s", p.name)
+						return
+					}
+					log.Errorf("Error reading from connection: %v", err)
+					return
+				}
+				sz := binary.LittleEndian.Uint64(buf)
+				log.Debugf("DockerTask got message size: %d", sz)
+
+				// read data
+				data := make([]byte, sz)
+				if _, err = io.ReadFull(p.conn, data); err != nil {
+					log.Errorf("Error reading from connection: %v, size: %d", err, sz)
+					return
+				}
+
+				// send data to container
+				p.chanOut <- Message(data)
+			}
+		}()
+
+		// output goroutine
+		go func() {
+			for msg := range p.chanIn {
+				// write little endian int64 size
+				buf := make([]byte, 8)
+				binary.LittleEndian.PutUint64(buf, uint64(len(msg)))
+				_, err := p.conn.Write(buf)
+				if err != nil {
+					log.Errorf("Error writing to connection: %v", err)
+					return
+				}
+
+				// write data
+				_, err = p.conn.Write([]byte(msg))
+				if err != nil {
+					log.Errorf("Error writing to connection: %v", err)
+					return
+				}
+			}
+		}()
+	}()
+
 	// get stdin and stdout
 	val, err := p.runtime.cli.ContainerAttach(context.TODO(), p.container.ID, container.AttachOptions{
 		Stream: true,
@@ -40,19 +102,19 @@ func (p *DockerTask) Start() error {
 		return err
 	}
 	p.attachResp = &val
-	go func() {
-		for msg := range p.chanIn {
-			// log.Debugf("Got message for container: %s", msg)
-			// write msg and newline
-			n, err := p.attachResp.Conn.Write(msg)
-			if err != nil {
-				log.Errorf("Error writing to container: %v", err)
-			}
-			if n != len(msg) {
-				log.Errorf("Error writing to container: wrote %d bytes, expected %d", n, len(msg))
-			}
-		}
-	}()
+	// go func() {
+	// 	for msg := range p.chanIn {
+	// 		// log.Debugf("Got message for container: %s", msg)
+	// 		// write msg and newline
+	// 		n, err := p.attachResp.Conn.Write(msg)
+	// 		if err != nil {
+	// 			log.Errorf("Error writing to container: %v", err)
+	// 		}
+	// 		if n != len(msg) {
+	// 			log.Errorf("Error writing to container: wrote %d bytes, expected %d", n, len(msg))
+	// 		}
+	// 	}
+	// }()
 
 	resp, err := p.runtime.cli.ContainerLogs(context.TODO(),
 		p.container.ID, container.LogsOptions{
@@ -91,7 +153,7 @@ func (p *DockerTask) Start() error {
 				// log.Debugf("Size: %d, ReadLen: %d, Got data: %s", sz, n, data)
 				if header[0] == 0x01 {
 					// stdout
-					p.chanOut <- Message(data[:sz])
+					// p.chanOut <- Message(data[:sz])
 				} else if header[0] == 0x02 {
 					// stderr
 					log.Infof("STDERR[%s]:\033[0;32m%s\033[0m", p.name, data[:sz])
