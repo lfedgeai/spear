@@ -18,6 +18,11 @@ var Hostcalls = []*hostcalls.HostCall{
 		Name:    openai.HostCallTextToSpeech,
 		Handler: openaihc.TextToSpeech,
 	},
+	// image generation operations
+	{
+		Name:    openai.HostCallImageGeneration,
+		Handler: openaihc.ImageGeneration,
+	},
 	// embeddings operations
 	{
 		Name:    openai.HostCallEmbeddings,

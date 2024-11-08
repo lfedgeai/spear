@@ -1,7 +1,8 @@
 package openai
 
 const (
-	HostCallChatCompletion = "chat.completion"
-	HostCallEmbeddings     = "embeddings"
-	HostCallTextToSpeech   = "text-to-speech"
+	HostCallChatCompletion  = "chat.completion"
+	HostCallEmbeddings      = "embeddings"
+	HostCallTextToSpeech    = "text-to-speech"
+	HostCallImageGeneration = "image-generation"
 )

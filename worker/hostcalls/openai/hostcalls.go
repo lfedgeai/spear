@@ -137,3 +137,34 @@ func TextToSpeech(caller *hostcalls.Caller, args interface{}) (interface{}, erro
 	// return the response
 	return respData, nil
 }
+
+func ImageGeneration(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
+	log.Infof("Executing hostcall \"%s\" with args %v", openai.HostCallImageGeneration, args)
+	// verify the type of args is ImageGenerationRequest
+	// use json marshal and unmarshal to verify the type
+	jsonBytes, err := json.Marshal(args)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling args: %v", err)
+	}
+	imgGenReq := openai.ImageGenerationRequest{}
+	err = imgGenReq.Unmarshal(jsonBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	}
+
+	log.Debugf("ImageGeneration Request: %s", string(jsonBytes))
+	// create a https request to https://api.openai.com/v1/images and use b as the request body
+	res, err := sendBufferData(bytes.NewBuffer(jsonBytes), "https://api.openai.com/v1/images/generations")
+	if err != nil {
+		return nil, fmt.Errorf("error sending request: %v", err)
+	}
+
+	respData := openai.ImageGenerationResponse{}
+	err = respData.Unmarshal(res)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling response: %v", err)
+	}
+
+	// return the response
+	return respData, nil
+}

@@ -19,7 +19,11 @@ test: workload
 workload:
 	find $(PROJECT_ROOT)/workload -mindepth 1 -maxdepth 2 -type d -exec test -e {}/Makefile \; -exec make -C {} \;
 
+# build all found demo go files using find
 demo: workload
-	go run $(PROJECT_ROOT)/cmd/demo/main.go
+	for file in $(shell find $(PROJECT_ROOT)/cmd/demo -name "*.go"); do \
+		go build -o $(OUTPUT_DIR)/demo/$$(basename $$file .go) $$file; \
+	done
 
-.PHONY: all worker test workload clean
+
+.PHONY: all worker test workload clean demo

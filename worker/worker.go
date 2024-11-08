@@ -62,8 +62,8 @@ var (
 		2: {
 			Id:    2,
 			Type:  task.TaskTypeDocker,
-			Image: "chat",
-			Name:  "chat",
+			Image: "voice_chat",
+			Name:  "voice_chat",
 		},
 	}
 )
