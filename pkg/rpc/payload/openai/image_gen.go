@@ -23,7 +23,7 @@ type ImageObject struct {
 }
 
 type ImageGenerationResponse struct {
-	Created string        `json:"created"`
+	Created json.Number   `json:"created"`
 	Data    []ImageObject `json:"data"`
 }
 

@@ -153,7 +153,6 @@ func ImageGeneration(caller *hostcalls.Caller, args interface{}) (interface{}, e
 	}
 
 	log.Debugf("ImageGeneration Request: %s", string(jsonBytes))
-	// create a https request to https://api.openai.com/v1/images and use b as the request body
 	res, err := sendBufferData(bytes.NewBuffer(jsonBytes), "https://api.openai.com/v1/images/generations")
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %v", err)
@@ -164,7 +163,5 @@ func ImageGeneration(caller *hostcalls.Caller, args interface{}) (interface{}, e
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling response: %v", err)
 	}
-
-	// return the response
 	return respData, nil
 }

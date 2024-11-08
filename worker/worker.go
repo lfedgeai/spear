@@ -65,6 +65,12 @@ var (
 			Image: "voice_chat",
 			Name:  "voice_chat",
 		},
+		3: {
+			Id:    3,
+			Type:  task.TaskTypeDocker,
+			Image: "gen_image",
+			Name:  "gen_image",
+		},
 	}
 )
 
