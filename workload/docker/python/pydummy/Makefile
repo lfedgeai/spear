@@ -1,5 +1,3 @@
-.PHONY: all build clean
-
 CURRENT_DIR := $(shell pwd)
 OUTPUT_DIR := $(shell pwd)/bin
 PROJ_NAME := $(shell basename $(CURRENT_DIR))
