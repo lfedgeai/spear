@@ -71,6 +71,12 @@ var (
 			Image: "gen_image",
 			Name:  "gen_image",
 		},
+		4: {
+			Id:    4,
+			Type:  task.TaskTypeDocker,
+			Image: "pysimple",
+			Name:  "pysimple",
+		},
 	}
 )
 
@@ -246,7 +252,7 @@ func (w *Worker) addRoutes() {
 			}
 		}
 
-		newTask.Stop()
+		go newTask.Stop()
 	})
 }
 

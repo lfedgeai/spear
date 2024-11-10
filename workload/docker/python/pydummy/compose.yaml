@@ -1,0 +1,6 @@
+services:
+  dummy:
+    image: pysimple
+    build:
+      context: .
+      dockerfile: Dockerfile

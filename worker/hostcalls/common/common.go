@@ -226,6 +226,7 @@ func (c *CommunicationManager) SendOutgoingJsonRequestCallback(t task.Task, req 
 func (c *CommunicationManager) SendOutgoingJsonRequest(t task.Task, req *rpc.JsonRPCRequest) (*rpc.JsonRPCResponse, error) {
 	ch := make(chan *rpc.JsonRPCResponse, 1)
 	if err := c.SendOutgoingJsonRequestCallback(t, req, func(resp *rpc.JsonRPCResponse) error {
+		log.Debugf("SendOutgoingJsonRequestCallback received response: %s", *req.ID)
 		ch <- resp
 		return nil
 	}); err != nil {
