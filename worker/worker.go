@@ -114,6 +114,24 @@ func (w *Worker) addHostCalls() {
 	}
 }
 
+func funcAsync(req *http.Request) (bool, error) {
+	// get request headers
+	headers := req.Header
+	// get the async from the headers
+	async := headers.Get(HeaderFuncAsync)
+	if async == "" {
+		return false, nil
+	}
+
+	// convert async to bool
+	b, err := strconv.ParseBool(async)
+	if err != nil {
+		return false, fmt.Errorf("error parsing %s header: %v", HeaderFuncAsync, err)
+	}
+
+	return b, nil
+}
+
 func funcId(req *http.Request) (int64, error) {
 	// get request headers
 	headers := req.Header
@@ -176,6 +194,12 @@ func (w *Worker) addRoutes() {
 
 		// get the function type
 		funcType, err := funcType(req)
+		if err != nil {
+			respError(resp, fmt.Sprintf("Error: %v", err))
+			return
+		}
+
+		funcIsAsync, err := funcAsync(req)
 		if err != nil {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
@@ -252,7 +276,11 @@ func (w *Worker) addRoutes() {
 			}
 		}
 
-		go newTask.Stop()
+		if !funcIsAsync {
+			// wait for the task to finish
+			newTask.Wait()
+		}
+		// TODO: support waiting for instance to finish
 	})
 }
 

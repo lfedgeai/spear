@@ -3,4 +3,4 @@ services:
     image: pysimple
     build:
       context: ../../../../
-      dockerfile: ./workload/docker/python/pydummy/Dockerfile
+      dockerfile: ./workload/docker/python/pychat/Dockerfile

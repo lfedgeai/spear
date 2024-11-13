@@ -2,6 +2,7 @@
 import argparse
 import logging
 import spear.client as client
+import spear.hostcalls as hc
 import sys
 
 logging.basicConfig(
@@ -13,6 +14,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+agent = client.HostAgent()
 
 def parse_args():
     """
@@ -30,11 +32,29 @@ def handle(params):
     handle the request
     """
     logger.info("Handling request: %s", params)
-    return "Hello " + params
+    resp = agent.exec_request("transform", {
+        "input_types": [hc.TransformType.TEXT],
+        "output_types": [hc.TransformType.TEXT],
+        "operations": [hc.TransformOperation.LLM],
+        "params": {
+            "model": "gpt-4o",
+            "messages" : [{
+                "role": "user",
+                "content": params
+            }]
+        }
+    })
+
+    agent.stop()
+    if isinstance(resp, client.JsonRpcOkResp):
+        return resp.result["choices"][0]["message"]["content"]
+    elif isinstance(resp, client.JsonRpcErrorResp):
+        return resp.message
+    else:
+        return "Unknown error"
 
 
 if __name__ == "__main__":
     addr, secret = parse_args()
-    agent = client.HostAgent()
     agent.register_handler("handle", handle)
     agent.run(addr, secret)

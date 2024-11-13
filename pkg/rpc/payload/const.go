@@ -10,4 +10,6 @@ const (
 	HostCallMessagePassingUnregister = "messagepassing.unregister"
 	HostCallMessagePassingLookup     = "messagepassing.lookup"
 	HostCallMessagePassingSend       = "messagepassing.send"
+
+	HostCallTransform = "transform"
 )

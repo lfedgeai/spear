@@ -8,6 +8,10 @@ import (
 )
 
 var Hostcalls = []*hostcalls.HostCall{
+	{
+		Name:    payload.HostCallTransform,
+		Handler: Transform,
+	},
 	// chat operations
 	{
 		Name:    openai.HostCallChatCompletion,

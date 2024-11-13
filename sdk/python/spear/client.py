@@ -5,6 +5,8 @@ import queue
 import threading
 import logging
 import selectors
+import time
+import os
 
 RPC_TYPE_REQ = 0
 RPC_TYPE_RESP_OK = 1
@@ -150,6 +152,8 @@ class HostAgent(object):
         event_sock_r.setblocking(False)
         self._inflight_requests_lock = threading.Lock()
         self._inflight_requests_count = 0
+        self._pending_requests = {}
+        self._pending_requests_lock = threading.Lock()
 
     def __new__(cls):
         if cls._instance is None:
@@ -208,6 +212,7 @@ class HostAgent(object):
                 self._put_rpc_error(rpc_data.id, -32603, "Internal error", str(e))
             with self._inflight_requests_lock:
                 self._inflight_requests_count -= 1
+            logger.info("Inflight requests: %d", self._inflight_requests_count)
 
         while True:
             rpc_data = self._get_rpc_data()
@@ -231,6 +236,16 @@ class HostAgent(object):
                         threading.Thread(
                             target=handle_worker, args=(handler, rpc_data)
                         ).start()
+            elif isinstance(rpc_data, JsonRpcOkResp) or isinstance(
+                rpc_data, JsonRpcErrorResp
+            ):
+                with self._pending_requests_lock:
+                    req = self._pending_requests.get(rpc_data.id)
+                    if req is None:
+                        logger.error("Invalid response id: %d", rpc_data.id)
+                    else:
+                        req["cb"](rpc_data)
+                        del self._pending_requests[rpc_data.id]
             else:
                 logger.error("Invalid rpc data")
 
@@ -284,7 +299,28 @@ class HostAgent(object):
         else:
             raise TypeError("Invalid rpc object")
 
-    def _put_rpc_request(self, method, param):
+    def exec_request(self, method, param):
+        """
+        send the rpc request and return the response
+        """
+        # create mutex
+        mutex = threading.Lock()
+        # create a condition variable
+        cond = threading.Condition(mutex)
+        # create a list to store the response
+        response = []
+
+        def cb(rpc_data):
+            with mutex:
+                response.append(rpc_data)
+                cond.notify()
+
+        self._put_rpc_request(method, param, cb)
+        with mutex:
+            cond.wait()
+            return response[0]
+
+    def _put_rpc_request(self, method, param, cb):
         obj = {}
         obj["id"] = self._global_id
         self._global_id += 1
@@ -292,6 +328,12 @@ class HostAgent(object):
         obj["method"] = method
         obj["params"] = param
         self._put_raw_object(obj)
+        with self._pending_requests_lock:
+            self._pending_requests[obj["id"]] = {
+                "time": time.time(),
+                "obj": obj,
+                "cb": cb,
+            }
 
     def _put_rpc_response(self, req_id, result):
         obj = {}
@@ -384,6 +426,7 @@ class HostAgent(object):
             self._recv_task.join()
             logger.info("Stopping the agent")
             self._client.close()
+            os._exit(0)
 
         # create a thread to stop the agent
         threading.Thread(target=stop_worker).start()
