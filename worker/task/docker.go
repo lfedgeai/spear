@@ -156,7 +156,12 @@ func (p *DockerTask) Start() error {
 					// p.chanOut <- Message(data[:sz])
 				} else if header[0] == 0x02 {
 					// stderr
-					log.Infof("STDERR[%s]:\033[0;32m%s\033[0m", p.name, data[:sz])
+					data2print := data[:sz]
+					// remove trailing newline
+					if data2print[sz-1] == '\n' {
+						data2print = data2print[:sz-1]
+					}
+					log.Infof("STDERR[%s]:\033[0;32m%s\033[0m", p.name, data2print)
 				}
 				if sz >= n || sz == 0 {
 					break

@@ -1,12 +1,14 @@
+import json
+import logging
+import os
+import queue
+import selectors
 import socket
 import struct
-import json
-import queue
 import threading
-import logging
-import selectors
 import time
-import os
+
+import spear.hostcalls.transform as tf
 
 RPC_TYPE_REQ = 0
 RPC_TYPE_RESP_OK = 1
@@ -265,8 +267,8 @@ class HostAgent(object):
         """
         finalize the data and add it to the outgoing queue
         """
-        logger.debug("PUtting response data to queue: %s", str(obj))
-        json_data = json.dumps(obj, ensure_ascii=False)
+        logger.debug("Putting response data to queue: %s", str(obj))
+        json_data = json.dumps(obj, ensure_ascii=False, cls=tf.EnhancedJSONEncoder)
         self._send_queue.put(json_data)
 
     def _get_raw_object(self):

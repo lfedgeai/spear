@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     name="spear",
@@ -10,4 +10,8 @@ setup(
     python_requires=">=3.6",
     packages=find_packages(include=["spear", "spear.*"]),
     include_package_data=True,
+    #dependencies
+    install_requires=[
+        "dataclasses-json",
+    ],
 )

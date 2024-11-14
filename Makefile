@@ -23,4 +23,9 @@ workload: sdk
 sdk:
 	find $(PROJECT_ROOT)/sdk -mindepth 1 -maxdepth 2 -type d -exec test -e {}/Makefile \; -exec make -C {} \;
 
-.PHONY: all worker test workload clean sdk
+format_python:
+	isort -rc $(PROJECT_ROOT)/
+
+format: format_python
+
+.PHONY: all worker test workload clean sdk format_python format
