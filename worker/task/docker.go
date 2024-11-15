@@ -38,7 +38,7 @@ func (p *DockerTask) Start() error {
 
 	go func() {
 		<-p.connReady
-		log.Infof("Connection ready for task %s", p.name)
+		log.Debugf("Connection ready for task %s", p.name)
 
 		// input goroutine
 		go func() {

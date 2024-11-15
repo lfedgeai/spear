@@ -5,6 +5,7 @@ go 1.23.0
 require (
 	github.com/docker/docker v27.3.1+incompatible
 	github.com/docker/go-connections v0.5.0
+	github.com/google/uuid v1.6.0
 	github.com/qdrant/go-client v1.12.0
 )
 
@@ -15,7 +16,6 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/ebitengine/purego v0.8.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -43,9 +43,8 @@ require (
 )
 
 require (
-	github.com/ebitengine/oto/v3 v3.3.1
 	github.com/faiface/beep v1.1.0
-	github.com/hajimehoshi/go-mp3 v0.3.4
+	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.8.1

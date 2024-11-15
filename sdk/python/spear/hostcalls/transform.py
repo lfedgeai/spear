@@ -1,23 +1,12 @@
 """This file contains the hostcalls that are used by the SPEAR runtime 
 to interact with the host system."""
 
-import json
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any
 
 from dataclasses_json import dataclass_json
 
-
-class EnhancedJSONEncoder(json.JSONEncoder):
-    """
-    A custom JSON encoder that can handle dataclasses.
-    """
-
-    def default(self, o):
-        if is_dataclass(o):
-            return asdict(o)
-        return super().default(o)
 
 
 class TransformType(IntEnum):

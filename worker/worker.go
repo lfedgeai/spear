@@ -74,8 +74,14 @@ var (
 		4: {
 			Id:    4,
 			Type:  task.TaskTypeDocker,
-			Image: "pysimple",
-			Name:  "pysimple",
+			Image: "pychat",
+			Name:  "pychat",
+		},
+		5: {
+			Id:    5,
+			Type:  task.TaskTypeDocker,
+			Image: "pytools",
+			Name:  "pytools",
 		},
 	}
 )

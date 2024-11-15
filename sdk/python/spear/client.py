@@ -8,7 +8,7 @@ import struct
 import threading
 import time
 
-import spear.hostcalls.transform as tf
+import spear.hostcalls as hc
 
 RPC_TYPE_REQ = 0
 RPC_TYPE_RESP_OK = 1
@@ -268,7 +268,7 @@ class HostAgent(object):
         finalize the data and add it to the outgoing queue
         """
         logger.debug("Putting response data to queue: %s", str(obj))
-        json_data = json.dumps(obj, ensure_ascii=False, cls=tf.EnhancedJSONEncoder)
+        json_data = json.dumps(obj, ensure_ascii=False, cls=hc.EnhancedJSONEncoder)
         self._send_queue.put(json_data)
 
     def _get_raw_object(self):

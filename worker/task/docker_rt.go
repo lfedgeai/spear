@@ -40,7 +40,7 @@ func NewDockerTaskRuntime(rtCfg *TaskRuntimeConfig) (*DockerTaskRuntime, error) 
 }
 
 func (d *DockerTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
-	log.Infof("Creating docker task with name: %s", cfg.Name)
+	log.Debugf("Creating docker task [%s]", cfg.Name)
 
 	rand.Seed(time.Now().UnixNano())
 	secretGenerated := rand.Int63()
@@ -87,7 +87,7 @@ func (d *DockerTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 }
 
 func (d *DockerTaskRuntime) runTCPServer(port string) {
-	log.Infof("Starting TCP server on port %s", port)
+	log.Debugf("Starting docker hostcall TCP server on port %s", port)
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%s", port))
 	if err != nil {
