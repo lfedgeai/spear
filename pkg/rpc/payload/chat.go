@@ -1,12 +1,13 @@
-package openai
+package payload
 
 import (
 	"encoding/json"
 )
 
 type ChatCompletionRequest struct {
-	Messages []ChatMessage `json:"messages"`
-	Model    string        `json:"model"`
+	Messages  []ChatMessage `json:"messages"`
+	Model     string        `json:"model"`
+	ToolsetId string        `json:"toolset_id"`
 }
 
 // marshal operations

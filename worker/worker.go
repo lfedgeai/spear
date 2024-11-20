@@ -13,7 +13,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/lfedgeai/spear/pkg/common"
-	"github.com/lfedgeai/spear/pkg/rpc"
 	hc "github.com/lfedgeai/spear/worker/hostcalls"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	"github.com/lfedgeai/spear/worker/task"
@@ -261,17 +260,9 @@ func (w *Worker) addRoutes() {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
-		method := "handle"
-		id := json.Number("1")
-		workerReq := rpc.JsonRPCRequest{
-			Version: "2.0",
-			Method:  &method,
-			Params:  string(buf[:n]),
-			ID:      &id,
-		}
 
-		if r, err := w.commMgr.SendOutgoingJsonRequest(newTask, &workerReq); err != nil {
-			log.Errorf("Error sending request: %v, %v", err, workerReq)
+		if r, err := w.commMgr.SendOutgoingRPCRequest(newTask, "handle", string(buf[:n])); err != nil {
+			log.Errorf("Error sending \"handle\" rpc request: %v, %v", err)
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		} else {

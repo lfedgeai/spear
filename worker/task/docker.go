@@ -24,6 +24,8 @@ type DockerTask struct {
 	secret    int64 // used for tcp auth
 	conn      net.Conn
 	connReady chan struct{}
+
+	reqId uint64
 }
 
 func (p *DockerTask) ID() TaskID {
@@ -55,7 +57,7 @@ func (p *DockerTask) Start() error {
 					return
 				}
 				sz := binary.LittleEndian.Uint64(buf)
-				log.Debugf("DockerTask got message size: %d", sz)
+				log.Debugf("DockerTask got message size: 0x%x", sz)
 
 				// read data
 				data := make([]byte, sz)
@@ -102,19 +104,6 @@ func (p *DockerTask) Start() error {
 		return err
 	}
 	p.attachResp = &val
-	// go func() {
-	// 	for msg := range p.chanIn {
-	// 		// log.Debugf("Got message for container: %s", msg)
-	// 		// write msg and newline
-	// 		n, err := p.attachResp.Conn.Write(msg)
-	// 		if err != nil {
-	// 			log.Errorf("Error writing to container: %v", err)
-	// 		}
-	// 		if n != len(msg) {
-	// 			log.Errorf("Error writing to container: wrote %d bytes, expected %d", n, len(msg))
-	// 		}
-	// 	}
-	// }()
 
 	resp, err := p.runtime.cli.ContainerLogs(context.TODO(),
 		p.container.ID, container.LogsOptions{
@@ -207,4 +196,9 @@ func (p *DockerTask) Wait() (int, error) {
 	case e := <-err:
 		return -1, e
 	}
+}
+
+func (p *DockerTask) NextRequestID() uint64 {
+	p.reqId++
+	return p.reqId
 }

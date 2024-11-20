@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/lfedgeai/spear/pkg/tools/docker"
 	log "github.com/sirupsen/logrus"
@@ -13,6 +16,15 @@ func init() {
 }
 
 func main() {
+	// read user input
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print("Message to LLM: ")
+
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		panic("reader.ReadString failed: " + err.Error())
+	}
+
 	// setup test environment
 	s := docker.NewTestSetup()
 	defer s.TearDown()
@@ -20,7 +32,7 @@ func main() {
 	// send a http request to the server and check the response
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", "http://localhost:8080", bytes.NewBuffer(
-		[]byte(""),
+		[]byte(input),
 	))
 
 	if err != nil {

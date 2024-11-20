@@ -150,8 +150,8 @@ func (r *VectorStoreRegistry) Search(vid int, vector []float32, limit uint64) ([
 	return ret, nil
 }
 
-func VectorStoreCreate(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
-	task := *(caller.Task)
+func VectorStoreCreate(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	task := *(inv.Task)
 	log.Infof("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreCreate, args)
 	// verify the type of args is string
 	// use json marshal and unmarshal to verify the type
@@ -186,8 +186,8 @@ func VectorStoreCreate(caller *hostcalls.Caller, args interface{}) (interface{},
 	}, nil
 }
 
-func VectorStoreDelete(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
-	task := *(caller.Task)
+func VectorStoreDelete(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	task := *(inv.Task)
 	log.Infof("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreDelete, args)
 	// verify the type of args is int
 	// use json marshal and unmarshal to verify the type
@@ -218,8 +218,8 @@ func VectorStoreDelete(caller *hostcalls.Caller, args interface{}) (interface{},
 	}, nil
 }
 
-func VectorStoreInsert(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
-	task := *(caller.Task)
+func VectorStoreInsert(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	task := *(inv.Task)
 	log.Infof("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreInsert, args)
 	// verify the type of args is VectorStoreInsertRequest
 	// use json marshal and unmarshal to verify the type
@@ -251,8 +251,8 @@ func VectorStoreInsert(caller *hostcalls.Caller, args interface{}) (interface{},
 	}, nil
 }
 
-func VectorStoreSearch(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
-	task := *(caller.Task)
+func VectorStoreSearch(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	task := *(inv.Task)
 	log.Infof("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreSearch, args)
 	// verify the type of args is VectorStoreSearchRequest
 	// use json marshal and unmarshal to verify the type

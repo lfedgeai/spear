@@ -15,17 +15,24 @@ type TransformRegistry struct {
 	inputTypes  []payload.TransformType
 	outputTypes []payload.TransformType
 	operations  []payload.TransformOperation
-	cb          func(*hostcalls.Caller, interface{}) (interface{}, error)
+	cb          func(*hostcalls.InvocationInfo, interface{}) (interface{}, error)
 }
 
 var (
 	globalRegisteredTransform = []TransformRegistry{
 		{
-			name:        "chatgpt",
+			name:        "chat",
 			inputTypes:  []payload.TransformType{payload.TransformTypeText},
 			outputTypes: []payload.TransformType{payload.TransformTypeText},
 			operations:  []payload.TransformOperation{payload.TransformOperationLLM},
-			cb:          openai.ChatCompletion,
+			cb:          ChatCompletion,
+		},
+		{
+			name:        "embeddings",
+			inputTypes:  []payload.TransformType{payload.TransformTypeText},
+			outputTypes: []payload.TransformType{payload.TransformTypeVector},
+			operations:  []payload.TransformOperation{payload.TransformOperationEmbeddings},
+			cb:          openai.Embeddings,
 		},
 	}
 )
@@ -62,8 +69,8 @@ func isSubsetOperation(a, b []payload.TransformOperation) bool {
 	return true
 }
 
-func Transform(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
-	task := *(caller.Task)
+func Transform(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	task := *(inv.Task)
 	log.Infof("Executing hostcall \"%s\" with args %v for task %s",
 		payload.HostCallTransform, args, task.ID())
 	// convert args to TransformRequest
@@ -83,7 +90,7 @@ func Transform(caller *hostcalls.Caller, args interface{}) (interface{}, error) 
 		if isSubSetTransform(req.InputTypes, reg.inputTypes) &&
 			isSubSetTransform(req.OutputTypes, reg.outputTypes) &&
 			isSubsetOperation(req.Operations, reg.operations) {
-			return reg.cb(caller, req.Params)
+			return reg.cb(inv, req.Params)
 		}
 	}
 

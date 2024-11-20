@@ -16,18 +16,20 @@ type HostCall struct {
 	Handler HostCallHandler
 }
 
-type Caller struct {
-	Task *task.Task
+// invokation info
+type InvocationInfo struct {
+	Task    *task.Task
+	CommMgr *CommunicationManager
 }
 
 type RespChanData struct {
-	Resp   *rpc.JsonRPCResponse
-	Caller *Caller
+	Resp    *rpc.JsonRPCResponse
+	InvInfo *InvocationInfo
 }
 
 type ReqChanData struct {
-	Req    *rpc.JsonRPCRequest
-	Caller *Caller
+	Req     *rpc.JsonRPCRequest
+	InvInfo *InvocationInfo
 }
 
 // communication manager for hostcalls and guest responses
@@ -40,7 +42,7 @@ type CommunicationManager struct {
 	pendingRequestsMu sync.RWMutex
 }
 
-type HostCallHandler func(caller *Caller, args interface{}) (interface{}, error)
+type HostCallHandler func(inv *InvocationInfo, args interface{}) (interface{}, error)
 
 type HostCalls struct {
 	// map of hostcalls
@@ -70,21 +72,21 @@ func (h *HostCalls) Run() {
 	for {
 		entry := h.CommMgr.GetIncomingRequest()
 		req := entry.Req
-		caller := entry.Caller
+		inv := entry.InvInfo
 		if handler, ok := h.HCMap[*req.Method]; ok {
-			result, err := handler(caller, req.Params)
+			result, err := handler(inv, req.Params)
 			if err != nil {
 				log.Errorf("Error executing hostcall: %v", err)
 				// send error response
 				resp := req.CreateErrorResponse(1, err.Error(), nil)
-				if err := h.CommMgr.SendOutgoingJsonResponse(*caller.Task, resp); err != nil {
+				if err := h.CommMgr.SendOutgoingJsonResponse(*inv.Task, resp); err != nil {
 					log.Errorf("Error sending response: %v", err)
 				}
 			} else {
 				// send success response
 				log.Debugf("Hostcall success: %s", *req.Method)
 				resp := req.CreateSuccessResponse(result)
-				if err := h.CommMgr.SendOutgoingJsonResponse(*caller.Task, resp); err != nil {
+				if err := h.CommMgr.SendOutgoingJsonResponse(*inv.Task, resp); err != nil {
 					log.Errorf("Error sending response: %v", err)
 				}
 			}
@@ -92,7 +94,7 @@ func (h *HostCalls) Run() {
 			log.Errorf("Hostcall not found: %s", *req.Method)
 			// send error response
 			resp := req.CreateErrorResponse(2, "method not found", nil)
-			if err := h.CommMgr.SendOutgoingJsonResponse(*caller.Task, resp); err != nil {
+			if err := h.CommMgr.SendOutgoingJsonResponse(*inv.Task, resp); err != nil {
 				log.Errorf("Error sending response: %v", err)
 			}
 		}
@@ -126,8 +128,9 @@ func (c *CommunicationManager) InstallToTask(t task.Task) error {
 	c.outCh[t] = in
 
 	go func() {
-		caller := Caller{
-			Task: &t,
+		inv := InvocationInfo{
+			Task:    &t,
+			CommMgr: c,
 		}
 
 		for msg := range out {
@@ -138,8 +141,8 @@ func (c *CommunicationManager) InstallToTask(t task.Task) error {
 			if err := req.Unmarshal([]byte(msg)); err == nil {
 				log.Debugf("Hostcall received request: %s", *req.Method)
 				c.reqCh <- &ReqChanData{
-					Req:    req,
-					Caller: &caller,
+					Req:     req,
+					InvInfo: &inv,
 				}
 			} else {
 				resp := &rpc.JsonRPCResponse{}
@@ -165,8 +168,8 @@ func (c *CommunicationManager) InstallToTask(t task.Task) error {
 
 						// this is when we receive a response that is not a pending request
 						c.respCh <- &RespChanData{
-							Resp:   resp,
-							Caller: &caller,
+							Resp:    resp,
+							InvInfo: &inv,
 						}
 					}()
 				} else {
@@ -191,6 +194,7 @@ func (c *CommunicationManager) GetIncomingResponse() *RespChanData {
 
 func (c *CommunicationManager) SendOutgoingJsonResponse(t task.Task, resp *rpc.JsonRPCResponse) error {
 	if data, err := resp.Marshal(); err == nil {
+		// log.Debugf("Sending data: %v", string(data))
 		c.outCh[t] <- data
 		return nil
 	} else {
@@ -206,8 +210,18 @@ type requestCallback struct {
 	ts        time.Time
 }
 
+// automatically generate the id
+func (c *CommunicationManager) SendOutgoingRPCRequestCallback(t task.Task, method string, params interface{}, cb ResquestCallback) error {
+	req := rpc.NewJsonRPCRequest(method, params)
+	tmpId := json.Number(fmt.Sprintf("%d", t.NextRequestID()))
+	req.ID = &tmpId
+	return c.SendOutgoingJsonRequestCallback(t, req, cb)
+}
+
+// users need to specify the id in the request
 func (c *CommunicationManager) SendOutgoingJsonRequestCallback(t task.Task, req *rpc.JsonRPCRequest, cb func(*rpc.JsonRPCResponse) error) error {
 	if data, err := req.Marshal(); err == nil {
+		// log.Debugf("Sending data: %v", string(data))
 		c.outCh[t] <- data
 
 		// add to pending requests
@@ -223,6 +237,15 @@ func (c *CommunicationManager) SendOutgoingJsonRequestCallback(t task.Task, req 
 	return fmt.Errorf("error marshalling request")
 }
 
+// automatically generate the id
+func (c *CommunicationManager) SendOutgoingRPCRequest(t task.Task, method string, params interface{}) (*rpc.JsonRPCResponse, error) {
+	req := rpc.NewJsonRPCRequest(method, params)
+	tmpId := json.Number(fmt.Sprintf("%d", t.NextRequestID()))
+	req.ID = &tmpId
+	return c.SendOutgoingJsonRequest(t, req)
+}
+
+// users need to specify the id in the request
 func (c *CommunicationManager) SendOutgoingJsonRequest(t task.Task, req *rpc.JsonRPCRequest) (*rpc.JsonRPCResponse, error) {
 	ch := make(chan *rpc.JsonRPCResponse, 1)
 	if err := c.SendOutgoingJsonRequestCallback(t, req, func(resp *rpc.JsonRPCResponse) error {

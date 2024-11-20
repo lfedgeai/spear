@@ -33,9 +33,9 @@ func main() {
 	go hdl.Run()
 
 	// read json from stdin and write to stdout
-	chatMsg := openai.ChatCompletionRequest{
+	chatMsg := payload.ChatCompletionRequest{
 		Model: "gpt-4o",
-		Messages: []openai.ChatMessage{
+		Messages: []payload.ChatMessage{
 			{
 				Role:    "system",
 				Content: "Hello, how can I help you?",

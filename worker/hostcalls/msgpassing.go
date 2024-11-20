@@ -22,8 +22,8 @@ var (
 	globalRegisteredMessagePassing = map[string]MessagePassingRegistry{}
 )
 
-func MessagePassingRegister(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
-	task := *(caller.Task)
+func MessagePassingRegister(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	task := *(inv.Task)
 	log.Infof("Executing hostcall \"%s\" with args %v for task %s",
 		payload.HostCallMessagePassingRegister, args, task.ID())
 
@@ -49,8 +49,8 @@ func MessagePassingRegister(caller *hostcalls.Caller, args interface{}) (interfa
 	}, nil
 }
 
-func MessagePassingUnregister(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
-	task := *(caller.Task)
+func MessagePassingUnregister(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	task := *(inv.Task)
 	log.Infof("Executing hostcall \"%s\" with args %v for task %s",
 		payload.HostCallMessagePassingUnregister, args, task.ID())
 
@@ -83,8 +83,8 @@ func MessagePassingUnregister(caller *hostcalls.Caller, args interface{}) (inter
 	}, nil
 }
 
-func MessagePassingLookup(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
-	task := *(caller.Task)
+func MessagePassingLookup(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	task := *(inv.Task)
 	log.Infof("Executing hostcall \"%s\" with args %v for task %s",
 		payload.HostCallMessagePassingLookup, args, task.ID())
 
@@ -107,8 +107,8 @@ func MessagePassingLookup(caller *hostcalls.Caller, args interface{}) (interface
 	return nil, fmt.Errorf("message passing name not found")
 }
 
-func MessagePassingSend(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
-	task := *(caller.Task)
+func MessagePassingSend(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	task := *(inv.Task)
 	log.Infof("Executing hostcall \"%s\" with args %v for task %s",
 		payload.HostCallMessagePassingSend, args, task.ID())
 

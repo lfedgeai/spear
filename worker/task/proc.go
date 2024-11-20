@@ -20,6 +20,8 @@ type ProcessTask struct {
 	result *error
 	// a channel for the termination signal
 	done chan struct{}
+
+	reqId uint64
 }
 
 func (p *ProcessTask) ID() TaskID {
@@ -80,6 +82,11 @@ func (p *ProcessTask) Wait() (int, error) {
 	return 0, nil
 }
 
+func (p *ProcessTask) NextRequestID() uint64 {
+	p.reqId++
+	return p.reqId
+}
+
 func NewProcessTask(cfg *TaskConfig) *ProcessTask {
 	return &ProcessTask{
 		name:   cfg.Name,
@@ -88,5 +95,6 @@ func NewProcessTask(cfg *TaskConfig) *ProcessTask {
 		status: TaskStatusInit,
 		result: nil,
 		done:   make(chan struct{}),
+		reqId:  0,
 	}
 }

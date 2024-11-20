@@ -6,6 +6,7 @@ from enum import IntEnum
 from typing import Any
 
 from dataclasses_json import dataclass_json
+from typing import Optional
 
 
 
@@ -49,6 +50,29 @@ class TransformRequest:
 
 @dataclass_json
 @dataclass
+class ChatToolCallFunction:
+    """
+    The function object for the chat hostcall.
+    """
+
+    name: str
+    arguments: str
+
+
+@dataclass_json
+@dataclass
+class ChatToolCall:
+    """
+    The tool call object for the chat hostcall.
+    """
+
+    id : str
+    type: str
+    function: ChatToolCallFunction
+
+
+@dataclass_json
+@dataclass
 class ChatMessage:
     """
     The message object for the chat hostcall.
@@ -56,6 +80,7 @@ class ChatMessage:
 
     role: str
     content: str
+    tool_calls: Optional[list[ChatToolCall]] = None
 
 
 @dataclass_json

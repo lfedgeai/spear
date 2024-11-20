@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lfedgeai/spear/pkg/rpc"
+	"github.com/lfedgeai/spear/pkg/rpc/payload"
 	"github.com/lfedgeai/spear/pkg/rpc/payload/openai"
 
 	log "github.com/sirupsen/logrus"
@@ -92,9 +93,9 @@ func main() {
 }
 
 func getTextResponse(str string) (string, error) {
-	chatMsg := openai.ChatCompletionRequest{
+	chatMsg := payload.ChatCompletionRequest{
 		Model: "gpt-4o",
-		Messages: []openai.ChatMessage{
+		Messages: []payload.ChatMessage{
 			{
 				Role:    "user",
 				Content: str,
@@ -110,7 +111,7 @@ func getTextResponse(str string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("error marshalling response: %v", err)
 		}
-		chatResp := openai.ChatCompletionResponse{}
+		chatResp := payload.ChatCompletionResponse{}
 		err = chatResp.Unmarshal(jsonBytes)
 		if err != nil {
 			return "", fmt.Errorf("error unmarshalling response: %v", err)

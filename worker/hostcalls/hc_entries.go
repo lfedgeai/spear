@@ -13,17 +13,21 @@ var Hostcalls = []*hostcalls.HostCall{
 		Handler: Transform,
 	},
 	{
-		Name:    payload.HostCallNewTool,
+		Name:    payload.HostCallToolNew,
 		Handler: NewTool,
 	},
 	{
-		Name:    payload.HostCallNewToolset,
+		Name:    payload.HostCallToolsetNew,
 		Handler: NewToolset,
+	},
+	{
+		Name:    payload.HostCallToolsetInstallBuiltins,
+		Handler: ToolsetInstallBuiltins,
 	},
 	// chat operations
 	{
 		Name:    openai.HostCallChatCompletion,
-		Handler: openaihc.ChatCompletion,
+		Handler: ChatCompletion,
 	},
 	// text to speech operations
 	{

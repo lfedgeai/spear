@@ -79,6 +79,8 @@ func (d *DockerTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 		secret:    secretGenerated,
 		conn:      nil,
 		connReady: make(chan struct{}),
+
+		reqId: 0,
 	}
 
 	// store the task

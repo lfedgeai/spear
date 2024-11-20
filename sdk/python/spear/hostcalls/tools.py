@@ -14,7 +14,6 @@ class NewToolParams:
     type: str
     description: str
     required: bool
-    cb: str
 
 @dataclass_json
 @dataclass
@@ -25,6 +24,7 @@ class NewToolRequest:
     name: str
     description: str
     params: list[NewToolParams]
+    cb: str
 
 @dataclass_json
 @dataclass
@@ -32,7 +32,7 @@ class NewToolResponse:
     """
     The response object for the newtool hostcall.
     """
-    tid: str
+    tool_id: str
 
 @dataclass_json
 @dataclass
@@ -51,4 +51,20 @@ class NewToolsetResponse:
     """
     The response object for the newtoolset hostcall.
     """
-    tsid: str
+    toolset_id: str
+
+@dataclass_json
+@dataclass
+class ToolsetInstallBuiltinsRequest:
+    """
+    The request object for the toolset.install_builtins hostcall.
+    """
+    toolset_id: str
+
+@dataclass_json
+@dataclass
+class ToolsetInstallBuiltinsResponse:
+    """
+    The response object for the toolset.install_builtins hostcall.
+    """
+    toolset_id: str

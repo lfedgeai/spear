@@ -2,9 +2,11 @@
 import argparse
 import logging
 import sys
+import json
 
 import spear.client as client
 import spear.hostcalls.tools as tools
+import spear.hostcalls.transform as tf
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the desired logging level
@@ -28,6 +30,12 @@ def parse_args():
     args = argparser.parse_args()
     return args.service_addr, args.secret
 
+def sendemail(params):
+    """
+    send email
+    """
+    logger.info("Sending email: %s", params)
+    return "done"
 
 def handle(params):
     """
@@ -35,33 +43,31 @@ def handle(params):
     """
     logger.info("Handling request: %s", params)
     resp = agent.exec_request(
-        "newtool",
+        "tool.new",
         tools.NewToolRequest(
             name="sendmail",
             description="Tools for sending email",
             params=[
                 tools.NewToolParams(
                     name="to",
-                    type="str",
+                    type="string",
                     description="The email address to send to",
                     required=True,
-                    cb="sendmail",
                 ),
                 tools.NewToolParams(
                     name="subject",
-                    type="str",
+                    type="string",
                     description="The subject of the email",
                     required=True,
-                    cb="sendmail",
                 ),
                 tools.NewToolParams(
                     name="message",
-                    type="str",
+                    type="string",
                     description="The message of the email",
                     required=True,
-                    cb="sendmail",
                 ),
             ],
+            cb="sendmail",
         ),
     )
 
@@ -77,18 +83,57 @@ def handle(params):
         return "Unknown error"
     
     resp = agent.exec_request(
-        "newtoolset",
+        "toolset.new",
         tools.NewToolsetRequest(
             name="toolset",
             description="Toolset for sending email",
-            tool_ids=[toolid.tid],
+            tool_ids=[toolid.tool_id],
+        ),
+    )
+    
+    toolsetid = None
+    if isinstance(resp, client.JsonRpcOkResp):
+        logger.info("Toolset created with id: %s", resp.result)
+        resp = tools.NewToolsetResponse.schema().load(resp.result)
+        toolsetid = resp.toolset_id
+    elif isinstance(resp, client.JsonRpcErrorResp):
+        return resp.message
+    else:
+        return "Unknown error"
+    
+    resp = agent.exec_request(
+        "toolset.install.builtins",
+        tools.ToolsetInstallBuiltinsRequest(
+            toolset_id=toolsetid,
+        ),
+    )
+    if isinstance(resp, client.JsonRpcOkResp):
+        logger.info("Builtin tools installed with id: %s", resp.result)
+    elif isinstance(resp, client.JsonRpcErrorResp):
+        agent.stop()
+        return resp.message
+    else:
+        agent.stop()
+        return "Unknown error"
+
+    resp = agent.exec_request(
+        "transform",
+        tf.TransformRequest(
+            input_types=[tf.TransformType.TEXT],
+            output_types=[tf.TransformType.TEXT],
+            operations=[tf.TransformOperation.LLM],
+            params={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": params}],
+                "toolset_id": toolsetid,
+            },
         ),
     )
     
     agent.stop()
     if isinstance(resp, client.JsonRpcOkResp):
-        logger.info("Toolset created with id: %s", resp.result)
-        return tools.NewToolsetResponse.schema().load(resp.result)
+        resp = tf.TransformResponse.schema().load(resp.result)
+        return resp
     elif isinstance(resp, client.JsonRpcErrorResp):
         return resp.message
     else:
@@ -98,4 +143,5 @@ def handle(params):
 if __name__ == "__main__":
     addr, secret = parse_args()
     agent.register_handler("handle", handle)
+    agent.register_handler("sendmail", sendemail)
     agent.run(addr, secret)

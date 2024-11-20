@@ -62,6 +62,8 @@ type Task interface {
 	CommChannels() (chan Message, chan Message, error)
 	// wait for task to finish
 	Wait() (int, error)
+	// next request id
+	NextRequestID() uint64
 }
 
 // interface for taskruntime

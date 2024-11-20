@@ -11,11 +11,13 @@ const (
 	TransformTypeAudio
 	TransformTypeVideo
 	TransformTypeTensor
+	TransformTypeVector
 	TransformTypeUnknown
 )
 
 const (
 	TransformOperationLLM TransformOperation = iota
+	TransformOperationEmbeddings
 	TransformOperationOCR
 	TransformOperationTextToSpeech
 	TransformOperationSpeechToText

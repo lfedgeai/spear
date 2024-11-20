@@ -3,8 +3,12 @@ package hostcalls
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/twilio/twilio-go"
+	twilioApi "github.com/twilio/twilio-go/rest/api/v2010"
 
 	"github.com/lfedgeai/spear/pkg/rpc/payload"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
@@ -14,18 +18,20 @@ import (
 
 type ToolId string
 type ToolsetId string
+type BuiltInToolCbFunc func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error)
 
 type ToolParam struct {
 	ptype       string
 	description string
 	required    bool
-	cb          string
 }
 
 type ToolRegistry struct {
 	name        string
 	description string
 	params      map[string]ToolParam
+	cb          string
+	cbBuiltIn   BuiltInToolCbFunc
 }
 
 type ToolsetRegistry struct {
@@ -36,10 +42,61 @@ type ToolsetRegistry struct {
 var (
 	globalTaskTools    = map[task.TaskID]map[ToolId]ToolRegistry{}
 	globalTaskToolsets = map[task.TaskID]map[ToolsetId]ToolsetRegistry{}
+
+	twilioAccountSid = os.Getenv("TWILIO_ACCOUNT_SID")
+	twilioApiSecret  = os.Getenv("TWILIO_AUTH_TOKEN")
+	twilioFrom       = os.Getenv("TWILIO_FROM")
+
+	builtinTools = []ToolRegistry{
+		{
+			name:        "datetime",
+			description: "Get current date and time",
+			params:      map[string]ToolParam{},
+			cb:          "",
+			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+				return time.Now().Format(time.RFC3339), nil
+			},
+		},
+		{
+			name:        "phone_call",
+			description: "Call a phone number and play a message",
+			params: map[string]ToolParam{
+				"phone_number": {
+					ptype:       "string",
+					description: "Phone number to send SMS to",
+					required:    true,
+				},
+				"message": {
+					ptype:       "string",
+					description: "Message to send, in TwiML format",
+					required:    true,
+				},
+			},
+			cb: "",
+			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+				if twilioAccountSid == "" || twilioApiSecret == "" {
+					return nil, fmt.Errorf("twilio credentials not set")
+				}
+				client := twilio.NewRestClientWithParams(twilio.ClientParams{
+					Username: twilioAccountSid,
+					Password: twilioApiSecret,
+				})
+				params := &twilioApi.CreateCallParams{}
+				params.SetTo(args.(map[string]interface{})["phone_number"].(string))
+				params.SetFrom(twilioFrom)
+				params.SetTwiml(args.(map[string]interface{})["message"].(string))
+				_, err := client.Api.CreateCall(params)
+				if err != nil {
+					return nil, err
+				}
+				return fmt.Sprintf("Call to %s successful", args.(map[string]interface{})["phone_number"].(string)), nil
+			},
+		},
+	}
 )
 
-func NewTool(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
-	task := *(caller.Task)
+func NewTool(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	task := *(inv.Task)
 	log.Debugf("NewTool called from task [%s]", task.Name())
 	taskId := task.ID()
 
@@ -66,6 +123,8 @@ func NewTool(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
 		name:        req.Name,
 		description: req.Description,
 		params:      make(map[string]ToolParam),
+		cb:          req.Cb,
+		cbBuiltIn:   nil,
 	}
 
 	for _, param := range req.Params {
@@ -73,7 +132,6 @@ func NewTool(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
 			ptype:       param.Type,
 			description: param.Description,
 			required:    param.Required,
-			cb:          param.Cb,
 		}
 	}
 
@@ -82,8 +140,8 @@ func NewTool(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
 	}, nil
 }
 
-func NewToolset(caller *hostcalls.Caller, args interface{}) (interface{}, error) {
-	task := *(caller.Task)
+func NewToolset(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	task := *(inv.Task)
 	log.Debugf("NewToolset called from task [%s]", task.Name())
 
 	// args is a NewToolsetRequest
@@ -125,24 +183,84 @@ func NewToolset(caller *hostcalls.Caller, args interface{}) (interface{}, error)
 	}, nil
 }
 
-func GetToolset(task task.Task, tsid ToolsetId) (ToolsetRegistry, error) {
+func ToolsetInstallBuiltins(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	task := *(inv.Task)
+	log.Debugf("ToolsetInstallBuiltins called from task [%s]", task.Name())
+
+	// args is a ToolsetInstallBuiltinsRequest
+	jsonBytes, err := json.Marshal(args)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &payload.ToolsetInstallBuiltinsRequest{}
+	err = req.Unmarshal(jsonBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	// check if task exists
 	taskId := task.ID()
 	if _, ok := globalTaskToolsets[taskId]; !ok {
-		return ToolsetRegistry{}, fmt.Errorf("task has no toolsets")
+		globalTaskToolsets[taskId] = make(map[ToolsetId]ToolsetRegistry)
 	}
-	if _, ok := globalTaskToolsets[taskId][tsid]; !ok {
-		return ToolsetRegistry{}, fmt.Errorf("toolset with id %s does not exist", tsid)
+
+	// install builtinTools to task
+	tids := []ToolId{}
+	for _, tool := range builtinTools {
+		tid := ToolId(uuid.New().String())
+		globalTaskTools[taskId][tid] = tool
+		tids = append(tids, tid)
 	}
-	return globalTaskToolsets[taskId][tsid], nil
+
+	tsid := req.Tsid
+	// add builtinTools to toolset
+	if toolset, ok := globalTaskToolsets[taskId][ToolsetId(tsid)]; !ok {
+		return nil, fmt.Errorf("toolset with id %s does not exist", tsid)
+	} else {
+		toolset.toolsIds = append(toolset.toolsIds, tids...)
+		globalTaskToolsets[taskId][ToolsetId(tsid)] = toolset
+	}
+
+	return &payload.ToolsetInstallBuiltinsResponse{
+		Tsid: tsid,
+	}, nil
 }
 
-func GetTool(task task.Task, tid ToolId) (ToolRegistry, error) {
+func GetToolset(task task.Task, tsid ToolsetId) (*ToolsetRegistry, bool) {
+	taskId := task.ID()
+	if _, ok := globalTaskToolsets[taskId]; !ok {
+		return nil, false
+	}
+	if _, ok := globalTaskToolsets[taskId][tsid]; !ok {
+		return nil, false
+	}
+	res := globalTaskToolsets[taskId][tsid]
+	return &res, true
+}
+
+func GetToolById(task task.Task, tid ToolId) (*ToolRegistry, bool) {
 	taskId := task.ID()
 	if _, ok := globalTaskTools[taskId]; !ok {
-		return ToolRegistry{}, fmt.Errorf("task has no tools")
+		return nil, false
 	}
 	if _, ok := globalTaskTools[taskId][tid]; !ok {
-		return ToolRegistry{}, fmt.Errorf("tool with id %s does not exist", tid)
+		return nil, false
 	}
-	return globalTaskTools[taskId][tid], nil
+	res := globalTaskTools[taskId][tid]
+	return &res, true
+}
+
+func GetToolByName(task task.Task, name string) (*ToolRegistry, bool) {
+	taskId := task.ID()
+	if _, ok := globalTaskTools[taskId]; !ok {
+		return nil, false
+	}
+	for tid, tool := range globalTaskTools[taskId] {
+		if tool.name == name {
+			toolreg := globalTaskTools[taskId][tid]
+			return &toolreg, true
+		}
+	}
+	return nil, false
 }

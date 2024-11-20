@@ -7,17 +7,17 @@ type NewToolParam struct {
 	Type        string `json:"type"`
 	Description string `json:"description"`
 	Required    bool   `json:"required"`
-	Cb          string `json:"cb"`
 }
 
 type NewToolRequest struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	Params      []NewToolParam `json:"params"`
+	Cb          string         `json:"cb"`
 }
 
 type NewToolResponse struct {
-	Tid string `json:"tid"`
+	Tid string `json:"tool_id"`
 }
 
 type NewToolsetRequest struct {
@@ -27,7 +27,15 @@ type NewToolsetRequest struct {
 }
 
 type NewToolsetResponse struct {
-	Tsid string `json:"tsid"`
+	Tsid string `json:"toolset_id"`
+}
+
+type ToolsetInstallBuiltinsRequest struct {
+	Tsid string `json:"toolset_id"`
+}
+
+type ToolsetInstallBuiltinsResponse struct {
+	Tsid string `json:"toolset_id"`
 }
 
 func (r *NewToolRequest) Marshal() ([]byte, error) {
@@ -59,5 +67,21 @@ func (r *NewToolsetRequest) Unmarshal(data []byte) error {
 }
 
 func (r *NewToolsetResponse) Unmarshal(data []byte) error {
+	return json.Unmarshal(data, r)
+}
+
+func (r *ToolsetInstallBuiltinsRequest) Marshal() ([]byte, error) {
+	return json.Marshal(r)
+}
+
+func (r *ToolsetInstallBuiltinsResponse) Marshal() ([]byte, error) {
+	return json.Marshal(r)
+}
+
+func (r *ToolsetInstallBuiltinsRequest) Unmarshal(data []byte) error {
+	return json.Unmarshal(data, r)
+}
+
+func (r *ToolsetInstallBuiltinsResponse) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, r)
 }

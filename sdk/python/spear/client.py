@@ -267,7 +267,7 @@ class HostAgent(object):
         """
         finalize the data and add it to the outgoing queue
         """
-        logger.debug("Putting response data to queue: %s", str(obj))
+        logger.debug("Putting raw data to queue: %s", str(obj))
         json_data = json.dumps(obj, ensure_ascii=False, cls=hc.EnhancedJSONEncoder)
         self._send_queue.put(json_data)
 
@@ -361,14 +361,13 @@ class HostAgent(object):
 
         def send_data():
             while not self._send_queue.empty():
-                data = self._send_queue.get()
+                strdata = self._send_queue.get()
+                data = strdata.encode("utf-8")
+                # get the length of utf8 string
                 length = len(data)
                 lendata = length.to_bytes(8, byteorder="little")
                 # send the length of the data
                 self._client.sendall(lendata)
-                # send the data
-                if isinstance(data, str):
-                    data = data.encode("utf-8")
                 logger.info("Sending Data: %s", data)
                 self._client.sendall(data)
 
