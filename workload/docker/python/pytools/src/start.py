@@ -3,6 +3,7 @@ import argparse
 import logging
 import sys
 import json
+import time
 
 import spear.client as client
 import spear.hostcalls.tools as tools
@@ -30,12 +31,15 @@ def parse_args():
     args = argparser.parse_args()
     return args.service_addr, args.secret
 
-def sendemail(params):
+
+def sleep(params):
     """
-    send email
+    sleep for a given number of seconds
     """
-    logger.info("Sending email: %s", params)
+    logger.info("Sleeping for %s seconds", params["seconds"])
+    time.sleep(params["seconds"])    
     return "done"
+
 
 def handle(params):
     """
@@ -45,29 +49,17 @@ def handle(params):
     resp = agent.exec_request(
         "tool.new",
         tools.NewToolRequest(
-            name="sendmail",
-            description="Tools for sending email",
+            name="sleep",
+            description="Tools for sleeping for a given number of seconds",
             params=[
                 tools.NewToolParams(
-                    name="to",
-                    type="string",
-                    description="The email address to send to",
-                    required=True,
-                ),
-                tools.NewToolParams(
-                    name="subject",
-                    type="string",
-                    description="The subject of the email",
-                    required=True,
-                ),
-                tools.NewToolParams(
-                    name="message",
-                    type="string",
-                    description="The message of the email",
+                    name="seconds",
+                    type="integer",
+                    description="Seconds to sleep",
                     required=True,
                 ),
             ],
-            cb="sendmail",
+            cb="sleep",
         ),
     )
 
@@ -81,7 +73,7 @@ def handle(params):
     else:
         agent.stop()
         return "Unknown error"
-    
+
     resp = agent.exec_request(
         "toolset.new",
         tools.NewToolsetRequest(
@@ -90,7 +82,7 @@ def handle(params):
             tool_ids=[toolid.tool_id],
         ),
     )
-    
+
     toolsetid = None
     if isinstance(resp, client.JsonRpcOkResp):
         logger.info("Toolset created with id: %s", resp.result)
@@ -100,7 +92,7 @@ def handle(params):
         return resp.message
     else:
         return "Unknown error"
-    
+
     resp = agent.exec_request(
         "toolset.install.builtins",
         tools.ToolsetInstallBuiltinsRequest(
@@ -129,7 +121,7 @@ def handle(params):
             },
         ),
     )
-    
+
     agent.stop()
     if isinstance(resp, client.JsonRpcOkResp):
         resp = tf.TransformResponse.schema().load(resp.result)
@@ -143,5 +135,5 @@ def handle(params):
 if __name__ == "__main__":
     addr, secret = parse_args()
     agent.register_handler("handle", handle)
-    agent.register_handler("sendmail", sendemail)
+    agent.register_handler("sleep", sleep)
     agent.run(addr, secret)

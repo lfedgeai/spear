@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/google/uuid"
@@ -55,6 +56,46 @@ var (
 			cb:          "",
 			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 				return time.Now().Format(time.RFC3339), nil
+			},
+		},
+		{
+			name:        "compose_email",
+			description: "Compose an email",
+			params: map[string]ToolParam{
+				"to": {
+					ptype:       "string",
+					description: "Email address to send email to",
+					required:    true,
+				},
+				"subject": {
+					ptype:       "string",
+					description: "Subject of the email",
+					required:    true,
+				},
+				"body": {
+					ptype:       "string",
+					description: "Body of the email",
+					required:    true,
+				},
+			},
+			cb: "",
+			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+				// use apple script to open mail app and compose email
+				script := `tell application "Mail"
+					set theSubject to "` + args.(map[string]interface{})["subject"].(string) + `"
+					set theContent to "` + args.(map[string]interface{})["body"].(string) + `"
+					set theAddress to "` + args.(map[string]interface{})["to"].(string) + `"
+					set theMessage to make new outgoing message with properties {subject:theSubject, content:theContent, visible:true}
+					tell theMessage
+						make new to recipient at end of to recipients with properties {address:theAddress}
+					end tell
+					activate
+				end tell`
+				_, err := exec.Command("osascript", "-e", script).Output()
+				if err != nil {
+					return nil, err
+				}
+				return fmt.Sprintf("Email to %s composed successfully", args.(map[string]interface{})["to"].(string)), nil
 			},
 		},
 		{
