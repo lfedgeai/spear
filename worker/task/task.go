@@ -39,6 +39,8 @@ const (
 // global task runtimes
 var (
 	globalTaskRuntimes = make(map[TaskType]TaskRuntime)
+
+	supportedTaskTypes = []TaskType{}
 )
 
 // message type []bytes
@@ -89,33 +91,55 @@ func (w *WasmTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 }
 
 type TaskRuntimeConfig struct {
-	Debug bool
+	Debug         bool
+	Cleanup       bool
+	StartServices bool
+}
+
+// initialize task runtimes
+func InitTaskRuntimes(cfg *TaskRuntimeConfig) {
+	if len(supportedTaskTypes) == 0 {
+		panic("no supported task types")
+	}
+	for _, taskType := range supportedTaskTypes {
+		switch taskType {
+		case TaskTypeDocker:
+			rt, err := NewDockerTaskRuntime(cfg)
+			if err != nil {
+				panic(err)
+			}
+			globalTaskRuntimes[TaskTypeDocker] = rt
+		case TaskTypeProcess:
+			globalTaskRuntimes[TaskTypeProcess] = NewProcessTaskRuntime()
+		case TaskTypeDylib:
+			globalTaskRuntimes[TaskTypeDylib] = &DylibTaskRuntime{}
+		case TaskTypeWasm:
+			globalTaskRuntimes[TaskTypeWasm] = &WasmTaskRuntime{}
+		default:
+			panic("invalid task type")
+		}
+	}
+}
+
+// register task runtime
+func RegisterSupportedTaskType(taskType TaskType) {
+	supportedTaskTypes = append(supportedTaskTypes, taskType)
+}
+
+// unregister task runtime
+func UnregisterSupportedTaskType(taskType TaskType) {
+	for i, t := range supportedTaskTypes {
+		if t == taskType {
+			supportedTaskTypes = append(supportedTaskTypes[:i], supportedTaskTypes[i+1:]...)
+			return
+		}
+	}
 }
 
 // factory method for TaskRuntime
-func GetTaskRuntime(taskType TaskType, cfg *TaskRuntimeConfig) (TaskRuntime, error) {
+func GetTaskRuntime(taskType TaskType) (TaskRuntime, error) {
 	if rt, ok := globalTaskRuntimes[taskType]; ok {
 		return rt, nil
 	}
-
-	var rt TaskRuntime
-	var err error
-	switch taskType {
-	case TaskTypeDocker:
-		rt, err = NewDockerTaskRuntime(cfg)
-		if err != nil {
-			return nil, err
-		}
-	case TaskTypeProcess:
-		rt = NewProcessTaskRuntime()
-	case TaskTypeDylib:
-		rt = &DylibTaskRuntime{}
-	case TaskTypeWasm:
-		rt = &WasmTaskRuntime{}
-	default:
-		return nil, fmt.Errorf("invalid task type")
-	}
-
-	globalTaskRuntimes[taskType] = rt
-	return rt, nil
+	return nil, fmt.Errorf("task runtime not found")
 }

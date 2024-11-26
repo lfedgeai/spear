@@ -59,8 +59,27 @@ var (
 			},
 		},
 		{
-			name:        "compose_email",
-			description: "Compose an email",
+			name:        "user_input",
+			description: "Get user input",
+			params: map[string]ToolParam{
+				"message": {
+					ptype:       "string",
+					description: "Message to show to user",
+					required:    true,
+				},
+			},
+			cb: "",
+			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+				fmt.Println(args.(map[string]interface{})["message"])
+				var response string
+				fmt.Scanln(&response)
+				return response, nil
+			},
+		},
+		{
+			name: "send_email",
+			description: `Compose an email, get user's confirmation. If yes, send it out. 
+			It should not have any placeholders.`,
 			params: map[string]ToolParam{
 				"to": {
 					ptype:       "string",
@@ -81,15 +100,17 @@ var (
 			cb: "",
 			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 				// use apple script to open mail app and compose email
-				script := `tell application "Mail"
-					set theSubject to "` + args.(map[string]interface{})["subject"].(string) + `"
-					set theContent to "` + args.(map[string]interface{})["body"].(string) + `"
-					set theAddress to "` + args.(map[string]interface{})["to"].(string) + `"
-					set theMessage to make new outgoing message with properties {subject:theSubject, content:theContent, visible:true}
-					tell theMessage
-						make new to recipient at end of to recipients with properties {address:theAddress}
-					end tell
+				script := `tell application "Microsoft Outlook"
 					activate
+					set newMessage to make new outgoing message with properties {subject:"` + args.(map[string]interface{})["subject"].(string) + `", content:"` + args.(map[string]interface{})["body"].(string) + `"}
+					make new recipient at newMessage with properties {email address:{address:"` + args.(map[string]interface{})["to"].(string) + `"}}
+					open newMessage
+					-- ask user confirmation to send email
+					display dialog "Do you want to send the email?" buttons {"Yes", "No"} default button "No"
+					-- send email
+					if button returned of result is "Yes" then
+						send newMessage
+					end if
 				end tell`
 				_, err := exec.Command("osascript", "-e", script).Output()
 				if err != nil {

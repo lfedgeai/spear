@@ -124,9 +124,9 @@ func NewTestSetup() *TestSetup {
 	t.startVectorStoreContainer()
 
 	// setup the test environment
-	cfg := worker.NewWorkerConfig("localhost", "8080", []string{}, true)
+	cfg := worker.NewServeWorkerConfig("localhost", "8080", []string{}, true)
 	t.w = worker.NewWorker(cfg)
-	t.w.Init()
+	t.w.Initialize()
 	go t.w.Run()
 	time.Sleep(5 * time.Second)
 	return t

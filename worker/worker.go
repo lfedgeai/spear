@@ -30,7 +30,8 @@ type WorkerConfig struct {
 	SearchPath []string
 
 	// Debug
-	Debug bool
+	Debug          bool
+	LocalExecution bool
 }
 
 type Worker struct {
@@ -85,13 +86,23 @@ var (
 	}
 )
 
-// NewWorkerConfig creates a new WorkerConfig
-func NewWorkerConfig(addr, port string, spath []string, debug bool) *WorkerConfig {
+// NewServeWorkerConfig creates a new WorkerConfig
+func NewServeWorkerConfig(addr, port string, spath []string, debug bool) *WorkerConfig {
 	return &WorkerConfig{
-		Addr:       addr,
-		Port:       port,
-		SearchPath: spath,
-		Debug:      debug,
+		Addr:           addr,
+		Port:           port,
+		SearchPath:     spath,
+		Debug:          debug,
+		LocalExecution: false,
+	}
+}
+
+func NewExecWorkerConfig(debug bool) *WorkerConfig {
+	return &WorkerConfig{
+		Addr:           "",
+		Port:           "",
+		Debug:          debug,
+		LocalExecution: true,
 	}
 }
 
@@ -104,19 +115,28 @@ func NewWorker(cfg *WorkerConfig) *Worker {
 	}
 	hc := hostcalls.NewHostCalls(w.commMgr)
 	w.hc = hc
-	go hc.Run()
 	return w
 }
 
-func (w *Worker) Init() {
+func (w *Worker) Initialize() {
 	w.addRoutes()
 	w.addHostCalls()
+	w.initializeRuntimes()
+	go w.hc.Run()
 }
 
 func (w *Worker) addHostCalls() {
 	for _, hc := range hc.Hostcalls {
 		w.hc.RegisterHostCall(hc)
 	}
+}
+
+func (w *Worker) initializeRuntimes() {
+	cfg := &task.TaskRuntimeConfig{
+		Debug: w.cfg.Debug,
+	}
+	task.RegisterSupportedTaskType(task.TaskTypeDocker)
+	task.InitTaskRuntimes(cfg)
 }
 
 func funcAsync(req *http.Request) (bool, error) {
@@ -184,6 +204,60 @@ func funcType(req *http.Request) (task.TaskType, error) {
 	}
 }
 
+func (w *Worker) ExecuteTask(taskId int64, funcType task.TaskType, funcIsAsync bool, method string, data string) (string, error) {
+	rt, err := task.GetTaskRuntime(funcType)
+	if err != nil {
+		return "", fmt.Errorf("error: %v", err)
+	}
+
+	// get metadata from taskId
+	meta, ok := tmpMetaData[int(taskId)]
+	if !ok {
+		return "", fmt.Errorf("error: invalid task id: %d", taskId)
+	}
+	if meta.Type != funcType {
+		return "", fmt.Errorf("error: invalid task type: %d", funcType)
+	}
+
+	randSrc := rand.NewSource(time.Now().UnixNano())
+	randGen := rand.New(randSrc)
+	newTask, err := rt.CreateTask(&task.TaskConfig{
+		Name:  fmt.Sprintf("task-%s-%d", meta.Name, randGen.Intn(10000)),
+		Cmd:   "/start", //"sh", //"./dummy_task",
+		Args:  []string{},
+		Image: meta.Image,
+	})
+	if err != nil {
+		return "", fmt.Errorf("error: %v", err)
+	}
+	err = w.commMgr.InstallToTask(newTask)
+	if err != nil {
+		return "", fmt.Errorf("error: %v", err)
+	}
+
+	log.Debugf("Starting task: %s", newTask.Name())
+	newTask.Start()
+
+	res := ""
+	if r, err := w.commMgr.SendOutgoingRPCRequest(newTask, method, data); err != nil {
+		return "", fmt.Errorf("error: %v", err)
+	} else {
+		// marshal the result
+		if resTmp, err := json.Marshal(r.Result); err != nil {
+			return "", fmt.Errorf("error: %v", err)
+		} else {
+			res = string(resTmp)
+		}
+	}
+
+	if !funcIsAsync {
+		// wait for the task to finish
+		newTask.Wait()
+	}
+
+	return res, nil
+}
+
 func (w *Worker) addRoutes() {
 	w.mux.HandleFunc("/health", func(resp http.ResponseWriter, req *http.Request) {
 		resp.Write([]byte("OK"))
@@ -210,49 +284,6 @@ func (w *Worker) addRoutes() {
 			return
 		}
 
-		rt, err := task.GetTaskRuntime(funcType, &task.TaskRuntimeConfig{
-			Debug: w.cfg.Debug,
-		})
-		if err != nil {
-			respError(resp, fmt.Sprintf("Error: %v", err))
-			return
-		}
-
-		// get metadata from taskId
-		// TODO: implement me later
-		meta, ok := tmpMetaData[int(taskId)]
-		if !ok {
-			respError(resp, fmt.Sprintf("Error: invalid task id: %d", taskId))
-			return
-		}
-		if meta.Type != funcType {
-			respError(resp, fmt.Sprintf("Error: invalid task type: %d", funcType))
-			return
-		}
-
-		randSrc := rand.NewSource(time.Now().UnixNano())
-		randGen := rand.New(randSrc)
-		newTask, err := rt.CreateTask(&task.TaskConfig{
-			Name:  fmt.Sprintf("task-%s-%d", meta.Name, randGen.Intn(10000)),
-			Cmd:   "/start", //"sh", //"./dummy_task",
-			Args:  []string{},
-			Image: meta.Image,
-		})
-		if err != nil {
-			respError(resp, fmt.Sprintf("Error: %v", err))
-			return
-		}
-		err = w.commMgr.InstallToTask(newTask)
-		if err != nil {
-			respError(resp, fmt.Sprintf("Error: %v", err))
-			return
-		}
-
-		log.Debugf("Starting task: %s", newTask.Name())
-		newTask.Start()
-
-		// write to the input channel
-		// read the body
 		buf := make([]byte, common.MaxDataResponseSize)
 		n, err := req.Body.Read(buf)
 		if err != nil && err != io.EOF {
@@ -260,23 +291,7 @@ func (w *Worker) addRoutes() {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
-
-		if r, err := w.commMgr.SendOutgoingRPCRequest(newTask, "handle", string(buf[:n])); err != nil {
-			log.Errorf("Error sending \"handle\" rpc request: %v, %v", err)
-			respError(resp, fmt.Sprintf("Error: %v", err))
-			return
-		} else {
-			if err = json.NewEncoder(resp).Encode(r.Result); err != nil {
-				log.Errorf("Error encoding response: %v", err)
-				respError(resp, fmt.Sprintf("Error: %v", err))
-				return
-			}
-		}
-
-		if !funcIsAsync {
-			// wait for the task to finish
-			newTask.Wait()
-		}
+		w.ExecuteTask(taskId, funcType, funcIsAsync, "handle", string(buf[:n]))
 		// TODO: support waiting for instance to finish
 	})
 }

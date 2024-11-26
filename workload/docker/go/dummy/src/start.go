@@ -1,8 +1,12 @@
 package main
 
 import (
+	"encoding/binary"
+	"flag"
 	"fmt"
-	"os"
+	"io"
+	"net"
+	"strconv"
 	"time"
 
 	// flags support
@@ -15,6 +19,46 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+var hdl *rpc.GuestRPCManager
+var hostaddr string
+var secret string
+
+var input io.Reader
+var output io.Writer
+
+// parse arguments
+func init() {
+	flag.StringVar(&hostaddr, "service-addr", "localhost:8080", "host service address")
+	flag.StringVar(&secret, "secret", "", "secret for the host service")
+	flag.Parse()
+
+	log.Infof("Connecting to host at %s", hostaddr)
+	// create tcp connection to host
+	conn, err := net.Dial("tcp", hostaddr)
+	if err != nil {
+		log.Fatalf("failed to connect to host: %v", err)
+	}
+
+	// sending the secret
+	// convert secret string to int64
+	secretInt, err := strconv.ParseInt(secret, 10, 64)
+	if err != nil {
+		log.Fatalf("failed to convert secret to int64: %v", err)
+	}
+	// convert int64 to little endian byte array
+	secretBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(secretBytes, uint64(secretInt))
+	// write secret to connection
+	_, err = conn.Write(secretBytes)
+	if err != nil {
+		log.Fatalf("failed to write secret to connection: %v", err)
+	}
+
+	// create input and output files from connection
+	input = conn
+	output = conn
+}
+
 func main() {
 	hdl := rpc.NewGuestRPCManager(
 		func(req *rpc.JsonRPCRequest) (*rpc.JsonRPCResponse, error) {
@@ -23,8 +67,8 @@ func main() {
 		},
 		nil,
 	)
-	hdl.SetInput(os.Stdin)
-	hdl.SetOutput(os.Stdout)
+	hdl.SetInput(input)
+	hdl.SetOutput(output)
 
 	hdl.RegisterIncomingHandler("handle", func(args interface{}) (interface{}, error) {
 		log.Infof("Incoming request: %v", args)
@@ -47,8 +91,7 @@ func main() {
 		},
 	}
 
-	req := rpc.NewJsonRPCRequest(openai.HostCallChatCompletion, chatMsg)
-	if resp, err := hdl.SendJsonRequest(req); err != nil {
+	if resp, err := hdl.SendRequest(openai.HostCallChatCompletion, chatMsg); err != nil {
 		panic(err)
 	} else {
 		log.Infof("Response: %v", resp)
