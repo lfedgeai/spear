@@ -30,7 +30,7 @@ func init() {
 	flag.StringVar(&secret, "secret", "", "secret for the host service")
 	flag.Parse()
 
-	log.Infof("Connecting to host at %s", hostaddr)
+	log.Debugf("Connecting to host at %s", hostaddr)
 	// create tcp connection to host
 	conn, err := net.Dial("tcp", hostaddr)
 	if err != nil {

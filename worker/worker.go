@@ -83,6 +83,12 @@ var (
 			Image: "pytools",
 			Name:  "pytools",
 		},
+		6: {
+			Id:    6,
+			Type:  task.TaskTypeDocker,
+			Image: "pyconversation",
+			Name:  "pyconversation",
+		},
 	}
 )
 

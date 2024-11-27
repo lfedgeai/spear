@@ -183,10 +183,10 @@ class HostAgent(object):
         """
         start the agent
         """
-        logger.info("Connecting to host %s", host_addr)
+        logger.debug("Connecting to host %s", host_addr)
         self.connect_host(host_addr, host_secret)
 
-        logger.info("Starting I/O threads")
+        logger.debug("Starting I/O threads")
         # start the send thread
         send_thread = threading.Thread(target=self._send_thread)
         send_thread.start()
@@ -214,7 +214,7 @@ class HostAgent(object):
                 self._put_rpc_error(rpc_data.id, -32603, "Internal error", str(e))
             with self._inflight_requests_lock:
                 self._inflight_requests_count -= 1
-            logger.info("Inflight requests: %d", self._inflight_requests_count)
+            logger.debug("Inflight requests: %d", self._inflight_requests_count)
 
         while True:
             rpc_data = self._get_rpc_data()
@@ -395,7 +395,13 @@ class HostAgent(object):
             length = int.from_bytes(data, byteorder="little")
             logger.info("Received Length: %d", length)
             # read the json data
-            data = self._client.recv(length)
+            data = b""
+            while len(data) == 0:
+                try:
+                    data = self._client.recv(length)
+                except BlockingIOError as e:
+                    if e.errno == 11:
+                        continue                 
             logger.info("Received Data: %s", data)
             obj = json.loads(data.decode("utf-8"))
             self._recv_queue.put(obj)

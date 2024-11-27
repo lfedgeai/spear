@@ -18,7 +18,7 @@ test: workload
 	go test -v $(PROJECT_ROOT)/test/simple_req_test.go
 
 workload: sdk
-	find $(PROJECT_ROOT)/workload -mindepth 1 -maxdepth 3 -type d -exec test -e {}/Makefile \; -exec make -C {} \;
+	find $(PROJECT_ROOT)/workload -mindepth 1 -maxdepth 3 -type d -exec test -e {}/Makefile \; -exec echo "make -C {}" \; -exec make -C {} \;
 
 sdk:
 	find $(PROJECT_ROOT)/sdk -mindepth 1 -maxdepth 2 -type d -exec test -e {}/Makefile \; -exec make -C {} \;

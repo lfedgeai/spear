@@ -271,6 +271,9 @@ func ToolsetInstallBuiltins(inv *hostcalls.InvocationInfo, args interface{}) (in
 	tids := []ToolId{}
 	for _, tool := range builtinTools {
 		tid := ToolId(uuid.New().String())
+		if _, ok := globalTaskTools[taskId]; !ok {
+			globalTaskTools[taskId] = make(map[ToolId]ToolRegistry)
+		}
 		globalTaskTools[taskId][tid] = tool
 		tids = append(tids, tid)
 	}
