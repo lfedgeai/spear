@@ -133,7 +133,9 @@ func (w *Worker) addHostCalls() {
 
 func (w *Worker) initializeRuntimes() {
 	cfg := &task.TaskRuntimeConfig{
-		Debug: w.cfg.Debug,
+		Debug:         w.cfg.Debug,
+		Cleanup:       true,
+		StartServices: true,
 	}
 	task.RegisterSupportedTaskType(task.TaskTypeDocker)
 	task.InitTaskRuntimes(cfg)
@@ -204,7 +206,7 @@ func funcType(req *http.Request) (task.TaskType, error) {
 	}
 }
 
-func (w *Worker) ExecuteTask(taskId int64, funcType task.TaskType, funcIsAsync bool, method string, data string) (string, error) {
+func (w *Worker) ExecuteTask(taskId int64, funcType task.TaskType, wait bool, method string, data string) (string, error) {
 	rt, err := task.GetTaskRuntime(funcType)
 	if err != nil {
 		return "", fmt.Errorf("error: %v", err)
@@ -250,7 +252,7 @@ func (w *Worker) ExecuteTask(taskId int64, funcType task.TaskType, funcIsAsync b
 		}
 	}
 
-	if !funcIsAsync {
+	if wait {
 		// wait for the task to finish
 		newTask.Wait()
 	}
@@ -291,12 +293,12 @@ func (w *Worker) addRoutes() {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
-		w.ExecuteTask(taskId, funcType, funcIsAsync, "handle", string(buf[:n]))
+		w.ExecuteTask(taskId, funcType, !funcIsAsync, "handle", string(buf[:n]))
 		// TODO: support waiting for instance to finish
 	})
 }
 
-func (w *Worker) Run() {
+func (w *Worker) StartServer() {
 	log.Infof("Starting worker on %s:%s", w.cfg.Addr, w.cfg.Port)
 	srv := &http.Server{
 		Addr:    w.cfg.Addr + ":" + w.cfg.Port,
@@ -313,8 +315,11 @@ func (w *Worker) Run() {
 }
 
 func (w *Worker) Stop() {
-	log.Infof("Stopping worker")
-	w.srv.Shutdown(context.Background())
+	log.Debugf("Stopping worker")
+	if w.srv != nil {
+		w.srv.Shutdown(context.Background())
+	}
+	task.StopTaskRuntimes()
 }
 
 func SetLogLevel(lvl log.Level) {

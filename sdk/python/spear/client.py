@@ -425,7 +425,7 @@ class HostAgent(object):
             self._stop_event_w.send(b"\x01")
             self._send_task.join()
             self._recv_task.join()
-            logger.info("Stopping the agent")
+            logger.debug("Stopping the agent")
             self._client.close()
             os._exit(0)
 

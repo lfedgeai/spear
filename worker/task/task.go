@@ -2,6 +2,8 @@ package task
 
 import (
 	"fmt"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type TaskConfig struct {
@@ -72,6 +74,8 @@ type Task interface {
 type TaskRuntime interface {
 	// create task
 	CreateTask(cfg *TaskConfig) (Task, error)
+	Start() error
+	Stop() error
 }
 
 // implement TaskRuntimeDylib
@@ -82,12 +86,28 @@ func (d *DylibTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
+func (d *DylibTaskRuntime) Start() error {
+	return nil
+}
+
+func (d *DylibTaskRuntime) Stop() error {
+	return nil
+}
+
 // implement TaskRuntimeWasm
 type WasmTaskRuntime struct {
 }
 
 func (w *WasmTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 	return nil, fmt.Errorf("not implemented")
+}
+
+func (w *WasmTaskRuntime) Start() error {
+	return nil
+}
+
+func (w *WasmTaskRuntime) Stop() error {
+	return nil
 }
 
 type TaskRuntimeConfig struct {
@@ -118,6 +138,13 @@ func InitTaskRuntimes(cfg *TaskRuntimeConfig) {
 		default:
 			panic("invalid task type")
 		}
+	}
+}
+
+func StopTaskRuntimes() {
+	for rtName, rt := range globalTaskRuntimes {
+		log.Debugf("Stopping task runtime: %v", rtName)
+		rt.Stop()
 	}
 }
 

@@ -18,6 +18,14 @@ func NewProcessTaskRuntime() *ProcessTaskRuntime {
 	return &ProcessTaskRuntime{}
 }
 
+func (p *ProcessTaskRuntime) Start() error {
+	return nil
+}
+
+func (p *ProcessTaskRuntime) Stop() error {
+	return nil
+}
+
 func (p *ProcessTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 	log.Debugf("Creating process task with name: %s", cfg.Name)
 

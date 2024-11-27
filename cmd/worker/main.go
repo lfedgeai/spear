@@ -64,11 +64,12 @@ func NewRootCmd() *cobra.Command {
 				w := worker.NewWorker(config)
 				w.Initialize()
 
-				res, err := w.ExecuteTask(execWorkloadId, rtType, false, execReqMethod, execReqPayload)
+				res, err := w.ExecuteTask(execWorkloadId, rtType, true, execReqMethod, execReqPayload)
 				if err != nil {
 					log.Fatalf("Error executing workload: %v", err)
 				}
 				log.Infof("Workload execution result: %v", res)
+				w.Stop()
 				// TODO: implement workload execution
 			}
 		},
@@ -108,7 +109,7 @@ func NewRootCmd() *cobra.Command {
 				debug)
 			w := worker.NewWorker(config)
 			w.Initialize()
-			w.Run()
+			w.StartServer()
 		},
 	}
 	// addr flag
