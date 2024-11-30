@@ -2,11 +2,10 @@
 import argparse
 import logging
 import sys
-import json
-import time
 import base64
 
 import spear.client as client
+import spear.utils.io as io
 import spear.hostcalls.tools as tools
 import spear.hostcalls.transform as tf
 
@@ -33,30 +32,6 @@ def parse_args():
     args = argparser.parse_args()
     return args.service_addr, args.secret
 
-def input(prompt) -> str:
-    """
-    get user input
-    """
-    user_input = agent.exec_request(
-        "input", prompt,
-    )
-    if isinstance(user_input, client.JsonRpcOkResp):
-        user_input = user_input.result
-    else:
-        raise ValueError("Error getting user input")
-    return user_input
-
-def speak(data) -> str:
-    """
-    get user input
-    """
-    res = agent.exec_request(
-        "speak", data,
-    )
-    if isinstance(res, client.JsonRpcOkResp):
-        return
-    else:
-        raise ValueError("Error speaking")
 
 def display_chat_message(msg):
     """
@@ -64,10 +39,13 @@ def display_chat_message(msg):
     """
     assert isinstance(msg, tf.ChatMessageV2)
     if msg.content:
-        logger.info('[%s] %s', msg.metadata.role, msg.content)
+        logger.info("[%s] %s", msg.metadata.role, msg.content)
     elif msg.metadata.tool_calls:
         for tool_call in msg.metadata.tool_calls:
-            logger.info("[%s] TOOL_CALL -> %s", msg.metadata.role, tool_call.function.name)
+            logger.info(
+                "[%s] TOOL_CALL -> %s", msg.metadata.role, tool_call.function.name
+            )
+
 
 def speak_chat_message(msg):
     """
@@ -94,9 +72,10 @@ def speak_chat_message(msg):
         data = resp.results[0].data
         data = base64.b64decode(data).decode("utf-8")
         logger.debug("data length: %s", len(data))
-        speak(data)
+        io.speak(agent, data)
     elif isinstance(resp, client.JsonRpcErrorResp):
         logger.error("Error: %s", resp.message)
+
 
 def handle(params):
     """
@@ -140,7 +119,7 @@ def handle(params):
 
     msg_memory = []
     while True:
-        user_input = input("(q to quit) > ")
+        user_input = io.input(agent, "(q to quit) > ")
 
         # trim the user input, remove space and newline
         user_input = user_input.strip()
@@ -152,8 +131,7 @@ def handle(params):
 
         msg_memory.append(
             tf.ChatMessageV2(
-                metadata=tf.ChatMessageV2Metadata(role="user"),
-                content=user_input
+                metadata=tf.ChatMessageV2Metadata(role="user"), content=user_input
             )
         )
 
@@ -182,7 +160,7 @@ def handle(params):
         elif isinstance(resp, client.JsonRpcErrorResp):
             break
 
-        tmp_msgs = new_msg_memory[len(msg_memory):]
+        tmp_msgs = new_msg_memory[len(msg_memory) :]
         for msg in tmp_msgs:
             display_chat_message(msg)
             if msg.metadata.role == "assistant" and msg.content:
@@ -192,6 +170,7 @@ def handle(params):
 
     agent.stop()
     return "done"
+
 
 if __name__ == "__main__":
     addr, secret = parse_args()
