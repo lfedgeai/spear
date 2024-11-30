@@ -24,7 +24,7 @@ var (
 
 func MessagePassingRegister(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 	task := *(inv.Task)
-	log.Infof("Executing hostcall \"%s\" with args %v for task %s",
+	log.Debugf("Executing hostcall \"%s\" with args %v for task %s",
 		payload.HostCallMessagePassingRegister, args, task.ID())
 
 	jsonBytes, err := json.Marshal(args)
@@ -51,7 +51,7 @@ func MessagePassingRegister(inv *hostcalls.InvocationInfo, args interface{}) (in
 
 func MessagePassingUnregister(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 	task := *(inv.Task)
-	log.Infof("Executing hostcall \"%s\" with args %v for task %s",
+	log.Debugf("Executing hostcall \"%s\" with args %v for task %s",
 		payload.HostCallMessagePassingUnregister, args, task.ID())
 
 	jsonBytes, err := json.Marshal(args)
@@ -85,7 +85,7 @@ func MessagePassingUnregister(inv *hostcalls.InvocationInfo, args interface{}) (
 
 func MessagePassingLookup(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 	task := *(inv.Task)
-	log.Infof("Executing hostcall \"%s\" with args %v for task %s",
+	log.Debugf("Executing hostcall \"%s\" with args %v for task %s",
 		payload.HostCallMessagePassingLookup, args, task.ID())
 
 	jsonBytes, err := json.Marshal(args)
@@ -109,7 +109,7 @@ func MessagePassingLookup(inv *hostcalls.InvocationInfo, args interface{}) (inte
 
 func MessagePassingSend(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 	task := *(inv.Task)
-	log.Infof("Executing hostcall \"%s\" with args %v for task %s",
+	log.Debugf("Executing hostcall \"%s\" with args %v for task %s",
 		payload.HostCallMessagePassingSend, args, task.ID())
 
 	jsonBytes, err := json.Marshal(args)

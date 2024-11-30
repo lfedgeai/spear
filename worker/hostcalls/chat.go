@@ -55,7 +55,7 @@ func (m *ChatCompletionMemory) GetMessages() []ChatMessage {
 }
 
 func ChatCompletion(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
-	log.Infof("Executing hostcall \"%s\" with args %v", openai.HostCallChatCompletion, args)
+	log.Debugf("Executing hostcall \"%s\" with args %v", openai.HostCallChatCompletion, args)
 	// verify the type of args is ChatCompletionRequest
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)
@@ -220,7 +220,7 @@ func OpenAIChatCompletion(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCo
 			return nil, fmt.Errorf("error calling OpenAIChatCompletion: %v", err)
 		}
 
-		log.Infof("Response: %v", respData)
+		log.Debugf("Response: %v", respData)
 
 		for i, choice := range respData.Choices {
 			if choice.Index != json.Number(fmt.Sprintf("%d", i)) {

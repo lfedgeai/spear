@@ -78,7 +78,7 @@ func isSubsetOperation(a, b []payload.TransformOperation) bool {
 
 func Transform(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 	task := *(inv.Task)
-	log.Infof("Executing hostcall \"%s\" with args %v for task %s",
+	log.Debugf("Executing hostcall \"%s\" with args %v for task %s",
 		payload.HostCallTransform, args, task.ID())
 	// convert args to TransformRequest
 	jsonBytes, err := json.Marshal(args)

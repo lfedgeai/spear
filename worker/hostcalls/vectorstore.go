@@ -152,7 +152,7 @@ func (r *VectorStoreRegistry) Search(vid int, vector []float32, limit uint64) ([
 
 func VectorStoreCreate(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 	task := *(inv.Task)
-	log.Infof("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreCreate, args)
+	log.Debugf("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreCreate, args)
 	// verify the type of args is string
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)
@@ -188,7 +188,7 @@ func VectorStoreCreate(inv *hostcalls.InvocationInfo, args interface{}) (interfa
 
 func VectorStoreDelete(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 	task := *(inv.Task)
-	log.Infof("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreDelete, args)
+	log.Debugf("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreDelete, args)
 	// verify the type of args is int
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)
@@ -220,7 +220,7 @@ func VectorStoreDelete(inv *hostcalls.InvocationInfo, args interface{}) (interfa
 
 func VectorStoreInsert(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 	task := *(inv.Task)
-	log.Infof("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreInsert, args)
+	log.Debugf("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreInsert, args)
 	// verify the type of args is VectorStoreInsertRequest
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)
@@ -253,7 +253,7 @@ func VectorStoreInsert(inv *hostcalls.InvocationInfo, args interface{}) (interfa
 
 func VectorStoreSearch(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 	task := *(inv.Task)
-	log.Infof("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreSearch, args)
+	log.Debugf("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreSearch, args)
 	// verify the type of args is VectorStoreSearchRequest
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)

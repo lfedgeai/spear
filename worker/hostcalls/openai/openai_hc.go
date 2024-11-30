@@ -173,7 +173,7 @@ func OpenAIChatCompletion_Resp_IterateToolCalls(chatResp *OpenAIChatCompletionRe
 }
 
 func Embeddings(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
-	log.Infof("Executing hostcall \"%s\" with args %v", openai.HostCallEmbeddings, args)
+	log.Debugf("Executing hostcall \"%s\" with args %v", openai.HostCallEmbeddings, args)
 	// verify the type of args is EmbeddingsRequest
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)
@@ -186,7 +186,7 @@ func Embeddings(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, e
 		return nil, fmt.Errorf("error unmarshalling args: %v", err)
 	}
 
-	log.Infof("Embeddings Request: %s", string(jsonBytes))
+	log.Debugf("Embeddings Request: %s", string(jsonBytes))
 	// create a https request to https://api.openai.com/v1/embeddings and use b as the request body
 	res, err := sendBufferData(bytes.NewBuffer(jsonBytes), "https://api.openai.com/v1/embeddings")
 	if err != nil {
@@ -204,7 +204,7 @@ func Embeddings(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, e
 }
 
 func TextToSpeech(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
-	log.Infof("Executing hostcall \"%s\" with args %v", openai.HostCallTextToSpeech, args)
+	log.Debugf("Executing hostcall \"%s\" with args %v", openai.HostCallTextToSpeech, args)
 	// verify the type of args is TextToSpeechRequest
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)
@@ -238,7 +238,7 @@ func TextToSpeech(inv *hostcalls.InvocationInfo, args interface{}) (interface{},
 }
 
 func ImageGeneration(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
-	log.Infof("Executing hostcall \"%s\" with args %v", openai.HostCallImageGeneration, args)
+	log.Debugf("Executing hostcall \"%s\" with args %v", openai.HostCallImageGeneration, args)
 	// verify the type of args is ImageGenerationRequest
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)

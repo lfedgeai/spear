@@ -12,6 +12,7 @@ import (
 	"github.com/faiface/beep/mp3"
 	"github.com/faiface/beep/speaker"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
+	"github.com/schollz/progressbar/v3"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -56,6 +57,8 @@ func Speak(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error)
 	if err != nil {
 		return nil, fmt.Errorf("os.CreateTemp failed: " + err.Error())
 	}
+	defer os.Remove(f.Name())
+
 	log.Debugf("Data Length: %d", len(rawData))
 	// wrtie the audio data to the file
 	_, err = f.Write(rawData)
@@ -63,7 +66,7 @@ func Speak(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error)
 		return nil, fmt.Errorf("f.Write failed: " + err.Error())
 	}
 	f.Close()
-	log.Infof("Created temp file: %s", f.Name())
+	log.Debugf("Created temp file: %s", f.Name())
 
 	err = playMP3(f.Name())
 	if err != nil {
@@ -94,13 +97,37 @@ func playMP3(filePath string) error {
 		return fmt.Errorf("could not initialize speaker: %w", err)
 	}
 
+	// create progress bar
+	bar := progressbar.NewOptions64(
+		-1,
+		progressbar.OptionSetDescription("Speaking..."),
+		progressbar.OptionSetWriter(os.Stderr),
+		progressbar.OptionSetWidth(10),
+		progressbar.OptionOnCompletion(func() {
+			fmt.Fprint(os.Stderr, "\n")
+		}),
+		progressbar.OptionSpinnerType(14),
+		progressbar.OptionFullWidth(),
+		progressbar.OptionSetRenderBlankState(true),
+	)
+
 	// Play the audio stream
 	done := make(chan bool)
 	speaker.Play(beep.Seq(stream, beep.Callback(func() {
 		done <- true
 	})))
 
-	// Wait until the audio finishes playing
-	<-done
-	return nil
+	for {
+		// update the progress bar
+		bar.Add(stream.Position())
+		// check if the audio is done playing
+		select {
+		case <-done:
+			bar.Describe("Done")
+			bar.Close()
+			return nil
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 }

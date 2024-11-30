@@ -43,15 +43,17 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			if execWorkloadId <= 0 {
-				log.Fatalf("Invalid workload id %d", execWorkloadId)
+				log.Errorf("Invalid workload id %d", execWorkloadId)
+				return
 			}
 			if execReqMethod == "" {
-				log.Fatalf("Invalid request method %s", execReqMethod)
+				log.Errorf("Invalid request method %s", execReqMethod)
+				return
 			}
 
 			// check if the workload type is valid
 			if rtType, ok := validChoices[execRtTypeStr]; !ok {
-				log.Fatalf("Invalid runtime type %s", execRtTypeStr)
+				log.Errorf("Invalid runtime type %s", execRtTypeStr)
 			} else {
 				log.Infof("executing workload id %d with runtime type %v", execWorkloadId, rtType)
 				// set log level
@@ -66,7 +68,7 @@ func NewRootCmd() *cobra.Command {
 
 				res, err := w.ExecuteTask(execWorkloadId, rtType, true, execReqMethod, execReqPayload)
 				if err != nil {
-					log.Fatalf("Error executing workload: %v", err)
+					log.Errorf("Error executing workload: %v", err)
 				}
 				log.Infof("Workload execution result: %v", res)
 				w.Stop()
