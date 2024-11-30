@@ -258,6 +258,8 @@ func (w *Worker) ExecuteTask(taskId int64, funcType task.TaskType, wait bool, me
 		}
 	}
 
+	log.Debugf("Task %s finished, result: %s", newTask.Name(), res)
+
 	if wait {
 		// wait for the task to finish
 		newTask.Wait()

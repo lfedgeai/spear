@@ -84,7 +84,11 @@ func (p *DockerTask) Start() error {
 				}
 
 				// write data
-				_, err = p.conn.Write([]byte(msg))
+				n, err := p.conn.Write([]byte(msg))
+				if n != len(msg) {
+					log.Errorf("Error writing to connection: %v", err)
+					return
+				}
 				if err != nil {
 					log.Errorf("Error writing to connection: %v", err)
 					return

@@ -4,6 +4,9 @@ FROM python:3.9.20
 RUN apt-get update -y
 RUN apt-get install -y netcat-openbsd net-tools
 
+RUN pip install --upgrade pip
+RUN pip install py-spy
+
 WORKDIR /
 
 # COPY ./scripts/start.sh /start

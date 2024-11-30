@@ -13,11 +13,13 @@ import spear.hostcalls as hc
 RPC_TYPE_REQ = 0
 RPC_TYPE_RESP_OK = 1
 RPC_TYPE_RESP_ERR = 2
+RPC_TYPE_RESP_NULL_OK = 3
 
 MAX_INFLIGHT_REQUESTS = 128
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def rpc_type(obj):
@@ -31,7 +33,9 @@ def rpc_type(obj):
     elif "error" in obj:
         return RPC_TYPE_RESP_ERR
     else:
-        raise TypeError("Invalid rpc object")
+        # empty return
+        # example: {'jsonrpc': '2.0', 'id': 5}
+        return RPC_TYPE_RESP_NULL_OK
 
 
 class JsonRpcRequest(object):
@@ -146,6 +150,7 @@ class HostAgent(object):
         self._recv_queue = None
         self._global_id = 0
         self._send_task = None
+        self._send_task_pipe_r, self._send_task_pipe_w = os.pipe()
         self._recv_task = None
         self._handlers = {}
         event_sock_r, event_sock_w = socket.socketpair()
@@ -270,6 +275,7 @@ class HostAgent(object):
         logger.debug("Putting raw data to queue: %s", str(obj))
         json_data = json.dumps(obj, ensure_ascii=False, cls=hc.EnhancedJSONEncoder)
         self._send_queue.put(json_data)
+        os.write(self._send_task_pipe_w, b"\x01")
 
     def _get_raw_object(self):
         """
@@ -298,6 +304,8 @@ class HostAgent(object):
                 obj["error"]["message"],
                 obj["error"]["data"],
             )
+        elif rtype == RPC_TYPE_RESP_NULL_OK:
+            return JsonRpcOkResp(obj["id"], None)
         else:
             raise TypeError("Invalid rpc object")
 
@@ -329,13 +337,13 @@ class HostAgent(object):
         obj["jsonrpc"] = "2.0"
         obj["method"] = method
         obj["params"] = param
-        self._put_raw_object(obj)
         with self._pending_requests_lock:
             self._pending_requests[obj["id"]] = {
                 "time": time.time(),
                 "obj": obj,
                 "cb": cb,
             }
+        self._put_raw_object(obj)
 
     def _put_rpc_response(self, req_id, result):
         obj = {}
@@ -358,30 +366,40 @@ class HostAgent(object):
         """
         send the data to the socket
         """
-
-        def send_data():
+        def send_remaining_data():
             while not self._send_queue.empty():
                 strdata = self._send_queue.get()
                 data = strdata.encode("utf-8")
-                # get the length of utf8 string
                 length = len(data)
                 lendata = length.to_bytes(8, byteorder="little")
-                # send the length of the data
                 self._client.sendall(lendata)
-                logger.info("Sending Data: %s", data)
+                logger.debug("Sending Data: %s", data)
                 self._client.sendall(data)
+
+        def send_data():
+            # clear the pipe
+            os.read(self._send_task_pipe_r, 1)
+            strdata = self._send_queue.get()
+            data = strdata.encode("utf-8")
+            # get the length of utf8 string
+            length = len(data)
+            lendata = length.to_bytes(8, byteorder="little")
+            # send the length of the data
+            self._client.sendall(lendata)
+            logger.debug("Sending Data: %s", data)
+            self._client.sendall(data)
 
         sel = selectors.DefaultSelector()
         sel.register(self._stop_event_r, selectors.EVENT_READ)
-        sel.register(self._client, selectors.EVENT_WRITE)
+        sel.register(self._send_task_pipe_r, selectors.EVENT_READ)
         while True:
-            events = sel.select(timeout=None)
+            events = sel.select()
             for key, _ in events:
                 if key.fileobj == self._stop_event_r:
                     # send remaining data
-                    send_data()
+                    send_remaining_data()
                     return
-                if key.fileobj == self._client:
+                if key.fileobj == self._send_task_pipe_r:
                     send_data()
 
     def _recv_thread(self):
@@ -393,16 +411,16 @@ class HostAgent(object):
             # read int64 from the socket and convert to integer
             data = self._client.recv(8)
             length = int.from_bytes(data, byteorder="little")
-            logger.info("Received Length: %d", length)
+            logger.debug("Received Length: %d", length)
             # read the json data
             data = b""
-            while len(data) == 0:
+            while len(data) < length:
                 try:
-                    data = self._client.recv(length)
+                    tmp = self._client.recv(length - len(data))
+                    data += tmp
                 except BlockingIOError as e:
                     if e.errno == 11:
-                        continue                 
-            logger.info("Received Data: %s", data)
+                        continue
             obj = json.loads(data.decode("utf-8"))
             self._recv_queue.put(obj)
 
@@ -410,7 +428,7 @@ class HostAgent(object):
         sel.register(self._client, selectors.EVENT_READ)
         sel.register(self._stop_event_r, selectors.EVENT_READ)
         while True:
-            events = sel.select(timeout=None)
+            events = sel.select()
             for key, _ in events:
                 if key.fileobj == self._stop_event_r:
                     return

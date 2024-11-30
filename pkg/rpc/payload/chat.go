@@ -5,9 +5,9 @@ import (
 )
 
 type ChatCompletionRequest struct {
-	Messages  []ChatMessage `json:"messages"`
-	Model     string        `json:"model"`
-	ToolsetId string        `json:"toolset_id"`
+	Messages  []ChatMessageV2 `json:"messages"`
+	Model     string          `json:"model"`
+	ToolsetId string          `json:"toolset_id"`
 }
 
 // marshal operations
@@ -42,5 +42,38 @@ func (r *ChatCompletionResponse) Marshal() ([]byte, error) {
 }
 
 func (r *ChatCompletionResponse) Unmarshal(data []byte) error {
+	return json.Unmarshal(data, r)
+}
+
+type ChatMessageV2 struct {
+	Metadata map[string]interface{} `json:"metadata"`
+	Content  string                 `json:"content"`
+}
+
+type ChatCompletionResponseV2 struct {
+	Id       string          `json:"id"`
+	Model    string          `json:"model"`
+	Messages []ChatMessageV2 `json:"messages"`
+}
+
+func (r *ChatCompletionResponseV2) Marshal() ([]byte, error) {
+	return json.Marshal(r)
+}
+
+func (r *ChatCompletionResponseV2) Unmarshal(data []byte) error {
+	return json.Unmarshal(data, r)
+}
+
+type ChatCompletionRequestV2 struct {
+	Messages  []ChatMessageV2 `json:"messages"`
+	Model     string          `json:"model"`
+	ToolsetId string          `json:"toolset_id"`
+}
+
+func (r *ChatCompletionRequestV2) Marshal() ([]byte, error) {
+	return json.Marshal(r)
+}
+
+func (r *ChatCompletionRequestV2) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, r)
 }

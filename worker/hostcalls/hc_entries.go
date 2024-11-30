@@ -78,4 +78,14 @@ var Hostcalls = []*hostcalls.HostCall{
 		Name:    payload.HostCallMessagePassingSend,
 		Handler: MessagePassingSend,
 	},
+	// input operations
+	{
+		Name:    payload.HostCallInput,
+		Handler: Input,
+	},
+	// speak operations
+	{
+		Name:    payload.HostCallSpeak,
+		Handler: Speak,
+	},
 }

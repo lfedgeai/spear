@@ -95,9 +95,11 @@ func main() {
 func getTextResponse(str string) (string, error) {
 	chatMsg := payload.ChatCompletionRequest{
 		Model: "gpt-4o",
-		Messages: []payload.ChatMessage{
+		Messages: []payload.ChatMessageV2{
 			{
-				Role:    "user",
+				Metadata: map[string]interface{}{
+					"role": "user",
+				},
 				Content: str,
 			},
 		},

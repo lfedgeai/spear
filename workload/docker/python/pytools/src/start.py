@@ -100,7 +100,7 @@ def handle(params):
         ),
     )
     if isinstance(resp, client.JsonRpcOkResp):
-        logger.info("Builtin tools installed with id: %s", resp.result)
+        logger.debug("Builtin tools installed with id: %s", resp.result)
     elif isinstance(resp, client.JsonRpcErrorResp):
         agent.stop()
         return resp.message

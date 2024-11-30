@@ -29,10 +29,11 @@ class TransformOperation(IntEnum):
     """
 
     LLM = 0
-    OCR = 1
-    TEXT_TO_SPEECH = 2
-    SPEECH_TO_TEXT = 3
-    TEXT_TO_IMAGE = 4
+    EMBEDDINGS = 1
+    OCR = 2
+    TEXT_TO_SPEECH = 3
+    SPEECH_TO_TEXT = 4
+    TEXT_TO_IMAGE = 5
 
 
 @dataclass_json
@@ -97,11 +98,86 @@ class ChatChoice:
 
 @dataclass_json
 @dataclass
-class TransformResponse:
+class ChatResponse:
     """
-    The response object for the transform hostcall.
+    The response object for the chat hostcall.
     """
 
     model: str
     id: str
     choices: list[ChatChoice]
+
+
+@dataclass_json
+@dataclass
+class TransformResponseResult:
+    """
+    The result object for the transform hostcall.
+    """
+
+    data: str
+    type: TransformType
+
+@dataclass_json
+@dataclass
+class TransformResponse:
+    """
+    The response object for the transform hostcall.
+    """
+
+    results: list[TransformResponseResult]
+
+@dataclass_json
+@dataclass
+class ChatMessageV2ToolCallFunction:
+    """
+    The function object for the chat hostcall.
+    """
+
+    name: str
+    arguments: str
+
+
+@dataclass_json
+@dataclass
+class ChatMessageV2ToolCall:
+    """
+    The tool call object for the chat hostcall.
+    """
+
+    id: str
+    type: str
+    function: ChatMessageV2ToolCallFunction
+
+@dataclass_json
+@dataclass
+class ChatMessageV2Metadata:
+    """
+    The message metadata object for the chat hostcall.
+    """
+
+    reason: Optional[str] = None
+    role: Optional[str] = None
+    tool_call_id: Optional[str] = None
+    tool_calls: Optional[list[ChatMessageV2ToolCall]] = None
+
+@dataclass_json
+@dataclass
+class ChatMessageV2:
+    """
+    The message object for the chat hostcall.
+    """
+
+    metadata: ChatMessageV2Metadata
+    content: str
+
+@dataclass_json
+@dataclass
+class ChatResponseV2:
+    """
+    The response object for the chat hostcall.
+    """
+
+    model: str
+    id: str
+    messages: list[ChatMessageV2]

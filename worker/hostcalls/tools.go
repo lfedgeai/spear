@@ -77,9 +77,39 @@ var (
 			},
 		},
 		{
-			name: "send_email",
-			description: `Compose an email, get user's confirmation. If yes, send it out. 
-			It should not have any placeholders.`,
+			name:        "list_open_emails",
+			description: "List all open email drafts window",
+			params:      map[string]ToolParam{},
+			cb:          "",
+			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+				// use apple script to list all open email drafts window
+				script := `tell application "Microsoft Outlook"
+					set windowList to every window
+					set windowDetails to {}
+					
+					repeat with win in windowList
+						set end of windowDetails to name of win -- Collect the name (title) of each window
+					end repeat
+				end tell
+
+				if windowDetails is {} then
+					display dialog "No open windows found in Mail."
+				else
+					set AppleScript's text item delimiters to linefeed
+					set windowInfo to windowDetails as text
+					set AppleScript's text item delimiters to "" -- Reset delimiters
+					do shell script "echo " & quoted form of ("Open Windows in Mail:" & return & windowInfo)
+				end if`
+				out, err := exec.Command("osascript", "-e", script).Output()
+				if err != nil {
+					return nil, err
+				}
+				return string(out), nil
+			},
+		},
+		{
+			name:        "compose_email",
+			description: `Compose an email, open a draft window with the email pre-filled.`,
 			params: map[string]ToolParam{
 				"to": {
 					ptype:       "string",
@@ -105,18 +135,64 @@ var (
 					set newMessage to make new outgoing message with properties {subject:"` + args.(map[string]interface{})["subject"].(string) + `", content:"` + args.(map[string]interface{})["body"].(string) + `"}
 					make new recipient at newMessage with properties {email address:{address:"` + args.(map[string]interface{})["to"].(string) + `"}}
 					open newMessage
-					-- ask user confirmation to send email
-					display dialog "Do you want to send the email?" buttons {"Yes", "No"} default button "No"
-					-- send email
-					if button returned of result is "Yes" then
-						send newMessage
-					end if
 				end tell`
 				_, err := exec.Command("osascript", "-e", script).Output()
 				if err != nil {
 					return nil, err
 				}
 				return fmt.Sprintf("Email to %s composed successfully", args.(map[string]interface{})["to"].(string)), nil
+			},
+		},
+		{
+			name:        "send_email_draft_window",
+			description: "Activate the email draft window and send the email. NOTE: Before call this tool, assitant needs to stop & ask the user to say yes",
+			params: map[string]ToolParam{
+				"window_name": {
+					ptype:       "string",
+					description: "Name of the email draft window",
+					required:    true,
+				},
+			},
+			cb: "",
+			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+				// use apple script to send email
+				script := `set targetPrefix to "` + args.(map[string]interface{})["window_name"].(string) + `"
+					tell application "Microsoft Outlook"
+						set windowList to every window
+						set targetWindow to missing value
+						
+						-- Find the window with the specified prefix
+						repeat with win in windowList
+							set winName to name of win
+							if winName starts with targetPrefix then
+								set targetWindow to win
+								exit repeat -- Stop searching after finding the first match
+							end if
+						end repeat
+						
+						if targetWindow is not missing value then							
+							-- Attempt to send the email in the target window
+							try
+								tell targetWindow
+									activate
+									set index to 1
+									tell application "System Events"
+										key code 36 using command down
+									end tell
+								end tell
+								do shell script "echo 'Email sent successfully from window: " & name of targetWindow & "'"
+							on error errMsg
+								do shell script "echo 'Failed to send the email: " & errMsg & "'"
+							end try
+						else
+							do shell script "echo 'No window found with title starting with \"" & targetPrefix & "\".'"
+						end if
+					end tell`
+				_, err := exec.Command("osascript", "-e", script).Output()
+				if err != nil {
+					return nil, err
+				}
+				return fmt.Sprintf("Email with window name %s sent successfully", args.(map[string]interface{})["window_name"].(string)), nil
 			},
 		},
 		{
@@ -152,6 +228,46 @@ var (
 					return nil, err
 				}
 				return fmt.Sprintf("Call to %s successful", args.(map[string]interface{})["phone_number"].(string)), nil
+			},
+		},
+		{
+			name:        "search_contact_email",
+			description: "Search for a person's email address in Contacts",
+			params: map[string]ToolParam{
+				"name": {
+					ptype:       "string",
+					description: "Name of the contact to search for",
+					required:    true,
+				},
+			},
+			cb: "",
+			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+				// use apple script to search for contact
+				script := `set personName to "` + args.(map[string]interface{})["name"].(string) + `"
+					set foundEmails to {}
+
+					tell application "Contacts"
+						set peopleList to (every person whose name contains personName)
+						repeat with p in peopleList
+							set emailsList to emails of p
+							repeat with e in emailsList
+								set end of foundEmails to value of e
+							end repeat
+						end repeat
+					end tell
+
+
+					set AppleScript's text item delimiters to ", "
+					if foundEmails is {} then
+						do shell script "echo " & "No email addresses found for " & personName
+					else
+						do shell script "echo " & "Email addresses found: " & return & (foundEmails as text)
+					end if`
+				out, err := exec.Command("osascript", "-e", script).Output()
+				if err != nil {
+					return nil, err
+				}
+				return string(out), nil
 			},
 		},
 	}

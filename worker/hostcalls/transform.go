@@ -34,6 +34,13 @@ var (
 			operations:  []payload.TransformOperation{payload.TransformOperationEmbeddings},
 			cb:          openai.Embeddings,
 		},
+		{
+			name:        "text-to-speech",
+			inputTypes:  []payload.TransformType{payload.TransformTypeText},
+			outputTypes: []payload.TransformType{payload.TransformTypeAudio},
+			operations:  []payload.TransformOperation{payload.TransformOperationTextToSpeech},
+			cb:          openai.TextToSpeech,
+		},
 	}
 )
 
@@ -90,7 +97,25 @@ func Transform(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, er
 		if isSubSetTransform(req.InputTypes, reg.inputTypes) &&
 			isSubSetTransform(req.OutputTypes, reg.outputTypes) &&
 			isSubsetOperation(req.Operations, reg.operations) {
-			return reg.cb(inv, req.Params)
+			log.Infof("Using transform registry %s", reg.name)
+			res, err := reg.cb(inv, req.Params)
+			if err != nil {
+				return nil, fmt.Errorf("error calling %s: %v", reg.name, err)
+			}
+
+			resBytes, err := json.Marshal(res)
+			if err != nil {
+				return nil, fmt.Errorf("error marshalling response: %v", err)
+			}
+			transResp := &payload.TransformResponse{
+				Results: []payload.TransformResult{
+					{
+						Type: reg.outputTypes[0],
+						Data: resBytes,
+					},
+				},
+			}
+			return transResp, nil
 		}
 	}
 

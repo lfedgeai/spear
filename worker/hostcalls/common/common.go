@@ -162,7 +162,6 @@ func (c *CommunicationManager) InstallToTask(t task.Task) error {
 								delete(c.pendingRequests, *resp.ID)
 								c.pendingRequestsMu.Unlock()
 							}
-
 							return
 						}
 
@@ -248,9 +247,14 @@ func (c *CommunicationManager) SendOutgoingRPCRequest(t task.Task, method string
 // users need to specify the id in the request
 func (c *CommunicationManager) SendOutgoingJsonRequest(t task.Task, req *rpc.JsonRPCRequest) (*rpc.JsonRPCResponse, error) {
 	ch := make(chan *rpc.JsonRPCResponse, 1)
+	errCh := make(chan error, 1)
 	if err := c.SendOutgoingJsonRequestCallback(t, req, func(resp *rpc.JsonRPCResponse) error {
 		log.Debugf("SendOutgoingJsonRequestCallback received response: %s", *req.ID)
-		ch <- resp
+		if resp.Error != nil {
+			errCh <- fmt.Errorf("error response: %v", resp.Error)
+		} else {
+			ch <- resp
+		}
 		return nil
 	}); err != nil {
 		return nil, err
@@ -259,6 +263,8 @@ func (c *CommunicationManager) SendOutgoingJsonRequest(t task.Task, req *rpc.Jso
 	select {
 	case resp := <-ch:
 		return resp, nil
+	case err := <-errCh:
+		return nil, err
 	case <-time.After(rpc.ResponseTimeout):
 		return nil, fmt.Errorf("timeout")
 	}

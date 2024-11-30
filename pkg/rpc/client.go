@@ -37,7 +37,7 @@ var (
 
 	globalIDCounter uint64 = 1
 
-	ResponseTimeout = time.Minute
+	ResponseTimeout = time.Minute * 10 // 10 minutes timeout for requests
 )
 
 func NewGuestRPCManager(reqHandler JsonRPCRequestHandler, respHandler JsonRPCResponseHandler) *GuestRPCManager {

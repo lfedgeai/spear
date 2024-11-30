@@ -20,11 +20,17 @@ var (
 )
 
 type ChatMessage struct {
-	MetaData   map[string]string             `json:"meta_data"`
-	Content    string                        `json:"content"`
-	ToolCalls  []hcopenai.OpenAIChatToolCall `json:"tool_calls"`
-	ToolCallId string                        `json:"tool_call_id"`
+	Index    int                    `json:"index"`
+	Metadata map[string]interface{} `json:"metadata"`
+	Content  string                 `json:"content"`
 }
+
+// type ChatMessage struct {
+// 	MetaData   map[string]string             `json:"metadata"`
+// 	Content    string                        `json:"content"`
+// 	ToolCalls  []hcopenai.OpenAIChatToolCall `json:"tool_calls"`
+// 	ToolCallId string                        `json:"tool_call_id"`
+// }
 
 type ChatCompletionMemory struct {
 	Messages []ChatMessage `json:"messages"`
@@ -67,10 +73,35 @@ func ChatCompletion(inv *hostcalls.InvocationInfo, args interface{}) (interface{
 		// process gpt-4o model chat completion
 		// convert chatReq to OpenAIChatCompletionRequest
 
-		return OpenAIChatCompletion(inv, &chatReq)
-	}
+		msgList, err := OpenAIChatCompletion(inv, &chatReq)
+		if err != nil {
+			return nil, fmt.Errorf("error calling OpenAIChatCompletion: %v", err)
+		}
 
-	// TODO: Implement the actual call
+		var res2 payload.ChatCompletionResponseV2
+		// res2.Id = res.Id
+		// res2.Model = res.Model
+		res2.Messages = make([]payload.ChatMessageV2, len(msgList))
+		for i, msg := range msgList {
+			md := map[string]interface{}{
+				"role": msg.Metadata["role"],
+			}
+			if msg.Metadata["reason"] != nil {
+				md["reason"] = msg.Metadata["reason"]
+			}
+			if msg.Metadata["tool_call_id"] != nil {
+				md["tool_call_id"] = msg.Metadata["tool_call_id"]
+			}
+			if msg.Metadata["tool_calls"] != nil {
+				md["tool_calls"] = msg.Metadata["tool_calls"]
+			}
+			res2.Messages[i] = payload.ChatMessageV2{
+				Metadata: md,
+				Content:  msg.Content,
+			}
+		}
+		return res2, nil
+	}
 
 	return nil, fmt.Errorf("not implemented")
 }
@@ -120,17 +151,16 @@ func setupOpenAITools(chatReq *hcopenai.OpenAIChatCompletionRequest, task task.T
 	return nil
 }
 
-func OpenAIChatCompletion(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCompletionRequest) (*payload.ChatCompletionResponse, error) {
+func OpenAIChatCompletion(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCompletionRequest) ([]ChatMessage, error) {
 	task := *(inv.Task)
 
 	mem := NewChatCompletionMemory()
 	for _, msg := range chatReq.Messages {
-		mem.AddMessage(ChatMessage{
-			MetaData: map[string]string{
-				"role": msg.Role,
-			},
-			Content: msg.Content,
-		})
+		tmp := ChatMessage{
+			Metadata: msg.Metadata,
+			Content:  msg.Content,
+		}
+		mem.AddMessage(tmp)
 	}
 
 	finished := false
@@ -143,13 +173,38 @@ func OpenAIChatCompletion(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCo
 			Messages: []hcopenai.OpenAIChatMessage{},
 		}
 		for _, msg := range mem.GetMessages() {
-			openAiChatReq2.Messages = append(openAiChatReq2.Messages,
-				hcopenai.OpenAIChatMessage{
-					Role:       msg.MetaData["role"],
-					Content:    msg.Content,
-					ToolCalls:  msg.ToolCalls,
-					ToolCallId: msg.ToolCallId,
-				})
+			tmp := hcopenai.OpenAIChatMessage{
+				Content: msg.Content,
+			}
+			if msg.Metadata["role"] != nil {
+				tmp.Role = msg.Metadata["role"].(string)
+			}
+			if msg.Metadata["tool_calls"] != nil {
+				log.Debugf("Tool calls: %v", msg.Metadata["tool_calls"])
+				switch msg.Metadata["tool_calls"].(type) {
+				case []hcopenai.OpenAIChatToolCall:
+					tmp.ToolCalls = msg.Metadata["tool_calls"].([]hcopenai.OpenAIChatToolCall)
+				case []interface{}:
+					// marshal the interface{} to json and unmarshal to OpenAIChatToolCall
+					toolCalls := msg.Metadata["tool_calls"].([]interface{})
+					toolCallsStr, err := json.Marshal(toolCalls)
+					if err != nil {
+						return nil, fmt.Errorf("error marshalling tool calls: %v", err)
+					}
+					var toolCalls2 []hcopenai.OpenAIChatToolCall
+					err = json.Unmarshal(toolCallsStr, &toolCalls2)
+					if err != nil {
+						return nil, fmt.Errorf("error unmarshalling tool calls: %v", err)
+					}
+					tmp.ToolCalls = toolCalls2
+				default:
+					return nil, fmt.Errorf("unexpected type for tool_calls")
+				}
+			}
+			if msg.Metadata["tool_call_id"] != nil {
+				tmp.ToolCallId = msg.Metadata["tool_call_id"].(string)
+			}
+			openAiChatReq2.Messages = append(openAiChatReq2.Messages, tmp)
 		}
 
 		// check if toolset exists
@@ -173,19 +228,21 @@ func OpenAIChatCompletion(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCo
 			}
 			if choice.Reason == "stop" || choice.Reason == "length" {
 				mem.AddMessage(ChatMessage{
-					MetaData: map[string]string{
-						"role": choice.Message.Role,
+					Metadata: map[string]interface{}{
+						"role":   choice.Message.Role,
+						"reason": choice.Reason,
 					},
 					Content: choice.Message.Content,
 				})
 				finished = true
 			} else if choice.Reason == "tool_calls" {
 				mem.AddMessage(ChatMessage{
-					MetaData: map[string]string{
-						"role": choice.Message.Role,
+					Metadata: map[string]interface{}{
+						"role":       choice.Message.Role,
+						"tool_calls": choice.Message.ToolCalls,
+						"reason":     choice.Reason,
 					},
-					Content:   choice.Message.Content,
-					ToolCalls: choice.Message.ToolCalls,
+					Content: choice.Message.Content,
 				})
 				toolCalls := choice.Message.ToolCalls
 				for _, toolCall := range toolCalls {
@@ -206,16 +263,16 @@ func OpenAIChatCompletion(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCo
 						}
 						res, err := fn(inv, args)
 						if err != nil {
-							return nil, fmt.Errorf("error calling built-in tool: %v", err)
+							return nil, fmt.Errorf("error calling built-in tool %s: %v", toolReg.name, err)
 						}
 
 						log.Infof("Builtin Tool call response: %v", res)
 						mem.AddMessage(ChatMessage{
-							MetaData: map[string]string{
-								"role": "tool",
+							Metadata: map[string]interface{}{
+								"role":         "tool",
+								"tool_call_id": toolCall.Id,
 							},
-							Content:    fmt.Sprintf("%v", res),
-							ToolCallId: toolCall.Id,
+							Content: fmt.Sprintf("%v", res),
 						})
 					} else {
 						err = inv.CommMgr.SendOutgoingRPCRequestCallback(task, toolCall.Function.Name, args, func(resp *rpc.JsonRPCResponse) error {
@@ -233,17 +290,5 @@ func OpenAIChatCompletion(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCo
 		}
 	}
 
-	resp := &payload.ChatCompletionResponse{}
-	resp.Choices = []payload.ChatChoice{}
-	for i, msg := range mem.GetMessages() {
-		resp.Choices = append(resp.Choices, payload.ChatChoice{
-			Index: json.Number(fmt.Sprintf("%d", i)),
-			Message: payload.ChatMessage{
-				Role:    msg.MetaData["role"],
-				Content: msg.Content,
-			},
-		})
-	}
-
-	return resp, nil
+	return mem.GetMessages(), nil
 }

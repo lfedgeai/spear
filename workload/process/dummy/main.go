@@ -77,13 +77,17 @@ func main() {
 	// read json from stdin and write to stdout
 	chatMsg := payload.ChatCompletionRequest{
 		Model: "gpt-4o",
-		Messages: []payload.ChatMessage{
+		Messages: []payload.ChatMessageV2{
 			{
-				Role:    "system",
+				Metadata: map[string]interface{}{
+					"role": "system",
+				},
 				Content: "Hello, how can I help you?",
 			},
 			{
-				Role:    "user",
+				Metadata: map[string]interface{}{
+					"role": "user",
+				},
 				Content: "I need help with my computer",
 			},
 		},
