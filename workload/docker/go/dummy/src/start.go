@@ -103,7 +103,7 @@ func main() {
 
 	// send an embeddings request
 	embeddingsReq := openai.EmbeddingsRequest{
-		Model: "text-embedding-ada-002",
+		Model: "bge-large-en-v1.5", //"text-embedding-ada-002",
 		Input: "The food was delicious and the waiter...",
 	}
 

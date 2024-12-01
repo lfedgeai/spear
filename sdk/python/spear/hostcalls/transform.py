@@ -20,7 +20,8 @@ class TransformType(IntEnum):
     AUDIO = 2
     VIDEO = 3
     TENSOR = 4
-    UNKNOWN = 5
+    VECTOR = 5
+    UNKNOWN = 6
 
 
 class TransformOperation(IntEnum):

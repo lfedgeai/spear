@@ -6,6 +6,7 @@ import (
 
 	"github.com/lfedgeai/spear/worker"
 	"github.com/lfedgeai/spear/worker/task/docker"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/docker/docker/api/types/container"
 )
@@ -18,7 +19,7 @@ type TestSetup struct {
 func (t *TestSetup) stopVectorStoreContainer() {
 	err := docker.StopContainer(t.vecStore.ID)
 	if err != nil {
-		panic(err)
+		log.Warnf("%v", err)
 	}
 }
 

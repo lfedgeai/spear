@@ -150,6 +150,12 @@ func StopTaskRuntimes() {
 
 // register task runtime
 func RegisterSupportedTaskType(taskType TaskType) {
+	for _, t := range supportedTaskTypes {
+		if t == taskType {
+			log.Warnf("task runtime already registered: %v", taskType)
+			return
+		}
+	}
 	supportedTaskTypes = append(supportedTaskTypes, taskType)
 }
 

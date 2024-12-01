@@ -55,7 +55,7 @@ func NewRootCmd() *cobra.Command {
 			if rtType, ok := validChoices[execRtTypeStr]; !ok {
 				log.Errorf("Invalid runtime type %s", execRtTypeStr)
 			} else {
-				log.Infof("executing workload id %d with runtime type %v", execWorkloadId, rtType)
+				log.Infof("Executing workload id %d with runtime type %v", execWorkloadId, rtType)
 				// set log level
 				if execVerbose {
 					worker.SetLogLevel(log.DebugLevel)

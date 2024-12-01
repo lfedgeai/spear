@@ -32,7 +32,7 @@ var (
 			inputTypes:  []payload.TransformType{payload.TransformTypeText},
 			outputTypes: []payload.TransformType{payload.TransformTypeVector},
 			operations:  []payload.TransformOperation{payload.TransformOperationEmbeddings},
-			cb:          openai.Embeddings,
+			cb:          Embeddings,
 		},
 		{
 			name:        "text-to-speech",

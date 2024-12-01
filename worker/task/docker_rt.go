@@ -24,7 +24,13 @@ type DockerTaskRuntime struct {
 	stopWg     sync.WaitGroup
 }
 
-var DockerRuntimeTcpListenPort = "8383"
+const (
+	DockerRuntimeTcpListenPortBase = 8100
+)
+
+var (
+	DockerRuntimeTcpListenPort = ""
+)
 
 func NewDockerTaskRuntime(rtCfg *TaskRuntimeConfig) (*DockerTaskRuntime, error) {
 	// create docker client
@@ -32,6 +38,11 @@ func NewDockerTaskRuntime(rtCfg *TaskRuntimeConfig) (*DockerTaskRuntime, error) 
 	if err != nil {
 		return nil, err
 	}
+
+	// generate a random port to use
+	rand.Seed(time.Now().UnixNano())
+	randomInt := rand.Intn(500) + DockerRuntimeTcpListenPortBase
+	DockerRuntimeTcpListenPort = fmt.Sprintf("%d", randomInt)
 
 	res := &DockerTaskRuntime{
 		cli:        cli,
@@ -139,7 +150,7 @@ func (d *DockerTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 }
 
 func (d *DockerTaskRuntime) runTCPServer(port string) {
-	log.Debugf("Starting docker hostcall TCP server on port %s", port)
+	log.Infof("Starting docker hostcall TCP server on port %s", port)
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%s", port))
 	if err != nil {

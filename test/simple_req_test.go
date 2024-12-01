@@ -8,6 +8,8 @@ import (
 	"bytes"
 
 	"github.com/lfedgeai/spear/pkg/tools/docker"
+	"github.com/lfedgeai/spear/worker"
+	"github.com/lfedgeai/spear/worker/task"
 )
 
 func TestSimpleReq(t *testing.T) {
@@ -83,4 +85,32 @@ func TestSimpleReq(t *testing.T) {
 
 	// close the response body
 	resp.Body.Close()
+}
+
+func TestLocalDummy(t *testing.T) {
+	// create config
+	config := worker.NewExecWorkerConfig(true)
+	w := worker.NewWorker(config)
+	w.Initialize()
+
+	res, err := w.ExecuteTask(1, task.TaskTypeDocker, true, "handle", "")
+	if err != nil {
+		t.Fatalf("Error executing workload: %v", err)
+	}
+	t.Logf("Workload execution result: %v", res)
+	w.Stop()
+}
+
+func TestLocalPydummy(t *testing.T) {
+	// create config
+	config := worker.NewExecWorkerConfig(true)
+	w := worker.NewWorker(config)
+	w.Initialize()
+
+	res, err := w.ExecuteTask(7, task.TaskTypeDocker, true, "handle", "")
+	if err != nil {
+		t.Fatalf("Error executing workload: %v", err)
+	}
+	t.Logf("Workload execution result: %v", res)
+	w.Stop()
 }
