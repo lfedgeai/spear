@@ -143,10 +143,15 @@ func (p *DockerTask) Start() error {
 				n = n - 8
 				// big endian size
 				sz := int(header[4])<<24 | int(header[5])<<16 | int(header[6])<<8 | int(header[7])
-				// log.Debugf("Size: %d, ReadLen: %d, Got data: %s", sz, n, data)
+				log.Debugf("Size: %d, ReadLen: %d, Got data: %s", sz, n, data)
 				if header[0] == 0x01 {
 					// stdout
-					// p.chanOut <- Message(data[:sz])
+					data2print := data[:sz]
+					// remove trailing newline
+					if data2print[sz-1] == '\n' {
+						data2print = data2print[:sz-1]
+					}
+					log.Infof("STDOUT[%s]:\033[0;36m%s\033[0m", p.name, data2print)
 				} else if header[0] == 0x02 {
 					// stderr
 					data2print := data[:sz]
@@ -154,7 +159,7 @@ func (p *DockerTask) Start() error {
 					if data2print[sz-1] == '\n' {
 						data2print = data2print[:sz-1]
 					}
-					log.Infof("STDERR[%s]:\033[0;32m%s\033[0m", p.name, data2print)
+					log.Infof("STDERR[%s]:\033[0;31m%s\033[0m", p.name, data2print)
 				}
 				if sz >= n || sz == 0 {
 					break

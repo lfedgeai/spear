@@ -2,6 +2,7 @@
 import argparse
 import logging
 import sys
+import os
 import base64
 
 import spear.client as client
@@ -39,11 +40,13 @@ def display_chat_message(msg):
     """
     assert isinstance(msg, tf.ChatMessageV2)
     if msg.content:
-        logger.info("[%s] %s", msg.metadata.role, msg.content)
+        print(f"[{msg.metadata.role}] {msg.content}", flush=True)
+        # print("[%s] %s", msg.metadata.role, msg.content)
     elif msg.metadata.tool_calls:
         for tool_call in msg.metadata.tool_calls:
-            logger.info(
-                "[%s] TOOL_CALL -> %s", msg.metadata.role, tool_call.function.name
+            print(
+                f"[{msg.metadata.role}] TOOL_CALL -> {tool_call.function.name}",
+                flush=True,
             )
 
 
@@ -126,7 +129,7 @@ def handle(params):
         if not user_input:
             continue
         if user_input == "q":
-            logger.info("Quitting")
+            print("Quitting")
             break
 
         msg_memory.append(
