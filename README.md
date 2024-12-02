@@ -33,7 +33,7 @@ To run SPEAR in local mode, use the following command:
 
 ```bash
 export OPENAI_API_KEY=<YOUR_OPENAI_API_KEY>
-bin/worker exec -i 6
+bin/worker exec -n pyconversation
 ```
 
 This command will:

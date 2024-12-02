@@ -13,12 +13,12 @@ type WorkerConfig struct {
 }
 
 var (
-	execRtTypeStr  string
-	execWorkloadId int64
-	execReqMethod  string
-	execReqPayload string
-	execVerbose    bool
-	execDebug      bool
+	execRtTypeStr    string
+	execWorkloadName string
+	execReqMethod    string
+	execReqPayload   string
+	execVerbose      bool
+	execDebug        bool
 )
 
 func NewRootCmd() *cobra.Command {
@@ -42,8 +42,8 @@ func NewRootCmd() *cobra.Command {
 				"Wasm":    task.TaskTypeWasm,
 			}
 
-			if execWorkloadId <= 0 {
-				log.Errorf("Invalid workload id %d", execWorkloadId)
+			if execWorkloadName == "" {
+				log.Errorf("Invalid workload name %s", execWorkloadName)
 				return
 			}
 			if execReqMethod == "" {
@@ -55,7 +55,7 @@ func NewRootCmd() *cobra.Command {
 			if rtType, ok := validChoices[execRtTypeStr]; !ok {
 				log.Errorf("Invalid runtime type %s", execRtTypeStr)
 			} else {
-				log.Infof("Executing workload id %d with runtime type %v", execWorkloadId, rtType)
+				log.Infof("Executing workload %s with runtime type %v", execWorkloadName, rtType)
 				// set log level
 				if execVerbose {
 					worker.SetLogLevel(log.DebugLevel)
@@ -65,6 +65,17 @@ func NewRootCmd() *cobra.Command {
 				config := worker.NewExecWorkerConfig(execDebug)
 				w := worker.NewWorker(config)
 				w.Initialize()
+
+				// lookup task id
+				execWorkloadId, err := w.LookupTaskId(execWorkloadName)
+				if err != nil {
+					log.Errorf("Error looking up task id: %v", err)
+					// print available tasks
+					tasks := w.ListTasks()
+					log.Infof("Available tasks: %v", tasks)
+					w.Stop()
+					return
+				}
 
 				res, err := w.ExecuteTask(execWorkloadId, rtType, true, execReqMethod, execReqPayload)
 				if err != nil {
@@ -78,7 +89,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	// workload id
-	execCmd.PersistentFlags().Int64VarP(&execWorkloadId, "id", "i", 0, "workload id")
+	execCmd.PersistentFlags().StringVarP(&execWorkloadName, "name", "n", "", "workload name")
 	// workload type, a choice of Docker, Process, Dylib or Wasm
 	execCmd.PersistentFlags().StringVarP(&execRtTypeStr, "type", "t", "Docker", "type of the workload")
 	// workload request payload

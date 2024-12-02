@@ -218,6 +218,23 @@ func funcType(req *http.Request) (task.TaskType, error) {
 	}
 }
 
+func (w *Worker) LookupTaskId(name string) (int64, error) {
+	for _, v := range tmpMetaData {
+		if v.Name == name {
+			return v.Id, nil
+		}
+	}
+	return -1, fmt.Errorf("error: task name not found: %s", name)
+}
+
+func (w *Worker) ListTasks() []string {
+	var tasks []string
+	for _, v := range tmpMetaData {
+		tasks = append(tasks, v.Name)
+	}
+	return tasks
+}
+
 func (w *Worker) ExecuteTask(taskId int64, funcType task.TaskType, wait bool, method string, data string) (string, error) {
 	rt, err := task.GetTaskRuntime(funcType)
 	if err != nil {
