@@ -13,12 +13,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var (
-	gptModels = map[string]struct{}{
-		"gpt-4o": {},
-	}
-)
-
 type ChatMessage struct {
 	Index    int                    `json:"index"`
 	Metadata map[string]interface{} `json:"metadata"`
@@ -68,42 +62,37 @@ func ChatCompletion(inv *hostcalls.InvocationInfo, args interface{}) (interface{
 		return nil, fmt.Errorf("error unmarshalling args: %v", err)
 	}
 
-	if _, ok := gptModels[chatReq.Model]; ok {
-		log.Infof("Using GPT-4o model")
-		// process gpt-4o model chat completion
-		// convert chatReq to OpenAIChatCompletionRequest
+	log.Infof("Using model %s", chatReq.Model)
 
-		msgList, err := OpenAIChatCompletion(inv, &chatReq)
-		if err != nil {
-			return nil, fmt.Errorf("error calling OpenAIChatCompletion: %v", err)
-		}
-
-		var res2 payload.ChatCompletionResponseV2
-		// res2.Id = res.Id
-		// res2.Model = res.Model
-		res2.Messages = make([]payload.ChatMessageV2, len(msgList))
-		for i, msg := range msgList {
-			md := map[string]interface{}{
-				"role": msg.Metadata["role"],
-			}
-			if msg.Metadata["reason"] != nil {
-				md["reason"] = msg.Metadata["reason"]
-			}
-			if msg.Metadata["tool_call_id"] != nil {
-				md["tool_call_id"] = msg.Metadata["tool_call_id"]
-			}
-			if msg.Metadata["tool_calls"] != nil {
-				md["tool_calls"] = msg.Metadata["tool_calls"]
-			}
-			res2.Messages[i] = payload.ChatMessageV2{
-				Metadata: md,
-				Content:  msg.Content,
-			}
-		}
-		return res2, nil
+	msgList, err := OpenAIChatCompletion(inv, &chatReq)
+	if err != nil {
+		return nil, fmt.Errorf("error calling OpenAIChatCompletion: %v", err)
 	}
 
-	return nil, fmt.Errorf("not implemented")
+	var res2 payload.ChatCompletionResponseV2
+	// res2.Id = res.Id
+	// res2.Model = res.Model
+	res2.Messages = make([]payload.ChatMessageV2, len(msgList))
+	for i, msg := range msgList {
+		md := map[string]interface{}{
+			"role": msg.Metadata["role"],
+		}
+		if msg.Metadata["reason"] != nil {
+			md["reason"] = msg.Metadata["reason"]
+		}
+		if msg.Metadata["tool_call_id"] != nil {
+			md["tool_call_id"] = msg.Metadata["tool_call_id"]
+		}
+		if msg.Metadata["tool_calls"] != nil {
+			md["tool_calls"] = msg.Metadata["tool_calls"]
+		}
+		res2.Messages[i] = payload.ChatMessageV2{
+			Metadata: md,
+			Content:  msg.Content,
+		}
+	}
+	return res2, nil
+
 }
 
 func setupOpenAITools(chatReq *hcopenai.OpenAIChatCompletionRequest, task task.Task, toolsetId ToolsetId) error {

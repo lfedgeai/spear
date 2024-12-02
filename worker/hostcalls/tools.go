@@ -51,7 +51,7 @@ var (
 	builtinTools = []ToolRegistry{
 		{
 			name:        "datetime",
-			description: "Get current date and time",
+			description: "Get current date and time, including timezone information",
 			params:      map[string]ToolParam{},
 			cb:          "",
 			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {

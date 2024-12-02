@@ -39,15 +39,14 @@ def display_chat_message(msg):
     display the chat message
     """
     assert isinstance(msg, tf.ChatMessageV2)
-    if msg.content:
-        print(f"[{msg.metadata.role}] {msg.content}", flush=True)
-        # print("[%s] %s", msg.metadata.role, msg.content)
-    elif msg.metadata.tool_calls:
+    if msg.metadata.tool_calls:
         for tool_call in msg.metadata.tool_calls:
             print(
                 f"[{msg.metadata.role}] TOOL_CALL -> {tool_call.function.name}",
                 flush=True,
             )
+    elif msg.content:
+        print(f"[{msg.metadata.role}] {msg.content}", flush=True)
 
 
 def speak_chat_message(msg):
@@ -145,7 +144,7 @@ def handle(params):
                 output_types=[tf.TransformType.TEXT],
                 operations=[tf.TransformOperation.LLM],
                 params={
-                    "model": "gpt-4o",
+                    "model": "llama", #"gpt-4o",
                     "messages": msg_memory,
                     "toolset_id": toolsetid,
                 },
@@ -166,7 +165,7 @@ def handle(params):
         tmp_msgs = new_msg_memory[len(msg_memory) :]
         for msg in tmp_msgs:
             display_chat_message(msg)
-            if msg.metadata.role == "assistant" and msg.content:
+            if msg.metadata.role == "assistant" and not msg.metadata.tool_calls:
                 speak_chat_message(msg)
 
         msg_memory = new_msg_memory

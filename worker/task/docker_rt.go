@@ -82,6 +82,12 @@ func (d *DockerTaskRuntime) Start() error {
 
 func (d *DockerTaskRuntime) Stop() error {
 	d.stopCh <- struct{}{}
+	// iterate all tasks and stop them
+	for _, task := range d.tasks {
+		if err := task.Stop(); err != nil {
+			log.Errorf("Error stopping task %s: %v", task.ID(), err)
+		}
+	}
 	d.stopWg.Wait()
 	return nil
 }
