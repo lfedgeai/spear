@@ -48,6 +48,7 @@ def test(model):
     """
     test the model
     """
+    logger.info("Testing model: %s", model)
     resp = agent.exec_request(
         "transform",
         tf.TransformRequest(

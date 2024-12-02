@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/mp3"
 	"github.com/faiface/beep/speaker"
+	"github.com/lfedgeai/spear/pkg/io"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	"github.com/schollz/progressbar/v3"
 	log "github.com/sirupsen/logrus"
@@ -130,4 +132,52 @@ func playMP3(filePath string) error {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+}
+
+func Record(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	// record audio
+	fmt.Println(args.(string))
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	var wavData []byte
+	stopChan, err := io.RecordAudio(44100, func(data []byte, err error) {
+		defer wg.Done()
+		if err != nil {
+			log.Errorf("Failed to record audio: %v", err)
+			return
+		}
+		wavData = data
+	})
+	if err != nil {
+		log.Errorf("Failed to record audio: %v", err)
+		return nil, err
+	}
+
+	// display progress bar
+	bar := progressbar.NewOptions64(-1,
+		progressbar.OptionSetDescription("Recording... Enter to stop"),
+		progressbar.OptionSetWriter(os.Stderr),
+		progressbar.OptionSetWidth(10),
+		progressbar.OptionOnCompletion(func() {
+			fmt.Fprint(os.Stderr, "\n")
+		}),
+		progressbar.OptionSpinnerType(14),
+		progressbar.OptionFullWidth(),
+		progressbar.OptionSetRenderBlankState(true),
+	)
+
+	// Wait for the user to press enter
+	go func() {
+		_, _ = bufio.NewReader(os.Stdin).ReadBytes('\n')
+		close(stopChan)
+	}()
+
+	// Wait for the recording to finish
+	wg.Wait()
+
+	bar.Describe("Recorded")
+	bar.Close()
+
+	return wavData, nil
 }

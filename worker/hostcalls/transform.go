@@ -41,6 +41,13 @@ var (
 			operations:  []payload.TransformOperation{payload.TransformOperationTextToSpeech},
 			cb:          openai.TextToSpeech,
 		},
+		{
+			name:        "speech-to-text",
+			inputTypes:  []payload.TransformType{payload.TransformTypeAudio},
+			outputTypes: []payload.TransformType{payload.TransformTypeText},
+			operations:  []payload.TransformOperation{payload.TransformOperationSpeechToText},
+			cb:          openai.SpeechToText,
+		},
 	}
 )
 

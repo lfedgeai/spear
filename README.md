@@ -42,16 +42,23 @@ This command will:
 
 Also, you need to set the environment variable `OPENAI_API_KEY` to your OpenAI API key. In the future, we will support other LLM providers.
 
+## Dependencies
+  PortAudio is required for the audio processing component. To install PortAudio on MacOS, use the following command:
+  
+  ```bash
+  brew install portaudio
+  ```
 
 ## Development Status
 
- - Supported Runtimes:
+ Supported Runtimes:
  - Process
  - Docker Container
  - Planned Runtimes:
  - WebAssembly
  - Kubernetes
- - Supported Platforms:
+ 
+ Supported Platforms:
  - Currently developed and tested only on macOS.
  - Other platforms have not yet been tested or supported.
 

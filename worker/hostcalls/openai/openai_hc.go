@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"os"
 
 	"github.com/lfedgeai/spear/pkg/net"
@@ -35,55 +37,81 @@ type APIEndpointInfo struct {
 }
 
 var (
-	APIEndpointMap = map[string]map[OpenAIFunctionType]APIEndpointInfo{
+	APIEndpointMap = map[string]map[OpenAIFunctionType][]APIEndpointInfo{
 		"gpt-4o": {
-			OpenAIFunctionTypeChatWithTools: {
-				URL:    OpenAIURLBase + "/chat/completions",
-				APIKey: os.Getenv("OPENAI_API_KEY"),
+			OpenAIFunctionTypeChatWithTools: []APIEndpointInfo{
+				{
+					URL:    OpenAIURLBase + "/chat/completions",
+					APIKey: os.Getenv("OPENAI_API_KEY"),
+				},
 			},
-			OpenAIFunctionTypeChatOnly: {
-				URL:    OpenAIURLBase + "/chat/completions",
-				APIKey: os.Getenv("OPENAI_API_KEY"),
+			OpenAIFunctionTypeChatOnly: []APIEndpointInfo{
+				{
+					URL:    OpenAIURLBase + "/chat/completions",
+					APIKey: os.Getenv("OPENAI_API_KEY"),
+				},
 			},
 		},
 		"text-embedding-ada-002": {
-			OpenAIFunctionTypeEmbeddings: {
-				URL:    OpenAIURLBase + "/embeddings",
-				APIKey: os.Getenv("OPENAI_API_KEY"),
+			OpenAIFunctionTypeEmbeddings: []APIEndpointInfo{
+				{
+					URL:    OpenAIURLBase + "/embeddings",
+					APIKey: os.Getenv("OPENAI_API_KEY"),
+				},
 			},
 		},
 		"tts-1": {
-			OpenAIFunctionTypeTextToSpeech: {
-				URL:    OpenAIURLBase + "/audio/speech",
-				APIKey: os.Getenv("OPENAI_API_KEY"),
+			OpenAIFunctionTypeTextToSpeech: []APIEndpointInfo{
+				{
+					URL:    OpenAIURLBase + "/audio/speech",
+					APIKey: os.Getenv("OPENAI_API_KEY"),
+				},
 			},
 		},
 		"dall-e-3": {
-			OpenAIFunctionTypeImageGeneration: {
-				URL:    OpenAIURLBase + "/images/generations",
-				APIKey: os.Getenv("OPENAI_API_KEY"),
+			OpenAIFunctionTypeImageGeneration: []APIEndpointInfo{
+				{
+					URL:    OpenAIURLBase + "/images/generations",
+					APIKey: os.Getenv("OPENAI_API_KEY"),
+				},
 			},
 		},
 		"llama": {
-			OpenAIFunctionTypeChatWithTools: {
-				URL:    "https://llamatool.us.gaianet.network/v1/chat/completions",
-				APIKey: "gaia",
+			OpenAIFunctionTypeChatWithTools: []APIEndpointInfo{
+				{
+					URL:    "https://llamatool.us.gaianet.network/v1/chat/completions",
+					APIKey: "gaia",
+				},
 			},
-			OpenAIFunctionTypeChatOnly: {
-				URL:    "https://llama8b.gaia.domains/v1/chat/completions",
-				APIKey: "gaia",
+			OpenAIFunctionTypeChatOnly: []APIEndpointInfo{
+				{
+					URL:    "https://llama8b.gaia.domains/v1/chat/completions",
+					APIKey: "gaia",
+				},
 			},
 		},
 		"nomic-embed": {
-			OpenAIFunctionTypeEmbeddings: {
-				URL:    "https://llama8b.gaia.domains/v1/embeddings",
-				APIKey: "gaia",
+			OpenAIFunctionTypeEmbeddings: []APIEndpointInfo{
+				{
+					URL:    "https://llama8b.gaia.domains/v1/embeddings",
+					APIKey: "gaia",
+				},
 			},
 		},
 		"whisper": {
-			OpenAIFunctionTypeSpeechToText: {
-				URL:    "https://whisper.gaia.domains/v1/speech2text",
-				APIKey: "gaia",
+			OpenAIFunctionTypeSpeechToText: []APIEndpointInfo{
+				{
+					URL:    "https://whisper.gaia.domains/v1/audio/transcriptions",
+					APIKey: "gaia",
+				},
+			},
+		},
+		"whisper-1": {
+			OpenAIFunctionTypeSpeechToText: []APIEndpointInfo{
+				{
+					URL:    OpenAIURLBase + "/audio/transcriptions",
+					APIKey: os.Getenv("OPENAI_API_KEY"),
+				},
 			},
 		},
 	}
@@ -152,11 +180,21 @@ func ModelNameToBaseURLAndAPIKey(modelName string, funcType OpenAIFunctionType) 
 	if APIEndpointMap[modelName] == nil {
 		return "", "", fmt.Errorf("model name not found: %s", modelName)
 	}
-	if APIEndpointMap[modelName][funcType].URL == "" {
+	if APIEndpointMap[modelName][funcType] == nil {
 		return "", "", fmt.Errorf("function type not found: %v", funcType)
 	}
-	u := APIEndpointMap[modelName][funcType].URL
-	k := APIEndpointMap[modelName][funcType].APIKey
+	var e APIEndpointInfo
+	for _, info := range APIEndpointMap[modelName][funcType] {
+		if info.APIKey != "" {
+			e = info
+		}
+	}
+
+	if e.URL == "" {
+		return "", "", fmt.Errorf("function type not found: %v", funcType)
+	}
+	u := e.URL
+	k := e.APIKey
 	if k == "" {
 		log.Warnf("API Key not found for model: %s and function type: %v", modelName, funcType)
 	}
@@ -307,6 +345,73 @@ func TextToSpeech(inv *hostcalls.InvocationInfo, args interface{}) (interface{},
 	log.Debugf("Encoded Response Len in hostcall: %d", len(respData.EncodedAudio))
 
 	// return the response
+	return respData, nil
+}
+
+func SpeechToText(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	log.Infof("Converting Speech to Text...")
+	// verify the type of args is SpeechToTextRequest
+	// use json marshal and unmarshal to verify the type
+	jsonBytes, err := json.Marshal(args)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling args: %v", err)
+	}
+	sttReq := openai.SpeechToTextRequest{}
+	err = sttReq.Unmarshal(jsonBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	}
+
+	log.Debugf("SpeechToText Request: %v", sttReq)
+	u, k, err := ModelNameToBaseURLAndAPIKey(sttReq.Model, OpenAIFunctionTypeSpeechToText)
+	if err != nil {
+		return nil, err
+	}
+
+	// send data as multipart/form-data
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	part, err := writer.CreateFormFile("file", "audio.wav")
+	if err != nil {
+		return nil, fmt.Errorf("error creating form file: %v", err)
+	}
+	log.Debugf("Audio data: %v", sttReq.Audio)
+	// convert base64 encoded audio data to bytes
+	data := make([]byte, base64.StdEncoding.DecodedLen(len(sttReq.Audio)))
+	n, err := base64.StdEncoding.Decode(data, []byte(sttReq.Audio))
+	if err != nil {
+		return nil, fmt.Errorf("error decoding audio data: %v", err)
+	}
+	log.Debugf("Decoded audio data len: %d", n)
+	_, err = io.Copy(part, bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("error copying audio data: %v", err)
+	}
+	part2, err := writer.CreateFormField("model")
+	if err != nil {
+		return nil, fmt.Errorf("error creating form field: %v", err)
+	}
+	_, err = part2.Write([]byte(sttReq.Model))
+	if err != nil {
+		return nil, fmt.Errorf("error writing model data: %v", err)
+	}
+	err = writer.Close()
+	if err != nil {
+		return nil, fmt.Errorf("error closing writer: %v", err)
+	}
+
+	// send the request
+	res, err := net.SendRequest(u, payload, writer.FormDataContentType(), k)
+	if err != nil {
+		return nil, fmt.Errorf("error sending request: %v", err)
+	}
+
+	log.Debugf("Speech to Text Response: %s", string(res))
+	respData := openai.SpeechToTextResponse{}
+	err = respData.Unmarshal(res)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling response: %v", err)
+	}
 	return respData, nil
 }
 

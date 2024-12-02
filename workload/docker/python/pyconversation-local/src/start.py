@@ -2,8 +2,8 @@
 import argparse
 import logging
 import sys
-import os
 import base64
+import json
 
 import spear.client as client
 import spear.utils.io as io
@@ -47,6 +47,36 @@ def display_chat_message(msg):
             )
     elif msg.content:
         print(f"[{msg.metadata.role}] {msg.content}", flush=True)
+
+
+def audio_to_text(audio):
+    """
+    convert audio to text
+    """
+    resp = agent.exec_request(
+        "transform",
+        tf.TransformRequest(
+            input_types=[tf.TransformType.AUDIO],
+            output_types=[tf.TransformType.TEXT],
+            operations=[tf.TransformOperation.SPEECH_TO_TEXT],
+            params={
+                "model": "whisper-1",
+                "audio": audio,
+            },
+        ),
+    )
+    if isinstance(resp, client.JsonRpcOkResp):
+        resp = tf.TransformResponse.schema().load(resp.result)
+        assert len(resp.results) == 1
+        data = resp.results[0].data
+        data = base64.b64decode(data).decode("utf-8")
+        # conver to json object and get "text" field
+        data = json.loads(data)
+        data = data["text"]
+        return data
+    elif isinstance(resp, client.JsonRpcErrorResp):
+        logger.error("Error: %s", resp.message)
+        return None
 
 
 def speak_chat_message(msg):
@@ -121,15 +151,29 @@ def handle(params):
 
     msg_memory = []
     while True:
-        user_input = io.input(agent, "(q to quit) > ")
+        user_input = io.input(agent, "(? for help) > ")
 
         # trim the user input, remove space and newline
         user_input = user_input.strip()
         if not user_input:
             continue
         if user_input == "q":
-            print("Quitting")
+            print("Quitting", flush=True)
             break
+        if user_input == "?":
+            help_msg = """q: quit
+r: record voice input"""
+            print(help_msg, flush=True)
+            continue
+        if user_input == "r":
+            resp = io.record(agent, "Assistant is listening")
+            if resp:
+                user_input = audio_to_text(resp)
+                if user_input:
+                    print(f"User: {user_input}", flush=True)
+                else:
+                    print("Failed to convert audio to text", flush=True)
+                    continue
 
         msg_memory.append(
             tf.ChatMessageV2(

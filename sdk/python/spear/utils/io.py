@@ -29,3 +29,17 @@ def speak(agent: client.HostAgent, data) -> str:
         return
     else:
         raise ValueError("Error speaking")
+
+def record(agent: client.HostAgent, prompt: str) -> str:
+    """
+    get user input
+    """
+    res = agent.exec_request(
+        "record",
+        prompt,
+    )
+    if isinstance(res, client.JsonRpcOkResp):
+        res = res.result
+    else:
+        raise ValueError("Error recording")
+    return res

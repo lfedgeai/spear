@@ -88,4 +88,9 @@ var Hostcalls = []*hostcalls.HostCall{
 		Name:    payload.HostCallSpeak,
 		Handler: Speak,
 	},
+	// record operations
+	{
+		Name:    payload.HostCallRecord,
+		Handler: Record,
+	},
 }
