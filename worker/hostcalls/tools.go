@@ -84,6 +84,7 @@ var (
 			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 				// use apple script to list all open email drafts window
 				script := `tell application "Microsoft Outlook"
+					activate
 					set windowList to every window
 					set windowDetails to {}
 					
@@ -108,8 +109,9 @@ var (
 			},
 		},
 		{
-			name:        "compose_email",
-			description: `Compose an email, open a draft window with the email pre-filled.`,
+			name: "compose_email",
+			description: `Compose an email, open a draft window with the email pre-filled. 
+			NOTE: the email has to be a valid email address, you need to get it from other tools or from the user directly`,
 			params: map[string]ToolParam{
 				"to": {
 					ptype:       "string",
@@ -144,20 +146,23 @@ var (
 			},
 		},
 		{
-			name:        "send_email_draft_window",
-			description: "Activate the email draft window and send the email. NOTE: Before call this tool, assitant needs to stop & ask the user to say yes",
+			name: "send_email_draft_window",
+			description: `Activate the email draft window and send the email, call the tool "list_open_emails" before you continue. 
+			NOTE: Before call this tool, assitant needs to stop & ask the user to say yes`,
 			params: map[string]ToolParam{
 				"window_name": {
 					ptype:       "string",
-					description: "Name of the email draft window",
+					description: "Name of the email draft window returned= from the \"list_open_emails\" tool",
 					required:    true,
 				},
 			},
 			cb: "",
 			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 				// use apple script to send email
+				log.Infof("Sending email with window name %s", args.(map[string]interface{})["window_name"].(string))
 				script := `set targetPrefix to "` + args.(map[string]interface{})["window_name"].(string) + `"
 					tell application "Microsoft Outlook"
+						activate
 						set windowList to every window
 						set targetWindow to missing value
 						
@@ -243,10 +248,12 @@ var (
 			cb: "",
 			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 				// use apple script to search for contact
+				log.Infof("Searching for contact with name %s", args.(map[string]interface{})["name"].(string))
 				script := `set personName to "` + args.(map[string]interface{})["name"].(string) + `"
 					set foundEmails to {}
 
 					tell application "Contacts"
+						activate
 						set peopleList to (every person whose name contains personName)
 						repeat with p in peopleList
 							set emailsList to emails of p

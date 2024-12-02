@@ -113,7 +113,7 @@ def handle(params):
         tf.TransformRequest(
             input_types=[tf.TransformType.TEXT],
             output_types=[tf.TransformType.TEXT],
-            operations=[tf.TransformOperation.LLM],
+            operations=[tf.TransformOperation.LLM, tf.TransformOperation.TOOLS],
             params={
                 "model": "gpt-4o",
                 "messages": [{"role": "user", "content": params}],

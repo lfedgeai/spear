@@ -27,7 +27,7 @@ var Hostcalls = []*hostcalls.HostCall{
 	// chat operations
 	{
 		Name:    openai.HostCallChatCompletion,
-		Handler: ChatCompletion,
+		Handler: ChatCompletionWithTools,
 	},
 	// text to speech operations
 	{

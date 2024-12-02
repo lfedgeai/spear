@@ -30,11 +30,12 @@ class TransformOperation(IntEnum):
     """
 
     LLM = 0
-    EMBEDDINGS = 1
-    OCR = 2
-    TEXT_TO_SPEECH = 3
-    SPEECH_TO_TEXT = 4
-    TEXT_TO_IMAGE = 5
+    TOOLS = 1
+    EMBEDDINGS = 2
+    OCR = 3
+    TEXT_TO_SPEECH = 4
+    SPEECH_TO_TEXT = 5
+    TEXT_TO_IMAGE = 6
 
 
 @dataclass_json

@@ -17,6 +17,7 @@ const (
 
 const (
 	TransformOperationLLM TransformOperation = iota
+	TransformOperationTools
 	TransformOperationEmbeddings
 	TransformOperationOCR
 	TransformOperationTextToSpeech

@@ -62,6 +62,49 @@ func ChatCompletion(inv *hostcalls.InvocationInfo, args interface{}) (interface{
 		return nil, fmt.Errorf("error unmarshalling args: %v", err)
 	}
 
+	if chatReq.ToolsetId != "" {
+		log.Infof("Tools are not supported in this function")
+		return nil, fmt.Errorf("tools are not supported in this function")
+	}
+
+	log.Infof("Using model %s", chatReq.Model)
+
+	msgList, err := OpenAIChatCompletionWithoutToolsSupport(inv, &chatReq)
+	if err != nil {
+		return nil, fmt.Errorf("error calling OpenAIChatCompletionWithoutToolsSupport: %v", err)
+	}
+
+	var res2 payload.ChatCompletionResponseV2
+	res2.Messages = make([]payload.ChatMessageV2, len(msgList))
+	for i, msg := range msgList {
+		md := map[string]interface{}{
+			"role": msg.Metadata["role"],
+		}
+		if msg.Metadata["reason"] != nil {
+			md["reason"] = msg.Metadata["reason"]
+		}
+		res2.Messages[i] = payload.ChatMessageV2{
+			Metadata: md,
+			Content:  msg.Content,
+		}
+	}
+	return res2, nil
+}
+
+func ChatCompletionWithTools(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	log.Debugf("Executing hostcall \"%s\" with args %v", openai.HostCallChatCompletion, args)
+	// verify the type of args is ChatCompletionRequest
+	// use json marshal and unmarshal to verify the type
+	jsonBytes, err := json.Marshal(args)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling args: %v", err)
+	}
+	chatReq := payload.ChatCompletionRequest{}
+	err = chatReq.Unmarshal(jsonBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	}
+
 	log.Infof("Using model %s", chatReq.Model)
 
 	msgList, err := OpenAIChatCompletion(inv, &chatReq)
@@ -70,8 +113,6 @@ func ChatCompletion(inv *hostcalls.InvocationInfo, args interface{}) (interface{
 	}
 
 	var res2 payload.ChatCompletionResponseV2
-	// res2.Id = res.Id
-	// res2.Model = res.Model
 	res2.Messages = make([]payload.ChatMessageV2, len(msgList))
 	for i, msg := range msgList {
 		md := map[string]interface{}{
@@ -92,7 +133,6 @@ func ChatCompletion(inv *hostcalls.InvocationInfo, args interface{}) (interface{
 		}
 	}
 	return res2, nil
-
 }
 
 func setupOpenAITools(chatReq *hcopenai.OpenAIChatCompletionRequest, task task.Task, toolsetId ToolsetId) error {
@@ -273,6 +313,64 @@ func OpenAIChatCompletion(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCo
 						}
 					}
 				}
+			} else {
+				return nil, fmt.Errorf("unexpected reason: %s", choice.Reason)
+			}
+		}
+	}
+
+	return mem.GetMessages(), nil
+}
+
+func OpenAIChatCompletionWithoutToolsSupport(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCompletionRequest) ([]ChatMessage, error) {
+	mem := NewChatCompletionMemory()
+	for _, msg := range chatReq.Messages {
+		tmp := ChatMessage{
+			Metadata: msg.Metadata,
+			Content:  msg.Content,
+		}
+		mem.AddMessage(tmp)
+	}
+
+	finished := false
+	var respData *hcopenai.OpenAIChatCompletionResponse
+	var err error
+	for !finished {
+		// create a new chat request
+		openAiChatReq2 := hcopenai.OpenAIChatCompletionRequest{
+			Model:    chatReq.Model,
+			Messages: []hcopenai.OpenAIChatMessage{},
+		}
+		for _, msg := range mem.GetMessages() {
+			tmp := hcopenai.OpenAIChatMessage{
+				Content: msg.Content,
+			}
+			if msg.Metadata["role"] != nil {
+				tmp.Role = msg.Metadata["role"].(string)
+			}
+			openAiChatReq2.Messages = append(openAiChatReq2.Messages, tmp)
+		}
+
+		respData, err = hcopenai.OpenAIChatCompletion(&openAiChatReq2)
+		if err != nil {
+			return nil, fmt.Errorf("error calling OpenAIChatCompletion: %v", err)
+		}
+
+		log.Debugf("Response: %v", respData)
+
+		for i, choice := range respData.Choices {
+			if choice.Index != json.Number(fmt.Sprintf("%d", i)) {
+				return nil, fmt.Errorf("index mismatch")
+			}
+			if choice.Reason == "stop" || choice.Reason == "length" {
+				mem.AddMessage(ChatMessage{
+					Metadata: map[string]interface{}{
+						"role":   choice.Message.Role,
+						"reason": choice.Reason,
+					},
+					Content: choice.Message.Content,
+				})
+				finished = true
 			} else {
 				return nil, fmt.Errorf("unexpected reason: %s", choice.Reason)
 			}

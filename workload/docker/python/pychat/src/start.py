@@ -2,6 +2,7 @@
 import argparse
 import logging
 import sys
+import base64
 
 import spear.client as client
 import spear.hostcalls.transform as tf
@@ -14,6 +15,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 agent = client.HostAgent()
 
@@ -33,7 +35,10 @@ def handle(params):
     """
     handle the request
     """
-    logger.info("Handling request: %s", params)
+    logger.debug("Handling request: %s", params)
+    msg = tf.ChatMessageV2(
+        metadata=tf.ChatMessageV2Metadata(role="user"), content=params
+    )
     resp = agent.exec_request(
         "transform",
         tf.TransformRequest(
@@ -41,8 +46,8 @@ def handle(params):
             output_types=[tf.TransformType.TEXT],
             operations=[tf.TransformOperation.LLM],
             params={
-                "model": "gpt-4o",
-                "messages": [{"role": "user", "content": params}],
+                "model": "llama", # "gpt-4o",
+                "messages": [msg],
             },
         ),
     )
@@ -50,8 +55,10 @@ def handle(params):
     agent.stop()
     if isinstance(resp, client.JsonRpcOkResp):
         resp = tf.TransformResponse.schema().load(resp.result)
-        assert len(resp.choices) == 1
-        return resp.choices[0].message.content
+        data = resp.results[0].data
+        data = base64.b64decode(data).decode("utf-8")
+        print(data, flush=True)
+        return data
     elif isinstance(resp, client.JsonRpcErrorResp):
         return resp.message
     else:

@@ -186,9 +186,9 @@ r: record voice input"""
             tf.TransformRequest(
                 input_types=[tf.TransformType.TEXT],
                 output_types=[tf.TransformType.TEXT],
-                operations=[tf.TransformOperation.LLM],
+                operations=[tf.TransformOperation.LLM, tf.TransformOperation.TOOLS],
                 params={
-                    "model": "llama", #"gpt-4o",
+                    "model": "gpt-4o", #"llama",
                     "messages": msg_memory,
                     "toolset_id": toolsetid,
                 },

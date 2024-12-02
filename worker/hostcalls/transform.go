@@ -21,6 +21,16 @@ type TransformRegistry struct {
 var (
 	globalRegisteredTransform = []TransformRegistry{
 		{
+			name:        "chat_with_tools",
+			inputTypes:  []payload.TransformType{payload.TransformTypeText},
+			outputTypes: []payload.TransformType{payload.TransformTypeText},
+			operations: []payload.TransformOperation{
+				payload.TransformOperationLLM,
+				payload.TransformOperationTools,
+			},
+			cb: ChatCompletionWithTools,
+		},
+		{
 			name:        "chat",
 			inputTypes:  []payload.TransformType{payload.TransformTypeText},
 			outputTypes: []payload.TransformType{payload.TransformTypeText},
@@ -99,31 +109,45 @@ func Transform(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, er
 		return nil, fmt.Errorf("error unmarshalling args: %v", err)
 	}
 
+	var candid *TransformRegistry
+
 	// find the transform registry
 	for _, reg := range globalRegisteredTransform {
 		if isSubSetTransform(req.InputTypes, reg.inputTypes) &&
 			isSubSetTransform(req.OutputTypes, reg.outputTypes) &&
 			isSubsetOperation(req.Operations, reg.operations) {
-			log.Infof("Using transform registry %s", reg.name)
-			res, err := reg.cb(inv, req.Params)
-			if err != nil {
-				return nil, fmt.Errorf("error calling %s: %v", reg.name, err)
+			if candid != nil {
+				if len(reg.inputTypes) <= len(candid.inputTypes) &&
+					len(reg.outputTypes) <= len(candid.outputTypes) &&
+					len(reg.operations) <= len(candid.operations) {
+					candid = &reg
+				}
+			} else {
+				candid = &reg
 			}
-
-			resBytes, err := json.Marshal(res)
-			if err != nil {
-				return nil, fmt.Errorf("error marshalling response: %v", err)
-			}
-			transResp := &payload.TransformResponse{
-				Results: []payload.TransformResult{
-					{
-						Type: reg.outputTypes[0],
-						Data: resBytes,
-					},
-				},
-			}
-			return transResp, nil
 		}
+	}
+
+	if candid != nil {
+		log.Infof("Using transform registry %s", candid.name)
+		res, err := candid.cb(inv, req.Params)
+		if err != nil {
+			return nil, fmt.Errorf("error calling %s: %v", candid.name, err)
+		}
+
+		resBytes, err := json.Marshal(res)
+		if err != nil {
+			return nil, fmt.Errorf("error marshalling response: %v", err)
+		}
+		transResp := &payload.TransformResponse{
+			Results: []payload.TransformResult{
+				{
+					Type: candid.outputTypes[0],
+					Data: resBytes,
+				},
+			},
+		}
+		return transResp, nil
 	}
 
 	return nil, fmt.Errorf("hostcall \"%s\" not implemented", payload.HostCallTransform)
