@@ -46,6 +46,9 @@ def display_chat_message(msg):
                 flush=True,
             )
     elif msg.content:
+        # limit the max length of the message content to 4096
+        if len(msg.content) > 4096:
+            msg.content = msg.content[:4096] + "..."
         print(f"[{msg.metadata.role}] {msg.content}", flush=True)
 
 
@@ -84,6 +87,9 @@ def speak_chat_message(msg):
     speak the chat message
     """
     assert isinstance(msg, tf.ChatMessageV2)
+    if len(msg.content) > 4096:
+        logger.warning("Message content is too long, will skip speaking")
+        return
     resp = agent.exec_request(
         "transform",
         tf.TransformRequest(

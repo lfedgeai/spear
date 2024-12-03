@@ -15,6 +15,8 @@ import (
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	"github.com/lfedgeai/spear/worker/task"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/go-vgo/robotgo"
 )
 
 type ToolId string
@@ -275,6 +277,55 @@ var (
 					return nil, err
 				}
 				return string(out), nil
+			},
+		},
+		{
+			name:        "mouse_right_click",
+			description: `Right click the mouse at the current location.`,
+			params:      map[string]ToolParam{},
+			cb:          "",
+			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+				robotgo.Toggle("right")
+				time.Sleep(300 * time.Millisecond)
+				robotgo.Toggle("right", "up")
+				return "Right click successful", nil
+			},
+		},
+		{
+			name:        "mouse_left_click",
+			description: `Left click the mouse at the current location.`,
+			params:      map[string]ToolParam{},
+			cb:          "",
+			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+				robotgo.Toggle("left")
+				time.Sleep(300 * time.Millisecond)
+				robotgo.Toggle("left", "up")
+				return "Left click successful", nil
+			},
+		},
+		{
+			name:        "open_url",
+			description: `Open a URL in the default browser`,
+			params: map[string]ToolParam{
+				"url": {
+					ptype:       "string",
+					description: "URL to open",
+					required:    true,
+				},
+			},
+			cb: "",
+			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+				// use apple script to open URL
+				script := `set targetURL to "` + args.(map[string]interface{})["url"].(string) + `"
+					tell application "Edge"
+						activate
+						open location targetURL
+					end tell`
+				_, err := exec.Command("osascript", "-e", script).Output()
+				if err != nil {
+					return nil, err
+				}
+				return fmt.Sprintf("URL %s opened successfully", args.(map[string]interface{})["url"].(string)), nil
 			},
 		},
 	}

@@ -19,13 +19,6 @@ type ChatMessage struct {
 	Content  string                 `json:"content"`
 }
 
-// type ChatMessage struct {
-// 	MetaData   map[string]string             `json:"metadata"`
-// 	Content    string                        `json:"content"`
-// 	ToolCalls  []hcopenai.OpenAIChatToolCall `json:"tool_calls"`
-// 	ToolCallId string                        `json:"tool_call_id"`
-// }
-
 type ChatCompletionMemory struct {
 	Messages []ChatMessage `json:"messages"`
 }
@@ -295,7 +288,11 @@ func OpenAIChatCompletion(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCo
 							return nil, fmt.Errorf("error calling built-in tool %s: %v", toolReg.name, err)
 						}
 
-						log.Infof("Builtin Tool call response: %v", res)
+						tmp := fmt.Sprintf("%v", res)
+						if len(tmp) > 512 {
+							tmp = tmp[:509] + "..."
+						}
+						log.Infof("Builtin Tool call response: %v", tmp)
 						mem.AddMessage(ChatMessage{
 							Metadata: map[string]interface{}{
 								"role":         "tool",

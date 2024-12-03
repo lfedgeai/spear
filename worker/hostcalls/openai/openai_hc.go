@@ -18,6 +18,7 @@ import (
 const (
 	OpenAIURLBase  = "https://api.openai.com/v1"
 	GAIANetURLBase = "https://llamatool.us.gaianet.network/v1"
+	QWenURLBase    = "https://qwen72b.gaia.domains/v1"
 )
 
 type OpenAIFunctionType int
@@ -49,6 +50,14 @@ var (
 				{
 					URL:    OpenAIURLBase + "/chat/completions",
 					APIKey: os.Getenv("OPENAI_API_KEY"),
+				},
+			},
+		},
+		"qwen72b": {
+			OpenAIFunctionTypeChatWithTools: []APIEndpointInfo{
+				{
+					URL:    OpenAIURLBase + "/chat/completions",
+					APIKey: "gaia",
 				},
 			},
 		},
