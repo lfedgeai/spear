@@ -126,14 +126,14 @@ var (
 		},
 		OpenAIFunctionTypeSpeechToText: {
 			{
-				Name:   "whisper-stt",
+				Name:   "gaia-whisper",
 				Model:  "whisper",
 				Base:   GaiaWhisperBase,
 				APIKey: "gaia",
 				Url:    "/audio/transcriptions",
 			},
 			{
-				Name:   "openai-stt",
+				Name:   "openai-whisper",
 				Model:  "whisper-1",
 				Base:   OpenAIBase,
 				APIKey: os.Getenv("OPENAI_API_KEY"),
