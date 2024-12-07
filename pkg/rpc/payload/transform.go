@@ -62,9 +62,8 @@ func (r *TransformResponse) Unmarshal(data []byte) error {
 }
 
 type TransformConfigRequest struct {
-	BaseURL string `json:"base_url"`
-	APIKey  string `json:"api_key"`
-	Reset   bool   `json:"reset"`
+	Test  string `json:"test"`
+	Reset bool   `json:"reset"`
 }
 
 type TransformConfigResponse struct {

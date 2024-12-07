@@ -72,7 +72,7 @@ var (
 			},
 			cb: "",
 			cbBuiltIn: func(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
-				fmt.Println(args.(map[string]interface{})["message"])
+				fmt.Printf("(NEED INPUT) %s > ", args.(map[string]interface{})["message"])
 				var response string
 				fmt.Scanln(&response)
 				return response, nil

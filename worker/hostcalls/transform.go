@@ -117,18 +117,14 @@ func TransformConfig(inv *hostcalls.InvocationInfo, args interface{}) (interface
 	}
 
 	if req.Reset {
-		task.SetVar(t.TVOpenAIBaseURL, nil)
-		task.SetVar(t.TVOpenAIAPIKey, nil)
+		task.SetVar(t.TVTest, nil)
 		return &payload.TransformConfigResponse{
 			Result: "success",
 		}, nil
 	}
 
-	if req.BaseURL != "" {
-		task.SetVar(t.TVOpenAIBaseURL, req.BaseURL)
-	}
-	if req.APIKey != "" {
-		task.SetVar(t.TVOpenAIAPIKey, req.APIKey)
+	if req.Test != "" {
+		task.SetVar(t.TVTest, req.Test)
 	}
 
 	return &payload.TransformConfigResponse{

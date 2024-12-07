@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type ContentType int
@@ -21,6 +23,8 @@ func SendRequest(url string, data *bytes.Buffer, contentType interface{}, apiKey
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
+
+	log.Infof("Sending request to %s", url)
 
 	switch typ := contentType.(type) {
 	case ContentType:

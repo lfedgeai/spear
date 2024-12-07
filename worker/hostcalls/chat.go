@@ -6,6 +6,7 @@ import (
 
 	"github.com/lfedgeai/spear/pkg/rpc"
 	"github.com/lfedgeai/spear/pkg/rpc/payload"
+	"github.com/lfedgeai/spear/worker/hostcalls/common"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	hcopenai "github.com/lfedgeai/spear/worker/hostcalls/openai"
 	"github.com/lfedgeai/spear/worker/task"
@@ -234,7 +235,11 @@ func innerChatCompletionWithTools(inv *hostcalls.InvocationInfo, chatReq *payloa
 			}
 		}
 
-		respData, err = hcopenai.OpenAIChatCompletion(hcopenai.EndpointFromTask(task), &openAiChatReq2)
+		ep := common.GetAPIEndpointInfo(common.OpenAIFunctionTypeChatWithTools, openAiChatReq2.Model)
+		if len(ep) == 0 {
+			return nil, fmt.Errorf("no endpoint found")
+		}
+		respData, err = hcopenai.OpenAIChatCompletion(ep[0], &openAiChatReq2)
 		if err != nil {
 			return nil, fmt.Errorf("error calling OpenAIChatCompletion: %v", err)
 		}
@@ -317,7 +322,6 @@ func innerChatCompletionWithTools(inv *hostcalls.InvocationInfo, chatReq *payloa
 }
 
 func innerChatCompletionNoTools(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCompletionRequest) ([]ChatMessage, error) {
-	task := *(inv.Task)
 	mem := NewChatCompletionMemory()
 	for _, msg := range chatReq.Messages {
 		tmp := ChatMessage{
@@ -346,7 +350,11 @@ func innerChatCompletionNoTools(inv *hostcalls.InvocationInfo, chatReq *payload.
 			openAiChatReq2.Messages = append(openAiChatReq2.Messages, tmp)
 		}
 
-		respData, err = hcopenai.OpenAIChatCompletion(hcopenai.EndpointFromTask(task), &openAiChatReq2)
+		ep := common.GetAPIEndpointInfo(common.OpenAIFunctionTypeChatWithTools, openAiChatReq2.Model)
+		if len(ep) == 0 {
+			return nil, fmt.Errorf("no endpoint found")
+		}
+		respData, err = hcopenai.OpenAIChatCompletion(ep[0], &openAiChatReq2)
 		if err != nil {
 			return nil, fmt.Errorf("error calling OpenAIChatCompletion: %v", err)
 		}

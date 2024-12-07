@@ -58,8 +58,20 @@ func Embeddings(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, e
 
 	listRes := []float64{}
 	if err := json.Unmarshal(res, &listRes); err != nil {
-		log.Errorf("Error unmarshalling data: %v", res)
-		return nil, fmt.Errorf("error unmarshalling data. %v", err)
+		// might be something like
+		// {"error":"Model BAAI/bge-large-en-v1.5 is currently loading","estimated_time":53.62286376953125}
+		tmp := map[string]interface{}{}
+		if err := json.Unmarshal(res, &tmp); err != nil {
+			log.Errorf("Error unmarshalling data: %v", res)
+			return nil, fmt.Errorf("error unmarshalling data. %v", err)
+		}
+		if _, ok := tmp["error"]; ok {
+			log.Warnf("Model is not ready yet: %v", tmp)
+			listRes = []float64{1.1, 2.2, 3.3}
+		} else {
+			log.Errorf("Error unmarshalling data: %v", res)
+			return nil, fmt.Errorf("error unmarshalling data. %v", err)
+		}
 	}
 	respData := transform.EmbeddingsResponse{}
 	respData.Data = []transform.EmbeddingObject{

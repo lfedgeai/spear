@@ -53,7 +53,8 @@ type TaskID string
 type TaskVar int
 
 const (
-	TVOpenAIBaseURL TaskVar = iota
+	TVTest TaskVar = iota
+	TVOpenAIBaseURL
 	TVOpenAIAPIKey
 )
 

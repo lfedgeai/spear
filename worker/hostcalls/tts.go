@@ -5,14 +5,13 @@ import (
 
 	"github.com/lfedgeai/spear/pkg/rpc/payload/transform"
 	"github.com/lfedgeai/spear/pkg/utils"
+	"github.com/lfedgeai/spear/worker/hostcalls/common"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	oai "github.com/lfedgeai/spear/worker/hostcalls/openai"
 )
 
 func TextToSpeech(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 	// right now we just call openai TextToSpeech
-	t := *(inv.Task)
-
 	req := &transform.TextToSpeechRequest{}
 	err := utils.InterfaceToType(&req, args)
 	if err != nil {
@@ -25,7 +24,11 @@ func TextToSpeech(inv *hostcalls.InvocationInfo, args interface{}) (interface{},
 		Voice:  req.Voice,
 		Format: req.Format,
 	}
-	res, err := oai.OpenAITextToSpeech(oai.EndpointFromTask(t), req2)
+	ep := common.GetAPIEndpointInfo(common.OpenAIFunctionTypeTextToSpeech, req2.Model)
+	if len(ep) == 0 {
+		return nil, fmt.Errorf("error getting endpoint for model %s", req2.Model)
+	}
+	res, err := oai.OpenAITextToSpeech(ep[0], req2)
 	if err != nil {
 		return nil, fmt.Errorf("error calling openai TextToSpeech: %v", err)
 	}
