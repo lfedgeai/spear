@@ -148,6 +148,9 @@ func (d *DockerTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 		connReady: make(chan struct{}),
 
 		reqId: 0,
+
+		taskVars:   make(map[TaskVar]interface{}),
+		taskVarsMu: sync.RWMutex{},
 	}
 
 	// store the task

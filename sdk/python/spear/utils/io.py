@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import spear.client as client
+import logging
 
+logger = logging.getLogger(__name__)
 
 def input(agent: client.HostAgent, prompt: str) -> str:
     """

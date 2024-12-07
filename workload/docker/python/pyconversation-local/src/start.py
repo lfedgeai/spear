@@ -72,9 +72,7 @@ def audio_to_text(audio):
         resp = tf.TransformResponse.schema().load(resp.result)
         assert len(resp.results) == 1
         data = resp.results[0].data
-        data = base64.b64decode(data).decode("utf-8")
         # conver to json object and get "text" field
-        data = json.loads(data)
         data = data["text"]
         return data
     elif isinstance(resp, client.JsonRpcErrorResp):
@@ -100,7 +98,7 @@ def speak_chat_message(msg):
                 "model": "tts-1",
                 "voice": "nova",
                 "input": msg.content,
-                "format": "mp3",
+                "response_format": "mp3",
             },
         ),
     )
@@ -108,8 +106,6 @@ def speak_chat_message(msg):
         resp = tf.TransformResponse.schema().load(resp.result)
         assert len(resp.results) == 1
         data = resp.results[0].data
-        data = base64.b64decode(data).decode("utf-8")
-        logger.debug("data length: %s", len(data))
         io.speak(agent, data)
     elif isinstance(resp, client.JsonRpcErrorResp):
         logger.error("Error: %s", resp.message)
@@ -194,7 +190,7 @@ r: record voice input"""
                 output_types=[tf.TransformType.TEXT],
                 operations=[tf.TransformOperation.LLM, tf.TransformOperation.TOOLS],
                 params={
-                    "model": "gpt-4o", #"llama",
+                    "model": "gpt-4o",  # "llama",
                     "messages": msg_memory,
                     "toolset_id": toolsetid,
                 },
@@ -206,13 +202,12 @@ r: record voice input"""
             resp = tf.TransformResponse.schema().load(resp.result)
             # base64 decode the response string
             data = resp.results[0].data
-            data = base64.b64decode(data).decode("utf-8")
-            res = tf.ChatResponseV2.schema().loads(data)
+            res = tf.ChatResponseV2.schema().load(data)
             new_msg_memory = res.messages
         elif isinstance(resp, client.JsonRpcErrorResp):
             break
 
-        tmp_msgs = new_msg_memory[len(msg_memory) :]
+        tmp_msgs = new_msg_memory[len(msg_memory):]
         for msg in tmp_msgs:
             display_chat_message(msg)
             if msg.metadata.role == "assistant" and not msg.metadata.tool_calls:

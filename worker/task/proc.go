@@ -3,6 +3,7 @@ package task
 import (
 	"fmt"
 	"os/exec"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -22,6 +23,9 @@ type ProcessTask struct {
 	done chan struct{}
 
 	reqId uint64
+
+	taskVars   map[TaskVar]interface{}
+	taskVarsMu sync.RWMutex
 }
 
 func (p *ProcessTask) ID() TaskID {
@@ -87,14 +91,35 @@ func (p *ProcessTask) NextRequestID() uint64 {
 	return p.reqId
 }
 
+func (p *ProcessTask) SetVar(key TaskVar, value interface{}) {
+	p.taskVarsMu.Lock()
+	defer p.taskVarsMu.Unlock()
+	if value == nil {
+		delete(p.taskVars, key)
+	}
+	p.taskVars[key] = value
+}
+
+func (p *ProcessTask) GetVar(key TaskVar) (interface{}, bool) {
+	p.taskVarsMu.RLock()
+	defer p.taskVarsMu.RUnlock()
+	if _, ok := p.taskVars[key]; !ok {
+		return nil, false
+	} else {
+		return p.taskVars[key], true
+	}
+}
+
 func NewProcessTask(cfg *TaskConfig) *ProcessTask {
 	return &ProcessTask{
-		name:   cfg.Name,
-		in:     make(chan Message, 1024),
-		out:    make(chan Message, 1024),
-		status: TaskStatusInit,
-		result: nil,
-		done:   make(chan struct{}),
-		reqId:  0,
+		name:       cfg.Name,
+		in:         make(chan Message, 1024),
+		out:        make(chan Message, 1024),
+		status:     TaskStatusInit,
+		result:     nil,
+		done:       make(chan struct{}),
+		reqId:      0,
+		taskVars:   make(map[TaskVar]interface{}),
+		taskVarsMu: sync.RWMutex{},
 	}
 }

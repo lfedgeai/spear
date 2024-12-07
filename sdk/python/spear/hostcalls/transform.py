@@ -3,7 +3,7 @@ to interact with the host system."""
 
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any
+from typing import Any, Dict
 
 from dataclasses_json import dataclass_json
 from typing import Optional
@@ -50,6 +50,24 @@ class TransformRequest:
     operations: list[TransformOperation]
     params: Any
 
+@dataclass_json
+@dataclass
+class TransformResponseResult:
+    """
+    The result object for the transform hostcall.
+    """
+
+    data: Dict
+    type: TransformType
+
+@dataclass_json
+@dataclass
+class TransformResponse:
+    """
+    The response object for the transform hostcall.
+    """
+
+    results: list[TransformResponseResult]
 
 @dataclass_json
 @dataclass
@@ -108,26 +126,6 @@ class ChatResponse:
     model: str
     id: str
     choices: list[ChatChoice]
-
-
-@dataclass_json
-@dataclass
-class TransformResponseResult:
-    """
-    The result object for the transform hostcall.
-    """
-
-    data: str
-    type: TransformType
-
-@dataclass_json
-@dataclass
-class TransformResponse:
-    """
-    The response object for the transform hostcall.
-    """
-
-    results: list[TransformResponseResult]
 
 @dataclass_json
 @dataclass

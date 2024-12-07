@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -11,7 +10,7 @@ import (
 	"time"
 
 	"github.com/lfedgeai/spear/pkg/rpc"
-	"github.com/lfedgeai/spear/pkg/rpc/payload/openai"
+	"github.com/lfedgeai/spear/pkg/rpc/payload/transform"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -88,30 +87,10 @@ func main() {
 	time.Sleep(5 * time.Second)
 }
 
-func generateImage(str string) (*openai.ImageGenerationResponse, error) {
-	imgGenReq := openai.ImageGenerationRequest{
-		Model:          "dall-e-3",
-		Prompt:         str,
-		ResponseFormat: "b64_json",
-	}
-	rawResp, err := hdl.SendRequest(openai.HostCallImageGeneration, imgGenReq)
+func generateImage(str string) (*transform.ImageGenerationResponse, error) {
+	res, err := rpc.TextToImage(hdl, "dall-e-3", str, "b64_json")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate image: %v", err)
 	}
-
-	// marshall and unmarshall the response
-	tmp, err := json.Marshal(rawResp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal response: %v", err)
-	}
-
-	var resp openai.ImageGenerationResponse
-
-	if err := json.Unmarshal(tmp, &resp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %v", err)
-	}
-	if len(resp.Data) != 1 {
-		return nil, fmt.Errorf("expected 1 image, got %d", len(resp.Data))
-	}
-	return &resp, nil
+	return res, nil
 }

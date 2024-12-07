@@ -281,8 +281,6 @@ func (w *Worker) ExecuteTask(taskId int64, funcType task.TaskType, wait bool, me
 		}
 	}
 
-	log.Debugf("Task %s finished, result: %s", newTask.Name(), res)
-
 	if wait {
 		// wait for the task to finish
 		newTask.Wait()
@@ -324,8 +322,12 @@ func (w *Worker) addRoutes() {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
-		w.ExecuteTask(taskId, funcType, !funcIsAsync, "handle", string(buf[:n]))
-		// TODO: support waiting for instance to finish
+		res, err := w.ExecuteTask(taskId, funcType, !funcIsAsync, "handle", string(buf[:n]))
+		if err != nil {
+			respError(resp, fmt.Sprintf("Error: %v", err))
+			return
+		}
+		resp.Write([]byte(res))
 	})
 }
 

@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/lfedgeai/spear/pkg/net"
-	"github.com/lfedgeai/spear/pkg/rpc/payload/openai"
+	"github.com/lfedgeai/spear/pkg/rpc/payload/transform"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	log "github.com/sirupsen/logrus"
 )
@@ -17,14 +17,13 @@ type HuggingFaceEmbeddingsRequest struct {
 }
 
 func Embeddings(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
-	log.Debugf("Executing hostcall \"%s\" with args %v", openai.HostCallEmbeddings, args)
 	// verify the type of args is EmbeddingsRequest
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling args: %v", err)
 	}
-	embeddingsReq := openai.EmbeddingsRequest{}
+	embeddingsReq := transform.EmbeddingsRequest{}
 	err = embeddingsReq.Unmarshal(jsonBytes)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling args: %v", err)
@@ -59,11 +58,16 @@ func Embeddings(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, e
 
 	listRes := []float64{}
 	if err := json.Unmarshal(res, &listRes); err != nil {
+		log.Errorf("Error unmarshalling data: %v", res)
 		return nil, fmt.Errorf("error unmarshalling data. %v", err)
 	}
-	respData := openai.EmbeddingsResponse{}
-	respData.Data = []interface{}{
-		listRes,
+	respData := transform.EmbeddingsResponse{}
+	respData.Data = []transform.EmbeddingObject{
+		{
+			Object:    "embedding",
+			Embedding: listRes,
+			Index:     0,
+		},
 	}
 	respData.Model = "bge-large-en-v1.5"
 

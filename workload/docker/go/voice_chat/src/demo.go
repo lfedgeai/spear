@@ -69,6 +69,7 @@ func main() {
 	var data map[string]interface{}
 	err = json.Unmarshal([]byte(respData), &data)
 	if err != nil {
+		log.Errorf("respData: %s", respData)
 		panic("json.Unmarshal failed: " + err.Error())
 	}
 

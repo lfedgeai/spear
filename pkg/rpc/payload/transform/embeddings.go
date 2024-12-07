@@ -1,4 +1,4 @@
-package openai
+package transform
 
 import (
 	"encoding/json"
@@ -26,10 +26,10 @@ func (r *EmbeddingsRequest) Unmarshal(data []byte) error {
 }
 
 type EmbeddingsResponse struct {
-	Object string        `json:"object"`
-	Data   []interface{} `json:"data"`
-	Model  string        `json:"model"`
-	Usage  interface{}   `json:"usage"`
+	Object string            `json:"object"`
+	Data   []EmbeddingObject `json:"data"`
+	Model  string            `json:"model"`
+	Usage  interface{}       `json:"usage"`
 }
 
 func (r *EmbeddingsResponse) Marshal() ([]byte, error) {

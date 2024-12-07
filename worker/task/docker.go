@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -24,6 +25,9 @@ type DockerTask struct {
 	secret    int64 // used for tcp auth
 	conn      net.Conn
 	connReady chan struct{}
+
+	taskVars   map[TaskVar]interface{}
+	taskVarsMu sync.RWMutex
 
 	reqId uint64
 }
@@ -210,4 +214,20 @@ func (p *DockerTask) Wait() (int, error) {
 func (p *DockerTask) NextRequestID() uint64 {
 	p.reqId++
 	return p.reqId
+}
+
+func (p *DockerTask) SetVar(key TaskVar, value interface{}) {
+	p.taskVarsMu.Lock()
+	defer p.taskVarsMu.Unlock()
+	if value == nil {
+		delete(p.taskVars, key)
+	}
+	p.taskVars[key] = value
+}
+
+func (p *DockerTask) GetVar(key TaskVar) (interface{}, bool) {
+	p.taskVarsMu.RLock()
+	defer p.taskVarsMu.RUnlock()
+	val, ok := p.taskVars[key]
+	return val, ok
 }

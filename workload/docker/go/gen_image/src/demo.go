@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"runtime"
 
-	"github.com/lfedgeai/spear/pkg/rpc/payload/openai"
+	"github.com/lfedgeai/spear/pkg/rpc/payload/transform"
 	"github.com/lfedgeai/spear/pkg/tools/docker"
 	log "github.com/sirupsen/logrus"
 )
@@ -62,7 +62,7 @@ func main() {
 	respData := buf.Bytes()
 	log.Debugf("Received response length: %d", len(respData))
 
-	var respStruct openai.ImageGenerationResponse
+	var respStruct transform.ImageGenerationResponse
 	err = respStruct.Unmarshal(respData)
 	if err != nil {
 		panic("respStruct.Unmarshal failed: " + err.Error())

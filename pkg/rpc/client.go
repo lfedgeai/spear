@@ -40,6 +40,25 @@ var (
 	ResponseTimeout = time.Minute * 10 // 10 minutes timeout for requests
 )
 
+func RPCManagerSendRequest[T any](rpcMgr *GuestRPCManager, method string, params interface{}) (*T, error) {
+	resp, err := rpcMgr.SendRequest(method, params)
+	if err != nil {
+		return nil, err
+	}
+	// first marshal to json
+	jsonData, err := json.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
+	// then unmarshal to T
+	var resp2 T
+	err = json.Unmarshal(jsonData, &resp2)
+	if err != nil {
+		return nil, err
+	}
+	return &resp2, nil
+}
+
 func NewGuestRPCManager(reqHandler JsonRPCRequestHandler, respHandler JsonRPCResponseHandler) *GuestRPCManager {
 	return &GuestRPCManager{
 		reqHandler:     make(map[string]JsonRPCRequestHandler),

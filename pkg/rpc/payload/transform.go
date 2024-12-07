@@ -35,7 +35,7 @@ type TransformRequest struct {
 
 type TransformResult struct {
 	Type TransformType `json:"type"`
-	Data []byte        `json:"data"`
+	Data interface{}   `json:"data"`
 }
 
 // Transform response
@@ -58,5 +58,33 @@ func (r *TransformRequest) Unmarshal(data []byte) error {
 }
 
 func (r *TransformResponse) Unmarshal(data []byte) error {
+	return json.Unmarshal(data, r)
+}
+
+type TransformConfigRequest struct {
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
+	Reset   bool   `json:"reset"`
+}
+
+type TransformConfigResponse struct {
+	Result interface{} `json:"result"`
+}
+
+// marshal operations
+func (r *TransformConfigRequest) Marshal() ([]byte, error) {
+	return json.Marshal(r)
+}
+
+func (r *TransformConfigResponse) Marshal() ([]byte, error) {
+	return json.Marshal(r)
+}
+
+// unmarshal to TransformRequest
+func (r *TransformConfigRequest) Unmarshal(data []byte) error {
+	return json.Unmarshal(data, r)
+}
+
+func (r *TransformConfigResponse) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, r)
 }

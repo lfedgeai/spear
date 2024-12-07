@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/lfedgeai/spear/pkg/rpc/payload/openai"
+	"github.com/lfedgeai/spear/pkg/rpc/payload/transform"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	"github.com/lfedgeai/spear/worker/hostcalls/huggingface"
 	openaihc "github.com/lfedgeai/spear/worker/hostcalls/openai"
@@ -24,7 +24,7 @@ func Embeddings(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, e
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling args: %v", err)
 	}
-	embeddingsReq := openai.EmbeddingsRequest{}
+	embeddingsReq := transform.EmbeddingsRequest{}
 	err = embeddingsReq.Unmarshal(jsonBytes)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling args: %v", err)

@@ -81,7 +81,7 @@ func NewRootCmd() *cobra.Command {
 				if err != nil {
 					log.Errorf("Error executing workload: %v", err)
 				}
-				log.Infof("Workload execution result: %v", res)
+				log.Debugf("Workload execution result: %v", res)
 				w.Stop()
 				// TODO: implement workload execution
 			}

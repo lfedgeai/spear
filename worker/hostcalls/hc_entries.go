@@ -2,15 +2,17 @@ package hostcalls
 
 import (
 	"github.com/lfedgeai/spear/pkg/rpc/payload"
-	"github.com/lfedgeai/spear/pkg/rpc/payload/openai"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
-	openaihc "github.com/lfedgeai/spear/worker/hostcalls/openai"
 )
 
 var Hostcalls = []*hostcalls.HostCall{
 	{
 		Name:    payload.HostCallTransform,
 		Handler: Transform,
+	},
+	{
+		Name:    payload.HostCallTransformConfig,
+		Handler: TransformConfig,
 	},
 	{
 		Name:    payload.HostCallToolNew,
@@ -24,26 +26,26 @@ var Hostcalls = []*hostcalls.HostCall{
 		Name:    payload.HostCallToolsetInstallBuiltins,
 		Handler: ToolsetInstallBuiltins,
 	},
-	// chat operations
-	{
-		Name:    openai.HostCallChatCompletion,
-		Handler: ChatCompletionWithTools,
-	},
-	// text to speech operations
-	{
-		Name:    openai.HostCallTextToSpeech,
-		Handler: openaihc.TextToSpeech,
-	},
-	// image generation operations
-	{
-		Name:    openai.HostCallImageGeneration,
-		Handler: openaihc.ImageGeneration,
-	},
-	// embeddings operations
-	{
-		Name:    openai.HostCallEmbeddings,
-		Handler: openaihc.Embeddings,
-	},
+	// // chat operations
+	// {
+	// 	Name:    transform.HostCallChatCompletion,
+	// 	Handler: ChatCompletionWithTools,
+	// },
+	// // text to speech operations
+	// {
+	// 	Name:    openai.HostCallTextToSpeech,
+	// 	Handler: openaihc.TextToSpeech,
+	// },
+	// // image generation operations
+	// {
+	// 	Name:    openai.HostCallImageGeneration,
+	// 	Handler: openaihc.ImageGeneration,
+	// },
+	// // embeddings operations
+	// {
+	// 	Name:    openai.HostCallEmbeddings,
+	// 	Handler: openaihc.Embeddings,
+	// },
 	// vector store operations
 	{
 		Name:    payload.HostCallVectorStoreCreate,

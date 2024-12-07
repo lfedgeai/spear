@@ -3,7 +3,6 @@ package hostcalls
 import (
 	"bufio"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"sync"
@@ -13,6 +12,7 @@ import (
 	"github.com/faiface/beep/mp3"
 	"github.com/faiface/beep/speaker"
 	"github.com/lfedgeai/spear/pkg/io"
+	"github.com/lfedgeai/spear/pkg/utils"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	"github.com/schollz/progressbar/v3"
 	log "github.com/sirupsen/logrus"
@@ -38,9 +38,9 @@ func Speak(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error)
 	// umarshal the response
 
 	var data map[string]interface{}
-	err := json.Unmarshal([]byte(args.(string)), &data)
+	err := utils.InterfaceToType(&data, args)
 	if err != nil {
-		panic("json.Unmarshal failed: " + err.Error())
+		return nil, fmt.Errorf("error unmarshalling args: %v", err)
 	}
 
 	// get the "audio" key from the response
@@ -53,6 +53,8 @@ func Speak(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error)
 	if err != nil {
 		panic("base64.StdEncoding.DecodeString failed: " + err.Error())
 	}
+
+	log.Debugf("Data: %v", rawData)
 
 	// write to a temp file
 	f, err := os.CreateTemp("", "audio*.mp3")

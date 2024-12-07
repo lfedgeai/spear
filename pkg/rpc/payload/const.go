@@ -11,7 +11,9 @@ const (
 	HostCallMessagePassingLookup     = "messagepassing.lookup"
 	HostCallMessagePassingSend       = "messagepassing.send"
 
-	HostCallTransform              = "transform"
+	HostCallTransform       = "transform"
+	HostCallTransformConfig = "transform.config"
+
 	HostCallToolNew                = "tool.new"
 	HostCallToolsetNew             = "toolset.new"
 	HostCallToolsetInstallBuiltins = "toolset.install.builtins"

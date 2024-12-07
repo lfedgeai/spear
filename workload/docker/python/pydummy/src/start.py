@@ -66,7 +66,6 @@ def test(model):
         resp = tf.TransformResponse.schema().load(resp.result)
         # base64 decode the response string
         data = resp.results[0].data
-        data = base64.b64decode(data).decode("utf-8")
         logger.info("Response Len: %s", len(data))
     elif isinstance(resp, client.JsonRpcErrorResp):
         raise Exception(resp)

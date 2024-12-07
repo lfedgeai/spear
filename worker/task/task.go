@@ -50,6 +50,13 @@ type Message []byte
 
 type TaskID string
 
+type TaskVar int
+
+const (
+	TVOpenAIBaseURL TaskVar = iota
+	TVOpenAIAPIKey
+)
+
 type Task interface {
 	ID() TaskID
 	// start task
@@ -68,6 +75,10 @@ type Task interface {
 	Wait() (int, error)
 	// next request id
 	NextRequestID() uint64
+	// set task variable
+	SetVar(key TaskVar, value interface{})
+	// get task variable
+	GetVar(key TaskVar) (interface{}, bool)
 }
 
 // interface for taskruntime

@@ -6,7 +6,7 @@ import (
 
 	"github.com/lfedgeai/spear/pkg/rpc/payload"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
-	"github.com/lfedgeai/spear/worker/hostcalls/openai"
+	t "github.com/lfedgeai/spear/worker/task"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -35,7 +35,7 @@ var (
 			inputTypes:  []payload.TransformType{payload.TransformTypeText},
 			outputTypes: []payload.TransformType{payload.TransformTypeText},
 			operations:  []payload.TransformOperation{payload.TransformOperationLLM},
-			cb:          ChatCompletion,
+			cb:          ChatCompletionNoTools,
 		},
 		{
 			name:        "embeddings",
@@ -49,14 +49,21 @@ var (
 			inputTypes:  []payload.TransformType{payload.TransformTypeText},
 			outputTypes: []payload.TransformType{payload.TransformTypeAudio},
 			operations:  []payload.TransformOperation{payload.TransformOperationTextToSpeech},
-			cb:          openai.TextToSpeech,
+			cb:          TextToSpeech,
 		},
 		{
 			name:        "speech-to-text",
 			inputTypes:  []payload.TransformType{payload.TransformTypeAudio},
 			outputTypes: []payload.TransformType{payload.TransformTypeText},
 			operations:  []payload.TransformOperation{payload.TransformOperationSpeechToText},
-			cb:          openai.SpeechToText,
+			cb:          SpeechToText,
+		},
+		{
+			name:        "text-to-image",
+			inputTypes:  []payload.TransformType{payload.TransformTypeText},
+			outputTypes: []payload.TransformType{payload.TransformTypeImage},
+			operations:  []payload.TransformOperation{payload.TransformOperationTextToImage},
+			cb:          TextToImage,
 		},
 	}
 )
@@ -91,6 +98,42 @@ func isSubsetOperation(a, b []payload.TransformOperation) bool {
 		}
 	}
 	return true
+}
+
+func TransformConfig(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+	task := *(inv.Task)
+	log.Debugf("Executing hostcall \"%s\" with args %v for task %s",
+		payload.HostCallTransformConfig, args, task.ID())
+	// convert args to TransformConfigRequest
+	jsonBytes, err := json.Marshal(args)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling args: %v", err)
+	}
+
+	req := &payload.TransformConfigRequest{}
+	err = req.Unmarshal(jsonBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	}
+
+	if req.Reset {
+		task.SetVar(t.TVOpenAIBaseURL, nil)
+		task.SetVar(t.TVOpenAIAPIKey, nil)
+		return &payload.TransformConfigResponse{
+			Result: "success",
+		}, nil
+	}
+
+	if req.BaseURL != "" {
+		task.SetVar(t.TVOpenAIBaseURL, req.BaseURL)
+	}
+	if req.APIKey != "" {
+		task.SetVar(t.TVOpenAIAPIKey, req.APIKey)
+	}
+
+	return &payload.TransformConfigResponse{
+		Result: "success",
+	}, nil
 }
 
 func Transform(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
@@ -135,15 +178,11 @@ func Transform(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, er
 			return nil, fmt.Errorf("error calling %s: %v", candid.name, err)
 		}
 
-		resBytes, err := json.Marshal(res)
-		if err != nil {
-			return nil, fmt.Errorf("error marshalling response: %v", err)
-		}
 		transResp := &payload.TransformResponse{
 			Results: []payload.TransformResult{
 				{
 					Type: candid.outputTypes[0],
-					Data: resBytes,
+					Data: res,
 				},
 			},
 		}

@@ -1,4 +1,4 @@
-package openai
+package transform
 
 import "encoding/json"
 

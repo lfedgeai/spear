@@ -6,7 +6,6 @@ import (
 
 	"github.com/lfedgeai/spear/pkg/rpc"
 	"github.com/lfedgeai/spear/pkg/rpc/payload"
-	"github.com/lfedgeai/spear/pkg/rpc/payload/openai"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	hcopenai "github.com/lfedgeai/spear/worker/hostcalls/openai"
 	"github.com/lfedgeai/spear/worker/task"
@@ -41,8 +40,7 @@ func (m *ChatCompletionMemory) GetMessages() []ChatMessage {
 	return m.Messages
 }
 
-func ChatCompletion(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
-	log.Debugf("Executing hostcall \"%s\" with args %v", openai.HostCallChatCompletion, args)
+func ChatCompletionNoTools(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 	// verify the type of args is ChatCompletionRequest
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)
@@ -62,9 +60,9 @@ func ChatCompletion(inv *hostcalls.InvocationInfo, args interface{}) (interface{
 
 	log.Infof("Using model %s", chatReq.Model)
 
-	msgList, err := OpenAIChatCompletionWithoutToolsSupport(inv, &chatReq)
+	msgList, err := innerChatCompletionNoTools(inv, &chatReq)
 	if err != nil {
-		return nil, fmt.Errorf("error calling OpenAIChatCompletionWithoutToolsSupport: %v", err)
+		return nil, fmt.Errorf("error calling innerChatCompletionNoTools: %v", err)
 	}
 
 	var res2 payload.ChatCompletionResponseV2
@@ -85,7 +83,6 @@ func ChatCompletion(inv *hostcalls.InvocationInfo, args interface{}) (interface{
 }
 
 func ChatCompletionWithTools(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
-	log.Debugf("Executing hostcall \"%s\" with args %v", openai.HostCallChatCompletion, args)
 	// verify the type of args is ChatCompletionRequest
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)
@@ -100,9 +97,9 @@ func ChatCompletionWithTools(inv *hostcalls.InvocationInfo, args interface{}) (i
 
 	log.Infof("Using model %s", chatReq.Model)
 
-	msgList, err := OpenAIChatCompletion(inv, &chatReq)
+	msgList, err := innerChatCompletionWithTools(inv, &chatReq)
 	if err != nil {
-		return nil, fmt.Errorf("error calling OpenAIChatCompletion: %v", err)
+		return nil, fmt.Errorf("error calling innerChatCompletionWithTools: %v", err)
 	}
 
 	var res2 payload.ChatCompletionResponseV2
@@ -173,7 +170,7 @@ func setupOpenAITools(chatReq *hcopenai.OpenAIChatCompletionRequest, task task.T
 	return nil
 }
 
-func OpenAIChatCompletion(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCompletionRequest) ([]ChatMessage, error) {
+func innerChatCompletionWithTools(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCompletionRequest) ([]ChatMessage, error) {
 	task := *(inv.Task)
 
 	mem := NewChatCompletionMemory()
@@ -237,7 +234,7 @@ func OpenAIChatCompletion(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCo
 			}
 		}
 
-		respData, err = hcopenai.OpenAIChatCompletion(&openAiChatReq2)
+		respData, err = hcopenai.OpenAIChatCompletion(hcopenai.EndpointFromTask(task), &openAiChatReq2)
 		if err != nil {
 			return nil, fmt.Errorf("error calling OpenAIChatCompletion: %v", err)
 		}
@@ -319,7 +316,8 @@ func OpenAIChatCompletion(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCo
 	return mem.GetMessages(), nil
 }
 
-func OpenAIChatCompletionWithoutToolsSupport(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCompletionRequest) ([]ChatMessage, error) {
+func innerChatCompletionNoTools(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCompletionRequest) ([]ChatMessage, error) {
+	task := *(inv.Task)
 	mem := NewChatCompletionMemory()
 	for _, msg := range chatReq.Messages {
 		tmp := ChatMessage{
@@ -348,7 +346,7 @@ func OpenAIChatCompletionWithoutToolsSupport(inv *hostcalls.InvocationInfo, chat
 			openAiChatReq2.Messages = append(openAiChatReq2.Messages, tmp)
 		}
 
-		respData, err = hcopenai.OpenAIChatCompletion(&openAiChatReq2)
+		respData, err = hcopenai.OpenAIChatCompletion(hcopenai.EndpointFromTask(task), &openAiChatReq2)
 		if err != nil {
 			return nil, fmt.Errorf("error calling OpenAIChatCompletion: %v", err)
 		}

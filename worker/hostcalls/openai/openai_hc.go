@@ -10,8 +10,10 @@ import (
 	"os"
 
 	"github.com/lfedgeai/spear/pkg/net"
-	"github.com/lfedgeai/spear/pkg/rpc/payload/openai"
+	"github.com/lfedgeai/spear/pkg/rpc/payload/transform"
+	"github.com/lfedgeai/spear/pkg/utils"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
+	"github.com/lfedgeai/spear/worker/task"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -33,94 +35,102 @@ const (
 )
 
 type APIEndpointInfo struct {
-	URL    string
+	Name   string
+	Model  string
+	Base   string
 	APIKey string
+	Url    string
 }
 
 var (
-	APIEndpointMap = map[string]map[OpenAIFunctionType][]APIEndpointInfo{
-		"gpt-4o": {
-			OpenAIFunctionTypeChatWithTools: []APIEndpointInfo{
-				{
-					URL:    OpenAIURLBase + "/chat/completions",
-					APIKey: os.Getenv("OPENAI_API_KEY"),
-				},
+	APIEndpointMap = map[OpenAIFunctionType][]APIEndpointInfo{
+		OpenAIFunctionTypeChatWithTools: {
+			{
+				Name:   "openai chat",
+				Model:  "gpt-4o",
+				Base:   OpenAIURLBase,
+				APIKey: os.Getenv("OPENAI_API_KEY"),
+				Url:    "/chat/completions",
 			},
-			OpenAIFunctionTypeChatOnly: []APIEndpointInfo{
-				{
-					URL:    OpenAIURLBase + "/chat/completions",
-					APIKey: os.Getenv("OPENAI_API_KEY"),
-				},
+			{
+				Name:   "qwen72b chat",
+				Model:  "qwen72b",
+				Base:   QWenURLBase,
+				APIKey: "gaia",
+				Url:    "/chat/completions",
 			},
-		},
-		"qwen72b": {
-			OpenAIFunctionTypeChatWithTools: []APIEndpointInfo{
-				{
-					URL:    OpenAIURLBase + "/chat/completions",
-					APIKey: "gaia",
-				},
-			},
-		},
-		"text-embedding-ada-002": {
-			OpenAIFunctionTypeEmbeddings: []APIEndpointInfo{
-				{
-					URL:    OpenAIURLBase + "/embeddings",
-					APIKey: os.Getenv("OPENAI_API_KEY"),
-				},
+			{
+				Name:   "llama chat",
+				Model:  "llama",
+				Base:   GAIANetURLBase,
+				APIKey: "gaia",
+				Url:    "/chat/completions",
 			},
 		},
-		"tts-1": {
-			OpenAIFunctionTypeTextToSpeech: []APIEndpointInfo{
-				{
-					URL:    OpenAIURLBase + "/audio/speech",
-					APIKey: os.Getenv("OPENAI_API_KEY"),
-				},
+		OpenAIFunctionTypeChatOnly: {
+			{
+				Name:   "openai chat no tools",
+				Model:  "gpt-4o",
+				Base:   OpenAIURLBase,
+				APIKey: os.Getenv("OPENAI_API_KEY"),
+				Url:    "/chat/completions",
+			},
+			{
+				Name:   "llama chat no tools",
+				Model:  "llama",
+				Base:   "https://llama8b.gaia.domains/v1",
+				APIKey: "gaia",
+				Url:    "/chat/completions",
 			},
 		},
-		"dall-e-3": {
-			OpenAIFunctionTypeImageGeneration: []APIEndpointInfo{
-				{
-					URL:    OpenAIURLBase + "/images/generations",
-					APIKey: os.Getenv("OPENAI_API_KEY"),
-				},
+		OpenAIFunctionTypeEmbeddings: {
+			{
+				Name:   "openai embeddings",
+				Model:  "text-embedding-ada-002",
+				Base:   OpenAIURLBase,
+				APIKey: os.Getenv("OPENAI_API_KEY"),
+				Url:    "/embeddings",
+			},
+			{
+				Name:   "nomic embeddings",
+				Model:  "nomic-embed",
+				Base:   "https://llama8b.gaia.domains/v1",
+				APIKey: "gaia",
+				Url:    "/embeddings",
 			},
 		},
-		"llama": {
-			OpenAIFunctionTypeChatWithTools: []APIEndpointInfo{
-				{
-					URL:    "https://llamatool.us.gaianet.network/v1/chat/completions",
-					APIKey: "gaia",
-				},
-			},
-			OpenAIFunctionTypeChatOnly: []APIEndpointInfo{
-				{
-					URL:    "https://llama8b.gaia.domains/v1/chat/completions",
-					APIKey: "gaia",
-				},
+		OpenAIFunctionTypeTextToSpeech: {
+			{
+				Name:   "openai tts",
+				Model:  "tts-1",
+				Base:   OpenAIURLBase,
+				APIKey: os.Getenv("OPENAI_API_KEY"),
+				Url:    "/audio/speech",
 			},
 		},
-		"nomic-embed": {
-			OpenAIFunctionTypeEmbeddings: []APIEndpointInfo{
-				{
-					URL:    "https://llama8b.gaia.domains/v1/embeddings",
-					APIKey: "gaia",
-				},
+		OpenAIFunctionTypeImageGeneration: {
+			{
+				Name:   "openai image generation",
+				Model:  "dall-e-3",
+				Base:   OpenAIURLBase,
+				APIKey: os.Getenv("OPENAI_API_KEY"),
+				Url:    "/images/generations",
 			},
 		},
-		"whisper": {
-			OpenAIFunctionTypeSpeechToText: []APIEndpointInfo{
-				{
-					URL:    "https://whisper.gaia.domains/v1/audio/transcriptions",
-					APIKey: "gaia",
-				},
+		OpenAIFunctionTypeSpeechToText: {
+			{
+				Name:   "whisper model speech to text",
+				Model:  "whisper",
+				Base:   "https://whisper.gaia.domains/v1",
+				APIKey: "gaia",
+				Url:    "/audio/transcriptions",
 			},
-		},
-		"whisper-1": {
-			OpenAIFunctionTypeSpeechToText: []APIEndpointInfo{
-				{
-					URL:    OpenAIURLBase + "/audio/transcriptions",
-					APIKey: os.Getenv("OPENAI_API_KEY"),
-				},
+			{
+				Name:   "openai speech to text",
+				Model:  "whisper-1",
+				Base:   OpenAIURLBase,
+				APIKey: os.Getenv("OPENAI_API_KEY"),
+				Url:    "/audio/transcriptions",
 			},
 		},
 	}
@@ -185,32 +195,40 @@ type OpenAIChatCompletionRequest struct {
 	Tools    []OpenAIChatToolFunction `json:"tools"`
 }
 
-func ModelNameToBaseURLAndAPIKey(modelName string, funcType OpenAIFunctionType) (string, string, error) {
-	if APIEndpointMap[modelName] == nil {
-		return "", "", fmt.Errorf("model name not found: %s", modelName)
-	}
-	if APIEndpointMap[modelName][funcType] == nil {
-		return "", "", fmt.Errorf("function type not found: %v", funcType)
-	}
-	var e APIEndpointInfo
-	for _, info := range APIEndpointMap[modelName][funcType] {
-		if info.APIKey != "" {
-			e = info
-		}
-	}
-
-	if e.URL == "" {
-		return "", "", fmt.Errorf("function type not found: %v", funcType)
-	}
-	u := e.URL
-	k := e.APIKey
-	if k == "" {
-		log.Warnf("API Key not found for model: %s and function type: %v", modelName, funcType)
-	}
-	return u, k, nil
+type EndpointInfo struct {
+	BaseURL string
+	APIKey  string
 }
 
-func OpenAIChatCompletion(chatReq *OpenAIChatCompletionRequest) (*OpenAIChatCompletionResponse, error) {
+func EndpointFromTask(t task.Task) EndpointInfo {
+	u, ok := t.GetVar(task.TVOpenAIBaseURL)
+	if !ok {
+		// check environment variable
+		env := os.Getenv("OPENAI_API_KEY")
+		if env != "" {
+			return EndpointInfo{
+				BaseURL: OpenAIURLBase,
+				APIKey:  env,
+			}
+		}
+		panic("fallback to default base url, env OPENAI_API_KEY not set")
+	} else {
+		log.Infof("base url found: %s", u)
+	}
+
+	k, ok := t.GetVar(task.TVOpenAIAPIKey)
+	if !ok {
+		log.Errorf("api key not found")
+		return EndpointInfo{}
+	}
+
+	return EndpointInfo{
+		BaseURL: u.(string),
+		APIKey:  k.(string),
+	}
+}
+
+func OpenAIChatCompletion(ep EndpointInfo, chatReq *OpenAIChatCompletionRequest) (*OpenAIChatCompletionResponse, error) {
 	jsonBytes, err := json.Marshal(chatReq)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling OpenAIChatCompletionRequest: %v", err)
@@ -218,11 +236,8 @@ func OpenAIChatCompletion(chatReq *OpenAIChatCompletionRequest) (*OpenAIChatComp
 
 	// log.Debugf("Chat Request: %s", string(jsonBytes))
 	// create a https request to https://api.openai.com/v1/chat/completions and use b as the request body
-	u, k, err := ModelNameToBaseURLAndAPIKey(chatReq.Model, OpenAIFunctionTypeChatWithTools)
-	if err != nil {
-		return nil, err
-	}
-	res, err := net.SendRequest(u, bytes.NewBuffer(jsonBytes), net.ContentTypeJSON, k)
+	u := ep.BaseURL + "/chat/completions"
+	res, err := net.SendRequest(u, bytes.NewBuffer(jsonBytes), net.ContentTypeJSON, ep.APIKey)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %v", err)
 	}
@@ -249,78 +264,98 @@ func OpenAIChatCompletion(chatReq *OpenAIChatCompletionRequest) (*OpenAIChatComp
 	return &respData, nil
 }
 
-func OpenAIChatCompletion_Resp_NeedToolCall(chatResp *OpenAIChatCompletionResponse) bool {
-	for _, choice := range chatResp.Choices {
-		if len(choice.Message.ToolCalls) > 0 {
-			return true
-		}
-	}
-	return false
+type OpenAIEmbeddingsRequest struct {
+	Input string `json:"input"`
+	Model string `json:"model"`
 }
 
-func OpenAIChatCompletion_Resp_IterateToolCalls(chatResp *OpenAIChatCompletionResponse, fn func(funcName string, args interface{}) error) error {
-	for _, choice := range chatResp.Choices {
-		for _, toolCall := range choice.Message.ToolCalls {
-			argsStr := toolCall.Function.Arguments
-			// use json to unmarshal the arguments to interface{}
-			if argsStr != "" {
-				var args interface{}
-				err := json.Unmarshal([]byte(argsStr), &args)
-				if err != nil {
-					return fmt.Errorf("error unmarshalling tool call arguments: %v", err)
-				}
+type OpenAIEmbeddingObject struct {
+	Object    string    `json:"object"`
+	Embedding []float64 `json:"embedding"`
+	Index     int       `json:"index"`
+}
 
-				err = fn(toolCall.Function.Name, args)
-				if err != nil {
-					return err
-				}
-			} else {
-				err := fn(toolCall.Function.Name, nil)
-				if err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
+type OpenAIEmbeddingsResponse struct {
+	Object string                  `json:"object"`
+	Data   []OpenAIEmbeddingObject `json:"data"`
+	Model  string                  `json:"model"`
+	Usage  interface{}             `json:"usage"`
 }
 
 func Embeddings(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
-	log.Debugf("Executing hostcall \"%s\" with args %v", openai.HostCallEmbeddings, args)
 	// verify the type of args is EmbeddingsRequest
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling args: %v", err)
 	}
-	embeddingsReq := openai.EmbeddingsRequest{}
+	embeddingsReq := transform.EmbeddingsRequest{}
 	err = embeddingsReq.Unmarshal(jsonBytes)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling args: %v", err)
 	}
 
+	req := OpenAIEmbeddingsRequest{
+		Input: embeddingsReq.Input,
+		Model: embeddingsReq.Model,
+	}
+
+	resp, err := OpenAIEmbeddings(EndpointFromTask(*inv.Task), &req)
+	if err != nil {
+		return nil, fmt.Errorf("error calling OpenAIEmbeddings: %v", err)
+	}
+
+	resp2 := transform.EmbeddingsResponse{
+		Object: resp.Object,
+		Model:  resp.Model,
+		Usage:  resp.Usage,
+	}
+	err = utils.InterfaceToType(&resp2.Data, resp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("error converting response: %v", err)
+	}
+
+	return resp2, nil
+}
+
+func OpenAIEmbeddings(ep EndpointInfo, args *OpenAIEmbeddingsRequest) (*OpenAIEmbeddingsResponse, error) {
+	// verify the type of args is EmbeddingsRequest
+	// use json marshal and unmarshal to verify the type
+	jsonBytes, err := json.Marshal(args)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling args: %v", err)
+	}
+
 	log.Debugf("Embeddings Request: %s", string(jsonBytes))
 	// create a https request to https://api.openai.com/v1/embeddings and use b as the request body
-	u, k, err := ModelNameToBaseURLAndAPIKey(embeddingsReq.Model, OpenAIFunctionTypeEmbeddings)
-	if err != nil {
-		return nil, err
-	}
-	res, err := net.SendRequest(u, bytes.NewBuffer(jsonBytes), net.ContentTypeJSON, k)
+	u := ep.BaseURL + "/embeddings"
+	res, err := net.SendRequest(u, bytes.NewBuffer(jsonBytes), net.ContentTypeJSON, ep.APIKey)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %v", err)
 	}
 
-	respData := openai.EmbeddingsResponse{}
-	err = respData.Unmarshal(res)
+	respData := OpenAIEmbeddingsResponse{}
+	err = json.Unmarshal(res, &respData)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling response: %v", err)
 	}
 
 	// return the response
-	return respData, nil
+	return &respData, nil
 }
 
-func TextToSpeech(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+type OpenAITextToSpeechRequest struct {
+	Model  string `json:"model"`
+	Input  string `json:"input"`
+	Voice  string `json:"voice"`
+	Format string `json:"response_format"`
+}
+
+type OpenAITextToSpeechResponse struct {
+	EncodedAudio string `json:"audio"`
+}
+
+func OpenAITextToSpeech(ep EndpointInfo, args *OpenAITextToSpeechRequest) (*OpenAITextToSpeechResponse, error) {
 	log.Infof("Generating Speech...")
 	// verify the type of args is TextToSpeechRequest
 	// use json marshal and unmarshal to verify the type
@@ -328,25 +363,17 @@ func TextToSpeech(inv *hostcalls.InvocationInfo, args interface{}) (interface{},
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling args: %v", err)
 	}
-	t2sReq := openai.TextToSpeechRequest{}
-	err = t2sReq.Unmarshal(jsonBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling args: %v", err)
-	}
 
 	log.Debugf("TextToSpeech Request: %s", string(jsonBytes))
-	u, k, err := ModelNameToBaseURLAndAPIKey(t2sReq.Model, OpenAIFunctionTypeTextToSpeech)
-	if err != nil {
-		return nil, err
-	}
-	res, err := net.SendRequest(u, bytes.NewBuffer(jsonBytes), net.ContentTypeJSON, k)
+	u := ep.BaseURL + "/audio/speech"
+	res, err := net.SendRequest(u, bytes.NewBuffer(jsonBytes), net.ContentTypeJSON, ep.APIKey)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %v", err)
 	}
 
 	log.Debugf("OpenAI Response Len: %d", len(res))
 
-	respData := openai.TextToSpeechResponse{}
+	respData := OpenAITextToSpeechResponse{}
 	// base64 encode the audio data
 	encodedData := base64.StdEncoding.EncodeToString(res)
 	respData.EncodedAudio = encodedData
@@ -354,10 +381,19 @@ func TextToSpeech(inv *hostcalls.InvocationInfo, args interface{}) (interface{},
 	log.Debugf("Encoded Response Len in hostcall: %d", len(respData.EncodedAudio))
 
 	// return the response
-	return respData, nil
+	return &respData, nil
 }
 
-func SpeechToText(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+type OpenAISpeechToTextRequest struct {
+	Model string `json:"model"`
+	Audio string `json:"audio"`
+}
+
+type OpenAISpeechToTextResponse struct {
+	Text string `json:"text"`
+}
+
+func OpenAISpeechToText(ep EndpointInfo, args *OpenAISpeechToTextRequest) (*OpenAISpeechToTextResponse, error) {
 	log.Infof("Converting Speech to Text...")
 	// verify the type of args is SpeechToTextRequest
 	// use json marshal and unmarshal to verify the type
@@ -365,17 +401,14 @@ func SpeechToText(inv *hostcalls.InvocationInfo, args interface{}) (interface{},
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling args: %v", err)
 	}
-	sttReq := openai.SpeechToTextRequest{}
-	err = sttReq.Unmarshal(jsonBytes)
+	sttReq := OpenAISpeechToTextRequest{}
+	err = json.Unmarshal(jsonBytes, &sttReq)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling args: %v", err)
 	}
 
 	log.Debugf("SpeechToText Request: %v", sttReq)
-	u, k, err := ModelNameToBaseURLAndAPIKey(sttReq.Model, OpenAIFunctionTypeSpeechToText)
-	if err != nil {
-		return nil, err
-	}
+	u := ep.BaseURL + "/audio/transcriptions"
 
 	// send data as multipart/form-data
 	payload := &bytes.Buffer{}
@@ -410,48 +443,61 @@ func SpeechToText(inv *hostcalls.InvocationInfo, args interface{}) (interface{},
 	}
 
 	// send the request
-	res, err := net.SendRequest(u, payload, writer.FormDataContentType(), k)
+	res, err := net.SendRequest(u, payload, writer.FormDataContentType(), ep.APIKey)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %v", err)
 	}
 
 	log.Debugf("Speech to Text Response: %s", string(res))
-	respData := openai.SpeechToTextResponse{}
-	err = respData.Unmarshal(res)
+	respData := OpenAISpeechToTextResponse{}
+	err = json.Unmarshal(res, &respData)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling response: %v", err)
 	}
-	return respData, nil
+	return &respData, nil
 }
 
-func ImageGeneration(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
-	log.Debugf("Executing hostcall \"%s\" with args %v", openai.HostCallImageGeneration, args)
+type OpenAIImageGenerationRequest struct {
+	Model          string `json:"model"`
+	Prompt         string `json:"prompt"`
+	ResponseFormat string `json:"response_format"`
+}
+
+type OpenAIImageObject struct {
+	Url           string `json:"url"`
+	B64Json       string `json:"b64_json"`
+	RevisedPrompt string `json:"revised_prompt"`
+}
+
+type OpenAIImageGenerationResponse struct {
+	Created json.Number         `json:"created"`
+	Data    []OpenAIImageObject `json:"data"`
+}
+
+func OpenAIImageGeneration(ep EndpointInfo, args *OpenAIImageGenerationRequest) (*OpenAIImageGenerationResponse, error) {
 	// verify the type of args is ImageGenerationRequest
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling args: %v", err)
 	}
-	imgGenReq := openai.ImageGenerationRequest{}
-	err = imgGenReq.Unmarshal(jsonBytes)
+	imgGenReq := OpenAIImageGenerationRequest{}
+	err = json.Unmarshal(jsonBytes, &imgGenReq)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling args: %v", err)
 	}
 
 	log.Debugf("ImageGeneration Request: %s", string(jsonBytes))
-	u, k, err := ModelNameToBaseURLAndAPIKey(imgGenReq.Model, OpenAIFunctionTypeImageGeneration)
-	if err != nil {
-		return nil, err
-	}
-	res, err := net.SendRequest(u, bytes.NewBuffer(jsonBytes), net.ContentTypeJSON, k)
+	u := ep.BaseURL + "/images/generations"
+	res, err := net.SendRequest(u, bytes.NewBuffer(jsonBytes), net.ContentTypeJSON, ep.APIKey)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %v", err)
 	}
 
-	respData := openai.ImageGenerationResponse{}
-	err = respData.Unmarshal(res)
+	respData := OpenAIImageGenerationResponse{}
+	err = json.Unmarshal(res, &respData)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling response: %v", err)
 	}
-	return respData, nil
+	return &respData, nil
 }

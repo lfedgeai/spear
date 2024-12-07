@@ -13,7 +13,6 @@ import (
 
 	"github.com/lfedgeai/spear/pkg/rpc"
 	"github.com/lfedgeai/spear/pkg/rpc/payload"
-	"github.com/lfedgeai/spear/pkg/rpc/payload/openai"
 
 	// logrus
 	log "github.com/sirupsen/logrus"
@@ -76,43 +75,29 @@ func main() {
 	})
 	go hdl.Run()
 
-	// read json from stdin and write to stdout
-	chatMsg := payload.ChatCompletionRequest{
-		Model: "gpt-4o",
-		Messages: []payload.ChatMessageV2{
-			{
-				Metadata: map[string]interface{}{
-					"role": "system",
-				},
-				Content: "Hello, how can I help you?",
+	resp, err := rpc.ChatCompletion(hdl, "gpt-4o", []payload.ChatMessageV2{
+		{
+			Metadata: map[string]interface{}{
+				"role": "system",
 			},
-			{
-				Metadata: map[string]interface{}{
-					"role": "user",
-				},
-				Content: "I need help with my computer",
-			},
+			Content: "Hello, how can I help you?",
 		},
-	}
-
-	if resp, err := hdl.SendRequest(openai.HostCallChatCompletion, chatMsg); err != nil {
+		{
+			Metadata: map[string]interface{}{
+				"role": "user",
+			},
+			Content: "I need help with my computer",
+		},
+	}, "")
+	if err != nil {
 		panic(err)
-	} else {
-		log.Infof("Response: %v", resp)
 	}
+	log.Infof("Response: %v", resp)
 
-	// send an embeddings request
-	embeddingsReq := openai.EmbeddingsRequest{
-		Model: "bge-large-en-v1.5", //"text-embedding-ada-002",
-		Input: "The food was delicious and the waiter...",
-	}
-
-	req2 := rpc.NewJsonRPCRequest(openai.HostCallEmbeddings, embeddingsReq)
-	if resp, err := hdl.SendJsonRequest(req2); err != nil {
+	_, err = rpc.Embeddings(hdl, "text-embedding-ada-002", //"bge-large-en-v1.5"
+		"The food was delicious and the waiter...")
+	if err != nil {
 		panic(err)
-	} else {
-		msg := fmt.Sprintf("Response: %v", resp)
-		log.Infof("%.1024s", msg)
 	}
 
 	randName := fmt.Sprintf("vdb-%d", time.Now().UnixNano())
