@@ -7,7 +7,7 @@ import (
 	"github.com/lfedgeai/spear/pkg/rpc"
 	"github.com/lfedgeai/spear/pkg/rpc/payload"
 	"github.com/lfedgeai/spear/worker/hostcalls/common"
-	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
+	hcommon "github.com/lfedgeai/spear/worker/hostcalls/common"
 	hcopenai "github.com/lfedgeai/spear/worker/hostcalls/openai"
 	"github.com/lfedgeai/spear/worker/task"
 	log "github.com/sirupsen/logrus"
@@ -41,7 +41,7 @@ func (m *ChatCompletionMemory) GetMessages() []ChatMessage {
 	return m.Messages
 }
 
-func ChatCompletionNoTools(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+func ChatCompletionNoTools(inv *hcommon.InvocationInfo, args interface{}) (interface{}, error) {
 	// verify the type of args is ChatCompletionRequest
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)
@@ -83,7 +83,7 @@ func ChatCompletionNoTools(inv *hostcalls.InvocationInfo, args interface{}) (int
 	return res2, nil
 }
 
-func ChatCompletionWithTools(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+func ChatCompletionWithTools(inv *hcommon.InvocationInfo, args interface{}) (interface{}, error) {
 	// verify the type of args is ChatCompletionRequest
 	// use json marshal and unmarshal to verify the type
 	jsonBytes, err := json.Marshal(args)
@@ -126,13 +126,13 @@ func ChatCompletionWithTools(inv *hostcalls.InvocationInfo, args interface{}) (i
 	return res2, nil
 }
 
-func setupOpenAITools(chatReq *hcopenai.OpenAIChatCompletionRequest, task task.Task, toolsetId ToolsetId) error {
+func setupOpenAITools(chatReq *hcopenai.OpenAIChatCompletionRequest, task task.Task, toolsetId hcommon.ToolsetId) error {
 	toolset, ok := GetToolset(task, toolsetId)
 	if !ok {
 		return fmt.Errorf("toolset not found")
 	}
-	tools := make([]*ToolRegistry, 0)
-	for _, toolId := range toolset.toolsIds {
+	tools := make([]*hcommon.ToolRegistry, 0)
+	for _, toolId := range toolset.ToolsIds {
 		tool, ok := GetToolById(task, toolId)
 		if ok {
 			tools = append(tools, tool)
@@ -147,8 +147,8 @@ func setupOpenAITools(chatReq *hcopenai.OpenAIChatCompletionRequest, task task.T
 		chatReq.Tools[i] = hcopenai.OpenAIChatToolFunction{
 			Type: "function",
 			Func: hcopenai.OpenAIChatToolFunctionSub{
-				Name:        tool.name,
-				Description: tool.description,
+				Name:        tool.Name,
+				Description: tool.Description,
 				Parameters: hcopenai.OpenAIChatToolParameter{
 					Type:                 "object",
 					AdditionalProperties: false,
@@ -156,12 +156,12 @@ func setupOpenAITools(chatReq *hcopenai.OpenAIChatCompletionRequest, task task.T
 				},
 			},
 		}
-		for k, v := range tool.params {
+		for k, v := range tool.Params {
 			chatReq.Tools[i].Func.Parameters.Properties[k] = hcopenai.OpenAIChatToolParameterProperty{
-				Type:        v.ptype,
-				Description: v.description,
+				Type:        v.Ptype,
+				Description: v.Description,
 			}
-			if v.required {
+			if v.Required {
 				requiredParams = append(requiredParams, k)
 			}
 		}
@@ -171,7 +171,7 @@ func setupOpenAITools(chatReq *hcopenai.OpenAIChatCompletionRequest, task task.T
 	return nil
 }
 
-func innerChatCompletionWithTools(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCompletionRequest) ([]ChatMessage, error) {
+func innerChatCompletionWithTools(inv *hcommon.InvocationInfo, chatReq *payload.ChatCompletionRequest) ([]ChatMessage, error) {
 	task := *(inv.Task)
 
 	mem := NewChatCompletionMemory()
@@ -229,7 +229,7 @@ func innerChatCompletionWithTools(inv *hostcalls.InvocationInfo, chatReq *payloa
 
 		// check if toolset exists
 		if chatReq.ToolsetId != "" {
-			err = setupOpenAITools(&openAiChatReq2, task, ToolsetId(chatReq.ToolsetId))
+			err = setupOpenAITools(&openAiChatReq2, task, hcommon.ToolsetId(chatReq.ToolsetId))
 			if err != nil {
 				return nil, fmt.Errorf("error setting up tools: %v", err)
 			}
@@ -279,15 +279,15 @@ func innerChatCompletionWithTools(inv *hostcalls.InvocationInfo, chatReq *payloa
 							return nil, fmt.Errorf("error unmarshalling tool call arguments: %v", err)
 						}
 					}
-					if toolReg, ok := GetToolByName(task, toolCall.Function.Name); ok && toolReg.cb == "" {
+					if toolReg, ok := GetToolByName(task, toolCall.Function.Name); ok && toolReg.Cb == "" {
 						// it is a built-in tool
-						fn := toolReg.cbBuiltIn
+						fn := toolReg.CbBuiltIn
 						if fn == nil {
 							return nil, fmt.Errorf("built-in tool not implemented")
 						}
 						res, err := fn(inv, args)
 						if err != nil {
-							return nil, fmt.Errorf("error calling built-in tool %s: %v", toolReg.name, err)
+							return nil, fmt.Errorf("error calling built-in tool %s: %v", toolReg.Name, err)
 						}
 
 						tmp := fmt.Sprintf("%v", res)
@@ -321,7 +321,7 @@ func innerChatCompletionWithTools(inv *hostcalls.InvocationInfo, chatReq *payloa
 	return mem.GetMessages(), nil
 }
 
-func innerChatCompletionNoTools(inv *hostcalls.InvocationInfo, chatReq *payload.ChatCompletionRequest) ([]ChatMessage, error) {
+func innerChatCompletionNoTools(inv *hcommon.InvocationInfo, chatReq *payload.ChatCompletionRequest) ([]ChatMessage, error) {
 	mem := NewChatCompletionMemory()
 	for _, msg := range chatReq.Messages {
 		tmp := ChatMessage{
