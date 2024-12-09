@@ -63,7 +63,7 @@ def audio_to_text(audio):
             output_types=[tf.TransformType.TEXT],
             operations=[tf.TransformOperation.SPEECH_TO_TEXT],
             params={
-                "model": "gaia-whisper", # "whisper-1"
+                "model": "whisper-1", # "gaia-whisper"
                 "audio": audio,
             },
         ),
@@ -190,7 +190,7 @@ r: record voice input"""
                 output_types=[tf.TransformType.TEXT],
                 operations=[tf.TransformOperation.LLM, tf.TransformOperation.TOOLS],
                 params={
-                    "model": "qwen-toolchat-72b", #"gpt-4o", #"llama",
+                    "model": "gpt-4o", #"qwen-toolchat-72b", #"gpt-4o", #"llama",
                     "messages": msg_memory,
                     "toolset_id": toolsetid,
                 },

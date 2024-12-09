@@ -29,6 +29,7 @@ const (
 const (
 	OpenAIBase            = "https://api.openai.com/v1"
 	GaiaToolLlamaGroqBase = "https://llamatool.us.gaianet.network/v1"
+	GaiaToolLlama70BBase  = "https://llama70b.gaia.domains/v1"
 	GaiaToolLlama8BBase   = "https://llama8b.gaia.domains/v1"
 	GaiaToolLlama3BBase   = "https://llama3b.gaia.domains/v1"
 	GaiaToolQWen72BBase   = "https://qwen72b.gaia.domains/v1"
@@ -50,6 +51,13 @@ var (
 				Name:   "qwen-toolchat-72b",
 				Model:  "qwen",
 				Base:   GaiaToolQWen72BBase,
+				APIKey: "gaia",
+				Url:    "/chat/completions",
+			},
+			{
+				Name:   "llama-toolchat-70b",
+				Model:  "llama",
+				Base:   GaiaToolLlama70BBase,
 				APIKey: "gaia",
 				Url:    "/chat/completions",
 			},
