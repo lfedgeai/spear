@@ -250,7 +250,8 @@ func innerChatCompletionWithTools(inv *hcommon.InvocationInfo, chatReq *payload.
 			if choice.Index != json.Number(fmt.Sprintf("%d", i)) {
 				return nil, fmt.Errorf("index mismatch")
 			}
-			if choice.Reason == "stop" || choice.Reason == "length" {
+			log.Infof("Reason: %s", choice.Reason)
+			if (choice.Reason == "stop" && len(choice.Message.ToolCalls) == 0) || choice.Reason == "length" {
 				mem.AddMessage(ChatMessage{
 					Metadata: map[string]interface{}{
 						"role":   choice.Message.Role,
@@ -259,7 +260,7 @@ func innerChatCompletionWithTools(inv *hcommon.InvocationInfo, chatReq *payload.
 					Content: choice.Message.Content,
 				})
 				finished = true
-			} else if choice.Reason == "tool_calls" {
+			} else if choice.Reason == "tool_calls" || len(choice.Message.ToolCalls) > 0 {
 				mem.AddMessage(ChatMessage{
 					Metadata: map[string]interface{}{
 						"role":       choice.Message.Role,

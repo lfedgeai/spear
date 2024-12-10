@@ -151,7 +151,13 @@ def handle(params):
         agent.stop()
         return "Unknown error"
 
-    msg_memory = []
+    msg_memory = [
+        tf.ChatMessageV2(
+            metadata=tf.ChatMessageV2Metadata(role="system"),
+            content=("You will be provided with a set of tools you could potentially use. " +
+                     "But do not make tool calls unless it is necessary for you to answer the user question."),
+        )
+    ]
     while True:
         user_input = io.input(agent, "(? for help) > ")
 
@@ -190,7 +196,7 @@ r: record voice input"""
                 output_types=[tf.TransformType.TEXT],
                 operations=[tf.TransformOperation.LLM, tf.TransformOperation.TOOLS],
                 params={
-                    "model": "gpt-4o", #"qwen-toolchat-72b", #"gpt-4o", #"llama",
+                    "model": "gpt-4o", #"qwen-toolchat-72b"
                     "messages": msg_memory,
                     "toolset_id": toolsetid,
                 },
