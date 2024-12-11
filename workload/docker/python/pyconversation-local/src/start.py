@@ -10,6 +10,10 @@ import spear.utils.io as io
 import spear.hostcalls.tools as tools
 import spear.hostcalls.transform as tf
 
+LLM_MODEL = "gpt-4o" # "llama-toolchat-70b" # "qwen-toolchat-72b"
+STT_MODEL = "whisper-1" # "gaia-whisper"
+TTS_MODEL = "tts-1"
+
 logging.basicConfig(
     level=logging.DEBUG,  # Set the desired logging level
     # Customize the log format
@@ -63,7 +67,7 @@ def audio_to_text(audio):
             output_types=[tf.TransformType.TEXT],
             operations=[tf.TransformOperation.SPEECH_TO_TEXT],
             params={
-                "model": "whisper-1", # "gaia-whisper"
+                "model": STT_MODEL,
                 "audio": audio,
             },
         ),
@@ -95,7 +99,7 @@ def speak_chat_message(msg):
             output_types=[tf.TransformType.AUDIO],
             operations=[tf.TransformOperation.TEXT_TO_SPEECH],
             params={
-                "model": "tts-1",
+                "model": TTS_MODEL,
                 "voice": "nova",
                 "input": msg.content,
                 "response_format": "mp3",
@@ -155,7 +159,8 @@ def handle(params):
         tf.ChatMessageV2(
             metadata=tf.ChatMessageV2Metadata(role="system"),
             content=("You will be provided with a set of tools you could potentially use. " +
-                     "But do not make tool calls unless it is necessary for you to answer the user question."),
+                     "But do not make tool calls unless it is necessary for you to answer " +
+                     "the user question. "),
         )
     ]
     while True:
@@ -196,7 +201,7 @@ r: record voice input"""
                 output_types=[tf.TransformType.TEXT],
                 operations=[tf.TransformOperation.LLM, tf.TransformOperation.TOOLS],
                 params={
-                    "model": "gpt-4o", #"qwen-toolchat-72b"
+                    "model": LLM_MODEL,
                     "messages": msg_memory,
                     "toolset_id": toolsetid,
                 },
