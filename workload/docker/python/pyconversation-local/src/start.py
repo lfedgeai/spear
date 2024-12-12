@@ -10,9 +10,12 @@ import spear.utils.io as io
 import spear.hostcalls.tools as tools
 import spear.hostcalls.transform as tf
 
-LLM_MODEL = "gpt-4o" # "llama-toolchat-70b" # "qwen-toolchat-72b"
+LLM_MODEL = "gpt-4o" # "llama-toolchat" # "llama-toolchat-70b" # "qwen-toolchat-72b"
 STT_MODEL = "whisper-1" # "gaia-whisper"
 TTS_MODEL = "tts-1"
+
+SPEAK_MESSAGE = True
+
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the desired logging level
@@ -222,7 +225,8 @@ r: record voice input"""
         for msg in tmp_msgs:
             display_chat_message(msg)
             if msg.metadata.role == "assistant" and not msg.metadata.tool_calls:
-                speak_chat_message(msg)
+                if SPEAK_MESSAGE:
+                    speak_chat_message(msg)
 
         msg_memory = new_msg_memory
 

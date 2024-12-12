@@ -124,7 +124,7 @@ func ToolsetInstallBuiltins(inv *hcommon.InvocationInfo, args interface{}) (inte
 
 	// install BuiltinTools to task
 	tids := []hcommon.ToolId{}
-	for _, tool := range hcommon.BuiltinTools {
+	for _, tool := range hcommon.GetBuiltinTools() {
 		tid := hcommon.ToolId(uuid.New().String())
 		if _, ok := hcommon.GlobalTaskTools[taskId]; !ok {
 			hcommon.GlobalTaskTools[taskId] = make(map[hcommon.ToolId]hcommon.ToolRegistry)

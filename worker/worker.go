@@ -16,6 +16,7 @@ import (
 	hc "github.com/lfedgeai/spear/worker/hostcalls"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	"github.com/lfedgeai/spear/worker/task"
+	_ "github.com/lfedgeai/spear/worker/tools"
 )
 
 var (
