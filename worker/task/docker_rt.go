@@ -127,7 +127,7 @@ func (d *DockerTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 			fmt.Sprintf("SECRET=%d", secretGenerated),
 		},
 	}
-	log.Infof("Creating container with env: %v", containerCfg.Env)
+	log.Debugf("Creating container with env: %v", containerCfg.Env)
 	container, err := d.cli.ContainerCreate(context.TODO(), containerCfg,
 		&container.HostConfig{
 			AutoRemove: !d.rtCfg.Debug,

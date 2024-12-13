@@ -12,8 +12,8 @@ import (
 
 var screenTools = []hccommon.ToolRegistry{
 	{
-		Name:        "screenshot",
-		Description: `Take screenshots of current screens`,
+		Name:        "full_screenshot",
+		Description: `Take screenshots of everything on all screens, and save them to files`,
 		Params: map[string]hccommon.ToolParam{
 			"filename-prefix": {
 				Ptype:       "string",
