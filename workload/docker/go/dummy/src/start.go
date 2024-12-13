@@ -2,10 +2,10 @@ package main
 
 import (
 	"encoding/binary"
-	"flag"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"time"
 
@@ -27,9 +27,9 @@ var output io.Writer
 
 // parse arguments
 func init() {
-	flag.StringVar(&hostaddr, "service-addr", "localhost:8080", "host service address")
-	flag.StringVar(&secret, "secret", "", "secret for the host service")
-	flag.Parse()
+	// get hostaddr and secret from environment variables
+	hostaddr = os.Getenv("SERVICE_ADDR")
+	secret = os.Getenv("SECRET")
 
 	log.Debugf("Connecting to host at %s", hostaddr)
 	// create tcp connection to host

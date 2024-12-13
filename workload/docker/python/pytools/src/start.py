@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import logging
 import sys
-import json
 import time
 
 import spear.client as client
@@ -19,17 +19,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 agent = client.HostAgent()
-
-
-def parse_args():
-    """
-    parse the command line arguments
-    """
-    argparser = argparse.ArgumentParser()
-    argparser.add_argument("--service-addr", type=str, required=True)
-    argparser.add_argument("--secret", type=int, required=True)
-    args = argparser.parse_args()
-    return args.service_addr, args.secret
 
 
 def sleep(params):
@@ -136,4 +125,4 @@ if __name__ == "__main__":
     addr, secret = parse_args()
     agent.register_handler("handle", handle)
     agent.register_handler("sleep", sleep)
-    agent.run(addr, secret)
+    agent.run()

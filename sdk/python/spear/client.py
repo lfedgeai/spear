@@ -167,7 +167,7 @@ class HostAgent(object):
             cls._instance = super(HostAgent, cls).__new__(cls)
         return cls._instance
 
-    def connect_host(self, host_addr, host_secret) -> socket:
+    def connect_host(self, host_addr: str, host_secret: int) -> socket:
         """
         create a tcp connection to the server
         """
@@ -184,11 +184,20 @@ class HostAgent(object):
         self._recv_queue = queue.Queue(512)
         self._global_id = 0
 
-    def run(self, host_addr, host_secret):
+    def run(self, host_addr=None, host_secret=None):
         """
         start the agent
         """
-        logger.debug("Connecting to host %s", host_addr)
+        if host_addr is None and host_secret is None:
+            # get the host address and secret from the environment variables
+            # make sure the environment variables are set
+            if ("SERVICE_ADDR" not in os.environ or
+                    "SECRET" not in os.environ):
+                raise ValueError("SERVICE_ADDR or SECRET is not set")
+            host_addr = os.environ.get("SERVICE_ADDR")
+            host_secret = int(os.environ.get("SECRET"))
+
+        logger.debug("Connecting to host %s, sec %d", host_addr, host_secret)
         self.connect_host(host_addr, host_secret)
 
         logger.debug("Starting I/O threads")

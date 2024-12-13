@@ -3,11 +3,9 @@ to interact with the host system."""
 
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from dataclasses_json import dataclass_json
-from typing import Optional
-
 
 
 class TransformType(IntEnum):

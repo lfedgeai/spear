@@ -113,8 +113,6 @@ func (d *DockerTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 	secretGenerated := rand.Int63()
 
 	args := append([]string{cfg.Cmd}, cfg.Args...)
-	args = append(args, "--service-addr", fmt.Sprintf("host.docker.internal:%s", DockerRuntimeTcpListenPort))
-	args = append(args, "--secret", fmt.Sprintf("%d", secretGenerated))
 	containerCfg := &container.Config{
 		Image: cfg.Image,
 		// combine cfg.Cmd and cfg.Args
@@ -124,7 +122,12 @@ func (d *DockerTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 		AttachStdout: true,
 		AttachStderr: true,
 		OpenStdin:    true,
+		Env: []string{
+			fmt.Sprintf("SERVICE_ADDR=host.docker.internal:%s", DockerRuntimeTcpListenPort),
+			fmt.Sprintf("SECRET=%d", secretGenerated),
+		},
 	}
+	log.Infof("Creating container with env: %v", containerCfg.Env)
 	container, err := d.cli.ContainerCreate(context.TODO(), containerCfg,
 		&container.HostConfig{
 			AutoRemove: !d.rtCfg.Debug,

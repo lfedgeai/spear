@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-import spear.client as client
 import logging
+
+import spear.client as client
 
 logger = logging.getLogger(__name__)
 

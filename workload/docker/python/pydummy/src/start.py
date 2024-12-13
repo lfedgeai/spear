@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 import argparse
-import logging
-import sys
-import os
 import base64
+import logging
+import os
+import sys
 
 import spear.client as client
-import spear.utils.io as io
 import spear.hostcalls.tools as tools
 import spear.hostcalls.transform as tf
+import spear.utils.io as io
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the desired logging level
@@ -21,19 +21,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 agent = client.HostAgent()
-
-
-def parse_args():
-    """
-    parse the command line arguments
-    """
-    argparser = argparse.ArgumentParser()
-    argparser.add_argument("--service-addr", type=str, required=True)
-    argparser.add_argument("--secret", type=int, required=True)
-    args = argparser.parse_args()
-    return args.service_addr, args.secret
-
-
 
 def handle(params):
     """
@@ -75,6 +62,5 @@ def test(model):
 
 
 if __name__ == "__main__":
-    addr, secret = parse_args()
     agent.register_handler("handle", handle)
-    agent.run(addr, secret)
+    agent.run()

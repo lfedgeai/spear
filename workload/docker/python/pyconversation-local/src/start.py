@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 import argparse
-import logging
-import sys
 import base64
 import json
+import logging
+import sys
 
 import spear.client as client
-import spear.utils.io as io
 import spear.hostcalls.tools as tools
 import spear.hostcalls.transform as tf
+import spear.utils.io as io
 
 LLM_MODEL = "gpt-4o" # "llama-toolchat" # "llama-toolchat-70b" # "qwen-toolchat-72b"
 STT_MODEL = "whisper-1" # "gaia-whisper"
@@ -28,18 +28,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 agent = client.HostAgent()
-
-
-def parse_args():
-    """
-    parse the command line arguments
-    """
-    argparser = argparse.ArgumentParser()
-    argparser.add_argument("--service-addr", type=str, required=True)
-    argparser.add_argument("--secret", type=int, required=True)
-    args = argparser.parse_args()
-    return args.service_addr, args.secret
-
 
 def display_chat_message(msg):
     """
@@ -235,6 +223,5 @@ r: record voice input"""
 
 
 if __name__ == "__main__":
-    addr, secret = parse_args()
     agent.register_handler("handle", handle)
-    agent.run(addr, secret)
+    agent.run()
