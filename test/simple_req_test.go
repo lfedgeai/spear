@@ -7,6 +7,7 @@ import (
 
 	"bytes"
 
+	"github.com/lfedgeai/spear/pkg/common"
 	"github.com/lfedgeai/spear/pkg/tools/docker"
 	"github.com/lfedgeai/spear/worker"
 	"github.com/lfedgeai/spear/worker/task"
@@ -89,11 +90,11 @@ func TestSimpleReq(t *testing.T) {
 
 func TestLocalDummy(t *testing.T) {
 	// create config
-	config := worker.NewExecWorkerConfig(true)
+	config := worker.NewExecWorkerConfig(true, common.SpearPlatformAddress)
 	w := worker.NewWorker(config)
 	w.Initialize()
 
-	res, err := w.ExecuteTask(1, task.TaskTypeDocker, true, "handle", "hi","")
+	res, err := w.ExecuteTask(1, task.TaskTypeDocker, true, "handle", "hi")
 	if err != nil {
 		t.Fatalf("Error executing workload: %v", err)
 	}
@@ -103,11 +104,11 @@ func TestLocalDummy(t *testing.T) {
 
 func TestLocalPydummy(t *testing.T) {
 	// create config
-	config := worker.NewExecWorkerConfig(true)
+	config := worker.NewExecWorkerConfig(true, common.SpearPlatformAddress)
 	w := worker.NewWorker(config)
 	w.Initialize()
 
-	res, err := w.ExecuteTask(7, task.TaskTypeDocker, true, "handle", "","")
+	res, err := w.ExecuteTask(7, task.TaskTypeDocker, true, "handle", "")
 	if err != nil {
 		t.Fatalf("Error executing workload: %v", err)
 	}
@@ -117,7 +118,7 @@ func TestLocalPydummy(t *testing.T) {
 
 // func TestLocalGenImage(t *testing.T) {
 // 	// create config
-// 	config := worker.NewExecWorkerConfig(true)
+// 	config := worker.NewExecWorkerConfig(true, common.SpearPlatformAddress)
 // 	w := worker.NewWorker(config)
 // 	w.Initialize()
 

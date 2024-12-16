@@ -104,7 +104,7 @@ To run SPEAR in local mode, use the following command:
 ```bash
 export OPENAI_API_KEY=<YOUR_OPENAI_API_KEY>
 export HUGGINGFACEHUB_API_TOKEN=<YOUR_HUGGINGFACEHUB_API_TOKEN>
-export HOST_IP=<YOUR_LOCAL_HOST_IP>
+export SPEAR_RPC_ADDR=<YOUR_LOCAL_SPEAR_RPC_ADDR>
 bin/worker exec -n pyconversation
 ```
 
