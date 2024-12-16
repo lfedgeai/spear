@@ -236,7 +236,7 @@ func (w *Worker) ListTasks() []string {
 	return tasks
 }
 
-func (w *Worker) ExecuteTask(taskId int64, funcType task.TaskType, wait bool, method string, data string) (string, error) {
+func (w *Worker) ExecuteTask(taskId int64, funcType task.TaskType, wait bool, method string, data string, hostip string) (string, error) {
 	rt, err := task.GetTaskRuntime(funcType)
 	if err != nil {
 		return "", fmt.Errorf("error: %v", err)
@@ -258,6 +258,7 @@ func (w *Worker) ExecuteTask(taskId int64, funcType task.TaskType, wait bool, me
 		Cmd:   "/start", //"sh", //"./dummy_task",
 		Args:  []string{},
 		Image: meta.Image,
+		Hostip: hostip,
 	})
 	if err != nil {
 		return "", fmt.Errorf("error: %v", err)
@@ -323,7 +324,7 @@ func (w *Worker) addRoutes() {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
-		res, err := w.ExecuteTask(taskId, funcType, !funcIsAsync, "handle", string(buf[:n]))
+		res, err := w.ExecuteTask(taskId, funcType, !funcIsAsync, "handle", string(buf[:n]),"")
 		if err != nil {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return

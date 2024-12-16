@@ -17,6 +17,7 @@ var (
 	execWorkloadName string
 	execReqMethod    string
 	execReqPayload   string
+	execIPAddress	 string
 	execVerbose      bool
 	execDebug        bool
 )
@@ -77,7 +78,7 @@ func NewRootCmd() *cobra.Command {
 					return
 				}
 
-				res, err := w.ExecuteTask(execWorkloadId, rtType, true, execReqMethod, execReqPayload)
+				res, err := w.ExecuteTask(execWorkloadId, rtType, true, execReqMethod, execReqPayload, execIPAddress)
 				if err != nil {
 					log.Errorf("Error executing workload: %v", err)
 				}
@@ -99,6 +100,8 @@ func NewRootCmd() *cobra.Command {
 	execCmd.PersistentFlags().BoolVarP(&execVerbose, "verbose", "v", false, "verbose output")
 	// debug flag
 	execCmd.PersistentFlags().BoolVarP(&execDebug, "debug", "d", false, "debug mode")
+	// host ip flag
+	execCmd.PersistentFlags().StringVarP(&execIPAddress, "ip", "i", "", "input host ip")
 	rootCmd.AddCommand(execCmd)
 
 	var serveCmd = &cobra.Command{

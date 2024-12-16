@@ -8,6 +8,7 @@ import (
 	"net"
 	"sync"
 	"time"
+	"os"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
@@ -111,7 +112,14 @@ func (d *DockerTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 
 	rand.Seed(time.Now().UnixNano())
 	secretGenerated := rand.Int63()
-
+	if cfg.Hostip == "" {
+		// First, try to get the HOST_IP from the environment variables
+		cfg.Hostip = os.Getenv("HOST_IP")
+		if cfg.Hostip == "" {
+			// If not set, use the default value
+			cfg.Hostip = "host.docker.internal"
+		}
+	}
 	args := append([]string{cfg.Cmd}, cfg.Args...)
 	containerCfg := &container.Config{
 		Image: cfg.Image,
@@ -123,7 +131,7 @@ func (d *DockerTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 		AttachStderr: true,
 		OpenStdin:    true,
 		Env: []string{
-			fmt.Sprintf("SERVICE_ADDR=host.docker.internal:%s", DockerRuntimeTcpListenPort),
+			fmt.Sprintf("SERVICE_ADDR=%s:%s", cfg.Hostip, DockerRuntimeTcpListenPort),
 			fmt.Sprintf("SECRET=%d", secretGenerated),
 		},
 	}
