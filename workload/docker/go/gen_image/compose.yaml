@@ -1,0 +1,6 @@
+services:
+  dummy:
+    image: gen_image
+    build:
+      context: .
+      dockerfile: Dockerfile

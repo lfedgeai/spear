@@ -1,0 +1,6 @@
+services:
+  dummy:
+    image: pydummy
+    build:
+      context: ../../../../
+      dockerfile: ./workload/docker/python/pydummy/Dockerfile

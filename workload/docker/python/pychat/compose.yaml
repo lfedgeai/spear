@@ -1,0 +1,6 @@
+services:
+  dummy:
+    image: pychat
+    build:
+      context: ../../../../
+      dockerfile: ./workload/docker/python/pychat/Dockerfile

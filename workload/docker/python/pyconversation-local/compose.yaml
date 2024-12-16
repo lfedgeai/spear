@@ -1,0 +1,6 @@
+services:
+  dummy:
+    image: pyconversation
+    build:
+      context: ../../../../
+      dockerfile: ./workload/docker/python/pyconversation-local/Dockerfile
