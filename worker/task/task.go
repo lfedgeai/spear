@@ -12,6 +12,7 @@ type TaskConfig struct {
 	Image string
 	Cmd   string
 	Args  []string
+	Hostip string
 }
 
 // task type enum
