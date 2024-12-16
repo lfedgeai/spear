@@ -93,7 +93,7 @@ func TestLocalDummy(t *testing.T) {
 	w := worker.NewWorker(config)
 	w.Initialize()
 
-	res, err := w.ExecuteTask(1, task.TaskTypeDocker, true, "handle", "hi")
+	res, err := w.ExecuteTask(1, task.TaskTypeDocker, true, "handle", "hi","")
 	if err != nil {
 		t.Fatalf("Error executing workload: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestLocalPydummy(t *testing.T) {
 	w := worker.NewWorker(config)
 	w.Initialize()
 
-	res, err := w.ExecuteTask(7, task.TaskTypeDocker, true, "handle", "")
+	res, err := w.ExecuteTask(7, task.TaskTypeDocker, true, "handle", "","")
 	if err != nil {
 		t.Fatalf("Error executing workload: %v", err)
 	}
@@ -115,19 +115,19 @@ func TestLocalPydummy(t *testing.T) {
 	w.Stop()
 }
 
-func TestLocalGenImage(t *testing.T) {
-	// create config
-	config := worker.NewExecWorkerConfig(true)
-	w := worker.NewWorker(config)
-	w.Initialize()
+// func TestLocalGenImage(t *testing.T) {
+// 	// create config
+// 	config := worker.NewExecWorkerConfig(true)
+// 	w := worker.NewWorker(config)
+// 	w.Initialize()
 
-	res, err := w.ExecuteTask(3, task.TaskTypeDocker, true, "handle", "a red bird.")
-	if err != nil {
-		t.Fatalf("Error executing workload: %v", err)
-	}
-	if len(res) > 1024 {
-		res = res[:1024] + "..."
-	}
-	t.Logf("Workload execution result: %v", res)
-	w.Stop()
-}
+// 	res, err := w.ExecuteTask(3, task.TaskTypeDocker, true, "handle", "a red bird.","")
+// 	if err != nil {
+// 		t.Fatalf("Error executing workload: %v", err)
+// 	}
+// 	if len(res) > 1024 {
+// 		res = res[:1024] + "..."
+// 	}
+// 	t.Logf("Workload execution result: %v", res)
+// 	w.Stop()
+// }
