@@ -1,10 +1,13 @@
 package main
 
 import (
+	"github.com/lfedgeai/spear/pkg/common"
 	"github.com/lfedgeai/spear/worker"
 	"github.com/lfedgeai/spear/worker/task"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+
+	"os"
 )
 
 type WorkerConfig struct {
@@ -17,6 +20,7 @@ var (
 	execWorkloadName string
 	execReqMethod    string
 	execReqPayload   string
+	execSpearAddr    string
 	execVerbose      bool
 	execDebug        bool
 )
@@ -50,6 +54,9 @@ func NewRootCmd() *cobra.Command {
 				log.Errorf("Invalid request method %s", execReqMethod)
 				return
 			}
+			if execSpearAddr == "" {
+				execSpearAddr = common.SpearPlatformAddress
+			}
 
 			// check if the workload type is valid
 			if rtType, ok := validChoices[execRtTypeStr]; !ok {
@@ -62,7 +69,7 @@ func NewRootCmd() *cobra.Command {
 				}
 
 				// create config
-				config := worker.NewExecWorkerConfig(execDebug)
+				config := worker.NewExecWorkerConfig(execDebug, execSpearAddr)
 				w := worker.NewWorker(config)
 				w.Initialize()
 
@@ -117,9 +124,13 @@ func NewRootCmd() *cobra.Command {
 				worker.SetLogLevel(log.DebugLevel)
 			}
 
+			if execSpearAddr == "" {
+				execSpearAddr = common.SpearPlatformAddress
+			}
+
 			// create config
 			config := worker.NewServeWorkerConfig(addr, port, paths,
-				debug)
+				debug, execSpearAddr)
 			w := worker.NewWorker(config)
 			w.Initialize()
 			w.StartServer()
@@ -138,6 +149,8 @@ func NewRootCmd() *cobra.Command {
 	serveCmd.PersistentFlags().BoolP("debug", "d", false, "debug mode")
 	rootCmd.AddCommand(serveCmd)
 
+	// spear platform address for workload to connect
+	rootCmd.PersistentFlags().StringVarP(&execSpearAddr, "spear-addr", "s", os.Getenv("SPEAR_RPC_ADDR"), "SPEAR platform address for workload RPC")
 	return rootCmd
 }
 

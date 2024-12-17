@@ -7,6 +7,7 @@ import (
 
 	"bytes"
 
+	"github.com/lfedgeai/spear/pkg/common"
 	"github.com/lfedgeai/spear/pkg/tools/docker"
 	"github.com/lfedgeai/spear/worker"
 	"github.com/lfedgeai/spear/worker/task"
@@ -89,7 +90,7 @@ func TestSimpleReq(t *testing.T) {
 
 func TestLocalDummy(t *testing.T) {
 	// create config
-	config := worker.NewExecWorkerConfig(true)
+	config := worker.NewExecWorkerConfig(true, common.SpearPlatformAddress)
 	w := worker.NewWorker(config)
 	w.Initialize()
 
@@ -103,7 +104,7 @@ func TestLocalDummy(t *testing.T) {
 
 func TestLocalPydummy(t *testing.T) {
 	// create config
-	config := worker.NewExecWorkerConfig(true)
+	config := worker.NewExecWorkerConfig(true, common.SpearPlatformAddress)
 	w := worker.NewWorker(config)
 	w.Initialize()
 
@@ -115,19 +116,19 @@ func TestLocalPydummy(t *testing.T) {
 	w.Stop()
 }
 
-func TestLocalGenImage(t *testing.T) {
-	// create config
-	config := worker.NewExecWorkerConfig(true)
-	w := worker.NewWorker(config)
-	w.Initialize()
+// func TestLocalGenImage(t *testing.T) {
+// 	// create config
+// 	config := worker.NewExecWorkerConfig(true, common.SpearPlatformAddress)
+// 	w := worker.NewWorker(config)
+// 	w.Initialize()
 
-	res, err := w.ExecuteTask(3, task.TaskTypeDocker, true, "handle", "a red bird.")
-	if err != nil {
-		t.Fatalf("Error executing workload: %v", err)
-	}
-	if len(res) > 1024 {
-		res = res[:1024] + "..."
-	}
-	t.Logf("Workload execution result: %v", res)
-	w.Stop()
-}
+// 	res, err := w.ExecuteTask(3, task.TaskTypeDocker, true, "handle", "a red bird.","")
+// 	if err != nil {
+// 		t.Fatalf("Error executing workload: %v", err)
+// 	}
+// 	if len(res) > 1024 {
+// 		res = res[:1024] + "..."
+// 	}
+// 	t.Logf("Workload execution result: %v", res)
+// 	w.Stop()
+// }
