@@ -4,6 +4,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/lfedgeai/spear/pkg/common"
 	"github.com/lfedgeai/spear/worker"
 	"github.com/lfedgeai/spear/worker/task/docker"
 	log "github.com/sirupsen/logrus"
@@ -43,7 +44,7 @@ func NewTestSetup() *TestSetup {
 	t.startVectorStoreContainer()
 
 	// setup the test environment
-	cfg := worker.NewServeWorkerConfig("localhost", "8080", []string{}, true)
+	cfg := worker.NewServeWorkerConfig("localhost", "8080", []string{}, true, common.SpearPlatformAddress)
 	t.w = worker.NewWorker(cfg)
 	t.w.Initialize()
 	go t.w.StartServer()

@@ -26,6 +26,9 @@ sdk:
 format_python:
 	isort -rc $(PROJECT_ROOT)/
 
-format: format_python
+format_golang:
+	gofmt -w .
+
+format: format_python format_golang
 
 .PHONY: all worker test workload clean sdk format_python format

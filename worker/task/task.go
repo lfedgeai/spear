@@ -8,11 +8,11 @@ import (
 
 type TaskConfig struct {
 	// task name
-	Name  string
-	Image string
-	Cmd   string
-	Args  []string
-	Hostip string
+	Name   string
+	Image  string
+	Cmd    string
+	Args   []string
+	HostAddr string
 }
 
 // task type enum

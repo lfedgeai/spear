@@ -33,6 +33,8 @@ type WorkerConfig struct {
 	// Debug
 	Debug          bool
 	LocalExecution bool
+
+	SpearAddr string
 }
 
 type Worker struct {
@@ -43,6 +45,8 @@ type Worker struct {
 	SearchPaths []string
 	hc          *hostcalls.HostCalls
 	commMgr     *hostcalls.CommunicationManager
+
+	spearAddr string
 }
 
 type TaskMetaData struct {
@@ -100,31 +104,34 @@ var (
 )
 
 // NewServeWorkerConfig creates a new WorkerConfig
-func NewServeWorkerConfig(addr, port string, spath []string, debug bool) *WorkerConfig {
+func NewServeWorkerConfig(addr, port string, spath []string, debug bool, spearAddr string) *WorkerConfig {
 	return &WorkerConfig{
 		Addr:           addr,
 		Port:           port,
 		SearchPath:     spath,
 		Debug:          debug,
 		LocalExecution: false,
+		SpearAddr:      spearAddr,
 	}
 }
 
-func NewExecWorkerConfig(debug bool) *WorkerConfig {
+func NewExecWorkerConfig(debug bool, spearAddr string) *WorkerConfig {
 	return &WorkerConfig{
 		Addr:           "",
 		Port:           "",
 		Debug:          debug,
 		LocalExecution: true,
+		SpearAddr:      spearAddr,
 	}
 }
 
 func NewWorker(cfg *WorkerConfig) *Worker {
 	w := &Worker{
-		cfg:     cfg,
-		mux:     http.NewServeMux(),
-		hc:      nil,
-		commMgr: hostcalls.NewCommunicationManager(),
+		cfg:       cfg,
+		mux:       http.NewServeMux(),
+		hc:        nil,
+		commMgr:   hostcalls.NewCommunicationManager(),
+		spearAddr: cfg.SpearAddr,
 	}
 	hc := hostcalls.NewHostCalls(w.commMgr)
 	w.hc = hc
@@ -236,7 +243,7 @@ func (w *Worker) ListTasks() []string {
 	return tasks
 }
 
-func (w *Worker) ExecuteTask(taskId int64, funcType task.TaskType, wait bool, method string, data string, hostip string) (string, error) {
+func (w *Worker) ExecuteTask(taskId int64, funcType task.TaskType, wait bool, method string, data string) (string, error) {
 	rt, err := task.GetTaskRuntime(funcType)
 	if err != nil {
 		return "", fmt.Errorf("error: %v", err)
@@ -254,11 +261,11 @@ func (w *Worker) ExecuteTask(taskId int64, funcType task.TaskType, wait bool, me
 	randSrc := rand.NewSource(time.Now().UnixNano())
 	randGen := rand.New(randSrc)
 	newTask, err := rt.CreateTask(&task.TaskConfig{
-		Name:  fmt.Sprintf("task-%s-%d", meta.Name, randGen.Intn(10000)),
-		Cmd:   "/start", //"sh", //"./dummy_task",
-		Args:  []string{},
-		Image: meta.Image,
-		Hostip: hostip,
+		Name:   fmt.Sprintf("task-%s-%d", meta.Name, randGen.Intn(10000)),
+		Cmd:    "/start", //"sh", //"./dummy_task",
+		Args:   []string{},
+		Image:  meta.Image,
+		HostAddr: w.spearAddr,
 	})
 	if err != nil {
 		return "", fmt.Errorf("error: %v", err)
@@ -324,7 +331,7 @@ func (w *Worker) addRoutes() {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
 		}
-		res, err := w.ExecuteTask(taskId, funcType, !funcIsAsync, "handle", string(buf[:n]),"")
+		res, err := w.ExecuteTask(taskId, funcType, !funcIsAsync, "handle", string(buf[:n]))
 		if err != nil {
 			respError(resp, fmt.Sprintf("Error: %v", err))
 			return
