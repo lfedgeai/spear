@@ -2,10 +2,10 @@ package hostcalls
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/lfedgeai/spear/pkg/rpc/payload"
+	"github.com/lfedgeai/spear/pkg/utils"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	"github.com/lfedgeai/spear/worker/task"
 	"github.com/qdrant/go-client/qdrant"
@@ -154,15 +154,9 @@ func VectorStoreCreate(inv *hostcalls.InvocationInfo, args interface{}) (interfa
 	task := *(inv.Task)
 	log.Debugf("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreCreate, args)
 	// verify the type of args is string
-	// use json marshal and unmarshal to verify the type
-	jsonBytes, err := json.Marshal(args)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling args: %v", err)
-	}
 	req := payload.VectorStoreCreateRequest{}
-	err = req.Unmarshal(jsonBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	if err := utils.InterfaceToType(&req, args); err != nil {
+		return nil, err
 	}
 
 	log.Infof("VectorStoreCreate Request: %v", req)
@@ -190,15 +184,9 @@ func VectorStoreDelete(inv *hostcalls.InvocationInfo, args interface{}) (interfa
 	task := *(inv.Task)
 	log.Debugf("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreDelete, args)
 	// verify the type of args is int
-	// use json marshal and unmarshal to verify the type
-	jsonBytes, err := json.Marshal(args)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling args: %v", err)
-	}
 	req := payload.VectorStoreDeleteRequest{}
-	err = req.Unmarshal(jsonBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	if err := utils.InterfaceToType(&req, args); err != nil {
+		return nil, err
 	}
 
 	log.Infof("VectorStoreDelete Request: %v", req)
@@ -207,7 +195,7 @@ func VectorStoreDelete(inv *hostcalls.InvocationInfo, args interface{}) (interfa
 		return nil, fmt.Errorf("vector store registry not found")
 	}
 
-	err = globalVectorStoreRegistries[task.ID()].Delete(req.VID)
+	err := globalVectorStoreRegistries[task.ID()].Delete(req.VID)
 	if err != nil {
 		return nil, fmt.Errorf("error deleting vector store: %v", err)
 	}
@@ -222,25 +210,19 @@ func VectorStoreInsert(inv *hostcalls.InvocationInfo, args interface{}) (interfa
 	task := *(inv.Task)
 	log.Debugf("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreInsert, args)
 	// verify the type of args is VectorStoreInsertRequest
-	// use json marshal and unmarshal to verify the type
-	jsonBytes, err := json.Marshal(args)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling args: %v", err)
-	}
 	req := payload.VectorStoreInsertRequest{}
-	err = req.Unmarshal(jsonBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	if err := utils.InterfaceToType(&req, args); err != nil {
+		return nil, err
 	}
 
-	log.Infof("VectorStoreInsert Request: %s", string(jsonBytes))
+	log.Infof("VectorStoreInsert Request: %v", req)
 	// insert the vector into the vector store
 	v, ok := globalVectorStoreRegistries[task.ID()]
 	if !ok {
 		return nil, fmt.Errorf("vector store registry not found")
 	}
 
-	err = v.Insert(req.VID, req.Vector, req.Data)
+	err := v.Insert(req.VID, req.Vector, req.Data)
 	if err != nil {
 		return nil, fmt.Errorf("error inserting vector: %v", err)
 	}
@@ -255,18 +237,12 @@ func VectorStoreSearch(inv *hostcalls.InvocationInfo, args interface{}) (interfa
 	task := *(inv.Task)
 	log.Debugf("Executing hostcall \"%s\" with args %v", payload.HostCallVectorStoreSearch, args)
 	// verify the type of args is VectorStoreSearchRequest
-	// use json marshal and unmarshal to verify the type
-	jsonBytes, err := json.Marshal(args)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling args: %v", err)
-	}
 	req := payload.VectorStoreSearchRequest{}
-	err = req.Unmarshal(jsonBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	if err := utils.InterfaceToType(&req, args); err != nil {
+		return nil, err
 	}
 
-	log.Infof("VectorStoreSearch Request: %s", string(jsonBytes))
+	log.Infof("VectorStoreSearch Request: %v", req)
 	// search the vector in the vector store
 	v, ok := globalVectorStoreRegistries[task.ID()]
 	if !ok {

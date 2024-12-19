@@ -1,10 +1,10 @@
 package hostcalls
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/lfedgeai/spear/pkg/rpc/payload"
+	"github.com/lfedgeai/spear/pkg/utils"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	t "github.com/lfedgeai/spear/worker/task"
 	log "github.com/sirupsen/logrus"
@@ -105,15 +105,9 @@ func TransformConfig(inv *hostcalls.InvocationInfo, args interface{}) (interface
 	log.Debugf("Executing hostcall \"%s\" with args %v for task %s",
 		payload.HostCallTransformConfig, args, task.ID())
 	// convert args to TransformConfigRequest
-	jsonBytes, err := json.Marshal(args)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling args: %v", err)
-	}
-
 	req := &payload.TransformConfigRequest{}
-	err = req.Unmarshal(jsonBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	if err := utils.InterfaceToType(req, args); err != nil {
+		return nil, err
 	}
 
 	if req.Reset {
@@ -137,15 +131,9 @@ func Transform(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, er
 	log.Debugf("Executing hostcall \"%s\" with args %v for task %s",
 		payload.HostCallTransform, args, task.ID())
 	// convert args to TransformRequest
-	jsonBytes, err := json.Marshal(args)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling args: %v", err)
-	}
-
 	req := &payload.TransformRequest{}
-	err = req.Unmarshal(jsonBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	if err := utils.InterfaceToType(req, args); err != nil {
+		return nil, err
 	}
 
 	var candid *TransformRegistry

@@ -180,6 +180,8 @@ func (p *DockerTask) Stop() error {
 	if err != nil {
 		return err
 	}
+	InvokeFinaleCallbacks(p)
+	delete(p.runtime.tasks, p.ID())
 	return nil
 }
 

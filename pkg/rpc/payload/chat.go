@@ -7,7 +7,7 @@ import (
 type ChatCompletionRequest struct {
 	Messages  []ChatMessageV2 `json:"messages"`
 	Model     string          `json:"model"`
-	ToolsetId string          `json:"toolset_id"`
+	ToolsetId int             `json:"toolset_id"` // valid if toolset_id is positive
 }
 
 // marshal operations
@@ -67,7 +67,7 @@ func (r *ChatCompletionResponseV2) Unmarshal(data []byte) error {
 type ChatCompletionRequestV2 struct {
 	Messages  []ChatMessageV2 `json:"messages"`
 	Model     string          `json:"model"`
-	ToolsetId string          `json:"toolset_id"`
+	ToolsetId int             `json:"toolset_id"`
 }
 
 func (r *ChatCompletionRequestV2) Marshal() ([]byte, error) {

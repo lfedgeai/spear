@@ -86,7 +86,7 @@ func OpenAIChatCompletion(ep common.APIEndpointInfo, chatReq *OpenAIChatCompleti
 		return nil, fmt.Errorf("error marshalling OpenAIChatCompletionRequest: %v", err)
 	}
 
-	// log.Debugf("Chat Request: %s", string(jsonBytes))
+	log.Debugf("Chat Request: %s", string(jsonBytes))
 	// create a https request to https://<base_url>/chat/completions and use b as the request body
 	u := ep.Base + ep.Url
 	res, err := net.SendRequest(u, bytes.NewBuffer(jsonBytes), net.ContentTypeJSON, ep.APIKey)
@@ -137,15 +137,9 @@ type OpenAIEmbeddingsResponse struct {
 
 func Embeddings(inv *hcommon.InvocationInfo, args interface{}) (interface{}, error) {
 	// verify the type of args is EmbeddingsRequest
-	// use json marshal and unmarshal to verify the type
-	jsonBytes, err := json.Marshal(args)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling args: %v", err)
-	}
 	embeddingsReq := transform.EmbeddingsRequest{}
-	err = embeddingsReq.Unmarshal(jsonBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	if err := utils.InterfaceToType(&embeddingsReq, args); err != nil {
+		return nil, err
 	}
 
 	req := OpenAIEmbeddingsRequest{
@@ -253,15 +247,9 @@ type OpenAISpeechToTextResponse struct {
 func OpenAISpeechToText(ep common.APIEndpointInfo, args *OpenAISpeechToTextRequest) (*OpenAISpeechToTextResponse, error) {
 	log.Infof("Converting Speech to Text...")
 	// verify the type of args is SpeechToTextRequest
-	// use json marshal and unmarshal to verify the type
-	jsonBytes, err := json.Marshal(args)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling args: %v", err)
-	}
 	sttReq := OpenAISpeechToTextRequest{}
-	err = json.Unmarshal(jsonBytes, &sttReq)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	if err := utils.InterfaceToType(&sttReq, args); err != nil {
+		return nil, err
 	}
 
 	log.Debugf("SpeechToText Request: %v", sttReq)

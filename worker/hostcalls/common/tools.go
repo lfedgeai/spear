@@ -2,10 +2,11 @@ package common
 
 import (
 	"github.com/lfedgeai/spear/worker/task"
+	log "github.com/sirupsen/logrus"
 )
 
-type ToolId string
-type ToolsetId string
+type ToolId int
+type ToolsetId int
 type BuiltInToolCbFunc func(inv *InvocationInfo, args interface{}) (interface{}, error)
 
 type ToolParam struct {
@@ -23,12 +24,13 @@ type ToolRegistry struct {
 }
 
 type ToolsetRegistry struct {
-	Description string
-	ToolsIds    []ToolId
+	Description     string
+	Tools           map[ToolId]ToolRegistry
+	WorkloadToolset *WorkloadToolset
+	Instance        task.Task
 }
 
 var (
-	GlobalTaskTools    = map[task.TaskID]map[ToolId]ToolRegistry{}
 	GlobalTaskToolsets = map[task.TaskID]map[ToolsetId]ToolsetRegistry{}
 )
 
@@ -40,4 +42,16 @@ func GetBuiltinTools() []ToolRegistry {
 
 func RegisterBuiltinTool(tool ToolRegistry) {
 	BuiltinTools = append(BuiltinTools, tool)
+}
+
+func init() {
+	task.RegisterFinaleCallback("toolsets_cleanup", func(task task.Task) {
+		log.Infof("Cleaning up toolsets for task [%s]", task.Name())
+		for _, toolset := range GlobalTaskToolsets[task.ID()] {
+			if toolset.Instance != nil {
+				toolset.Instance.Stop()
+			}
+		}
+		delete(GlobalTaskToolsets, task.ID())
+	})
 }

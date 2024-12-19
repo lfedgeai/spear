@@ -88,7 +88,7 @@ func main() {
 			},
 			Content: "I need help with my computer",
 		},
-	}, "")
+	})
 	if err != nil {
 		panic(err)
 	}

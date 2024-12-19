@@ -17,6 +17,7 @@ const (
 	HostCallToolNew                = "tool.new"
 	HostCallToolsetNew             = "toolset.new"
 	HostCallToolsetInstallBuiltins = "toolset.install.builtins"
+	HostCallToolCall               = "tool.call"
 
 	HostCallInput  = "input"
 	HostCallSpeak  = "speak"

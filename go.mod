@@ -5,7 +5,6 @@ go 1.23.0
 require (
 	github.com/docker/docker v27.3.1+incompatible
 	github.com/docker/go-connections v0.5.0
-	github.com/google/uuid v1.6.0
 	github.com/kbinani/screenshot v0.0.0-20240820160931-a8a2c5d0e191
 	github.com/qdrant/go-client v1.12.0
 	github.com/schollz/progressbar/v3 v3.17.1

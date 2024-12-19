@@ -44,6 +44,8 @@ var (
 	globalTaskRuntimes = make(map[TaskType]TaskRuntime)
 
 	supportedTaskTypes = []TaskType{}
+
+	finaleCallbacks = map[string]func(Task){}
 )
 
 // message type []bytes
@@ -188,4 +190,16 @@ func GetTaskRuntime(taskType TaskType) (TaskRuntime, error) {
 		return rt, nil
 	}
 	return nil, fmt.Errorf("task runtime not found")
+}
+
+func RegisterFinaleCallback(name string, cb func(Task)) {
+	log.Infof("Registering finale callback %s", name)
+	finaleCallbacks[name] = cb
+}
+
+func InvokeFinaleCallbacks(t Task) {
+	for name, cb := range finaleCallbacks {
+		log.Infof("Invoking finale callback %s", name)
+		cb(t)
+	}
 }

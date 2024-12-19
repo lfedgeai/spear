@@ -1,0 +1,6 @@
+services:
+  dummy:
+    image: py_ocr_tools
+    build:
+      context: ../../../../
+      dockerfile: ./workload/docker/python/py_ocr_tools/Dockerfile

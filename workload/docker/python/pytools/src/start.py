@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-import argparse
-import json
 import logging
 import sys
 import time
@@ -8,6 +6,8 @@ import time
 import spear.client as client
 import spear.hostcalls.tools as tools
 import spear.hostcalls.transform as tf
+from spear.utils.tools import new_toolset
+from spear.utils.chat import chat_completion
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the desired logging level
@@ -26,7 +26,7 @@ def sleep(params):
     sleep for a given number of seconds
     """
     logger.info("Sleeping for %s seconds", params["seconds"])
-    time.sleep(params["seconds"])    
+    time.sleep(params["seconds"])
     return "done"
 
 
@@ -35,6 +35,20 @@ def handle(params):
     handle the request
     """
     logger.info("Handling request: %s", params)
+
+    ocrToolsetId = new_toolset(
+        agent,
+        name="py_ocr_tools",
+        description="testing external toolset",
+        workload_name="py_ocr_tools",
+    )
+
+    toolsetid = new_toolset(
+        agent,
+        name="toolset",
+        description="Toolset for sending email",
+    )
+
     resp = agent.exec_request(
         "tool.new",
         tools.NewToolRequest(
@@ -48,38 +62,20 @@ def handle(params):
                     required=True,
                 ),
             ],
+            toolset_id=toolsetid,
             cb="sleep",
         ),
     )
 
-    toolid = None
     if isinstance(resp, client.JsonRpcOkResp):
         logger.info("Tool created with id: %s", resp.result)
         toolid = tools.NewToolResponse.schema().load(resp.result)
+        logger.info("Tool created with id: %s", toolid.tool_id)
     elif isinstance(resp, client.JsonRpcErrorResp):
         agent.stop()
         return resp.message
     else:
         agent.stop()
-        return "Unknown error"
-
-    resp = agent.exec_request(
-        "toolset.new",
-        tools.NewToolsetRequest(
-            name="toolset",
-            description="Toolset for sending email",
-            tool_ids=[toolid.tool_id],
-        ),
-    )
-
-    toolsetid = None
-    if isinstance(resp, client.JsonRpcOkResp):
-        logger.info("Toolset created with id: %s", resp.result)
-        resp = tools.NewToolsetResponse.schema().load(resp.result)
-        toolsetid = resp.toolset_id
-    elif isinstance(resp, client.JsonRpcErrorResp):
-        return resp.message
-    else:
         return "Unknown error"
 
     resp = agent.exec_request(
@@ -97,32 +93,13 @@ def handle(params):
         agent.stop()
         return "Unknown error"
 
-    resp = agent.exec_request(
-        "transform",
-        tf.TransformRequest(
-            input_types=[tf.TransformType.TEXT],
-            output_types=[tf.TransformType.TEXT],
-            operations=[tf.TransformOperation.LLM, tf.TransformOperation.TOOLS],
-            params={
-                "model": "gpt-4o",
-                "messages": [{"role": "user", "content": params}],
-                "toolset_id": toolsetid,
-            },
-        ),
-    )
+    resp = chat_completion(agent, params, toolsetid)
+    logger.info("Chat completion response: %s", resp)
 
     agent.stop()
-    if isinstance(resp, client.JsonRpcOkResp):
-        resp = tf.TransformResponse.schema().load(resp.result)
-        return resp
-    elif isinstance(resp, client.JsonRpcErrorResp):
-        return resp.message
-    else:
-        return "Unknown error"
 
 
 if __name__ == "__main__":
-    addr, secret = parse_args()
     agent.register_handler("handle", handle)
     agent.register_handler("sleep", sleep)
     agent.run()

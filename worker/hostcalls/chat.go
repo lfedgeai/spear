@@ -6,6 +6,7 @@ import (
 
 	"github.com/lfedgeai/spear/pkg/rpc"
 	"github.com/lfedgeai/spear/pkg/rpc/payload"
+	"github.com/lfedgeai/spear/pkg/utils"
 	"github.com/lfedgeai/spear/worker/hostcalls/common"
 	hcommon "github.com/lfedgeai/spear/worker/hostcalls/common"
 	hcopenai "github.com/lfedgeai/spear/worker/hostcalls/openai"
@@ -43,18 +44,12 @@ func (m *ChatCompletionMemory) GetMessages() []ChatMessage {
 
 func ChatCompletionNoTools(inv *hcommon.InvocationInfo, args interface{}) (interface{}, error) {
 	// verify the type of args is ChatCompletionRequest
-	// use json marshal and unmarshal to verify the type
-	jsonBytes, err := json.Marshal(args)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling args: %v", err)
-	}
 	chatReq := payload.ChatCompletionRequest{}
-	err = chatReq.Unmarshal(jsonBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	if err := utils.InterfaceToType(&chatReq, args); err != nil {
+		return nil, fmt.Errorf("error converting args to ChatCompletionRequest: %v", err)
 	}
 
-	if chatReq.ToolsetId != "" {
+	if chatReq.ToolsetId >= 0 {
 		log.Infof("Tools are not supported in this function")
 		return nil, fmt.Errorf("tools are not supported in this function")
 	}
@@ -67,33 +62,27 @@ func ChatCompletionNoTools(inv *hcommon.InvocationInfo, args interface{}) (inter
 	}
 
 	var res2 payload.ChatCompletionResponseV2
-	res2.Messages = make([]payload.ChatMessageV2, len(msgList))
-	for i, msg := range msgList {
+	res2.Messages = []payload.ChatMessageV2{}
+	for _, msg := range msgList {
 		md := map[string]interface{}{
 			"role": msg.Metadata["role"],
 		}
 		if msg.Metadata["reason"] != nil {
 			md["reason"] = msg.Metadata["reason"]
 		}
-		res2.Messages[i] = payload.ChatMessageV2{
+		res2.Messages = append(res2.Messages, payload.ChatMessageV2{
 			Metadata: md,
 			Content:  msg.Content,
-		}
+		})
 	}
 	return res2, nil
 }
 
 func ChatCompletionWithTools(inv *hcommon.InvocationInfo, args interface{}) (interface{}, error) {
 	// verify the type of args is ChatCompletionRequest
-	// use json marshal and unmarshal to verify the type
-	jsonBytes, err := json.Marshal(args)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling args: %v", err)
-	}
 	chatReq := payload.ChatCompletionRequest{}
-	err = chatReq.Unmarshal(jsonBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	if err := utils.InterfaceToType(&chatReq, args); err != nil {
+		return nil, fmt.Errorf("error converting args to ChatCompletionRequest: %v", err)
 	}
 
 	log.Infof("Using model %s", chatReq.Model)
@@ -104,8 +93,8 @@ func ChatCompletionWithTools(inv *hcommon.InvocationInfo, args interface{}) (int
 	}
 
 	var res2 payload.ChatCompletionResponseV2
-	res2.Messages = make([]payload.ChatMessageV2, len(msgList))
-	for i, msg := range msgList {
+	res2.Messages = []payload.ChatMessageV2{}
+	for _, msg := range msgList {
 		md := map[string]interface{}{
 			"role": msg.Metadata["role"],
 		}
@@ -118,10 +107,10 @@ func ChatCompletionWithTools(inv *hcommon.InvocationInfo, args interface{}) (int
 		if msg.Metadata["tool_calls"] != nil {
 			md["tool_calls"] = msg.Metadata["tool_calls"]
 		}
-		res2.Messages[i] = payload.ChatMessageV2{
+		res2.Messages = append(res2.Messages, payload.ChatMessageV2{
 			Metadata: md,
 			Content:  msg.Content,
-		}
+		})
 	}
 	return res2, nil
 }
@@ -131,20 +120,14 @@ func setupOpenAITools(chatReq *hcopenai.OpenAIChatCompletionRequest, task task.T
 	if !ok {
 		return fmt.Errorf("toolset not found")
 	}
-	tools := make([]*hcommon.ToolRegistry, 0)
-	for _, toolId := range toolset.ToolsIds {
-		tool, ok := GetToolById(task, toolId)
-		if ok {
-			tools = append(tools, tool)
-		}
-	}
+	tools := toolset.Tools
 	if len(tools) == 0 {
 		return fmt.Errorf("no tools found in toolset")
 	}
-	chatReq.Tools = make([]hcopenai.OpenAIChatToolFunction, len(tools))
-	for i, tool := range tools {
+	chatReq.Tools = []hcopenai.OpenAIChatToolFunction{}
+	for _, tool := range tools {
 		requiredParams := make([]string, 0)
-		chatReq.Tools[i] = hcopenai.OpenAIChatToolFunction{
+		chatReq.Tools = append(chatReq.Tools, hcopenai.OpenAIChatToolFunction{
 			Type: "function",
 			Func: hcopenai.OpenAIChatToolFunctionSub{
 				Name:        tool.Name,
@@ -155,9 +138,10 @@ func setupOpenAITools(chatReq *hcopenai.OpenAIChatCompletionRequest, task task.T
 					Properties:           make(map[string]hcopenai.OpenAIChatToolParameterProperty),
 				},
 			},
-		}
+		})
+		idx := len(chatReq.Tools) - 1
 		for k, v := range tool.Params {
-			chatReq.Tools[i].Func.Parameters.Properties[k] = hcopenai.OpenAIChatToolParameterProperty{
+			chatReq.Tools[idx].Func.Parameters.Properties[k] = hcopenai.OpenAIChatToolParameterProperty{
 				Type:        v.Ptype,
 				Description: v.Description,
 			}
@@ -165,7 +149,7 @@ func setupOpenAITools(chatReq *hcopenai.OpenAIChatCompletionRequest, task task.T
 				requiredParams = append(requiredParams, k)
 			}
 		}
-		chatReq.Tools[i].Func.Parameters.Required = requiredParams
+		chatReq.Tools[idx].Func.Parameters.Required = requiredParams
 		// log.Infof("Tool: %v", chatReq.Tools[i])
 	}
 	return nil
@@ -228,7 +212,7 @@ func innerChatCompletionWithTools(inv *hcommon.InvocationInfo, chatReq *payload.
 		}
 
 		// check if toolset exists
-		if chatReq.ToolsetId != "" {
+		if chatReq.ToolsetId >= 0 {
 			err = setupOpenAITools(&openAiChatReq2, task, hcommon.ToolsetId(chatReq.ToolsetId))
 			if err != nil {
 				return nil, fmt.Errorf("error setting up tools: %v", err)
@@ -280,7 +264,7 @@ func innerChatCompletionWithTools(inv *hcommon.InvocationInfo, chatReq *payload.
 							return nil, fmt.Errorf("error unmarshalling tool call arguments: %v", err)
 						}
 					}
-					if toolReg, ok := GetToolByName(task, toolCall.Function.Name); ok && toolReg.Cb == "" {
+					if toolReg, ok := GetToolByName(task, hcommon.ToolsetId(chatReq.ToolsetId), toolCall.Function.Name); ok && toolReg.Cb == "" {
 						// it is a built-in tool
 						fn := toolReg.CbBuiltIn
 						if fn == nil {

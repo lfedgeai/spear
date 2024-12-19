@@ -41,7 +41,7 @@ func NewDockerTaskRuntime(rtCfg *TaskRuntimeConfig) (*DockerTaskRuntime, error) 
 
 	// generate a random port to use
 	rand.Seed(time.Now().UnixNano())
-	randomInt := rand.Intn(500) + DockerRuntimeTcpListenPortBase
+	randomInt := rand.Intn(10240) + DockerRuntimeTcpListenPortBase
 	DockerRuntimeTcpListenPort = fmt.Sprintf("%d", randomInt)
 
 	res := &DockerTaskRuntime{

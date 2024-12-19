@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-import argparse
-import base64
-import json
 import logging
 import sys
 
@@ -117,15 +114,14 @@ def handle(params):
         tools.NewToolsetRequest(
             name="toolset",
             description="Toolset for sending email",
-            tool_ids=[],
         ),
     )
 
     toolsetid = None
     if isinstance(resp, client.JsonRpcOkResp):
-        logger.debug("Toolset created with id: %s", resp.result)
         resp = tools.NewToolsetResponse.schema().load(resp.result)
         toolsetid = resp.toolset_id
+        logger.debug("Toolset created with id: %s", toolsetid)
     elif isinstance(resp, client.JsonRpcErrorResp):
         return resp.message
     else:

@@ -1,10 +1,10 @@
 package hostcalls
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/lfedgeai/spear/pkg/rpc/payload/transform"
+	"github.com/lfedgeai/spear/pkg/utils"
 	"github.com/lfedgeai/spear/worker/hostcalls/common"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	oai "github.com/lfedgeai/spear/worker/hostcalls/openai"
@@ -12,15 +12,10 @@ import (
 
 func TextToImage(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 	// right now we just call openai TextToSpeech
-	jsonBytes, err := json.Marshal(args)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling args: %v", err)
-	}
 
 	req := &transform.ImageGenerationRequest{}
-	err = req.Unmarshal(jsonBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	if err := utils.InterfaceToType(req, args); err != nil {
+		return nil, err
 	}
 
 	req2 := &oai.OpenAIImageGenerationRequest{

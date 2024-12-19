@@ -12,30 +12,37 @@ type NewToolParam struct {
 type NewToolRequest struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
+	ToolsetID   int            `json:"toolset_id"`
 	Params      []NewToolParam `json:"params"`
 	Cb          string         `json:"cb"`
 }
 
 type NewToolResponse struct {
-	Tid string `json:"tool_id"`
+	ToolsetID int `json:"tool_id"`
 }
 
 type NewToolsetRequest struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	ToolIds     []string `json:"tool_ids"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	WorkloadName string `json:"workload_name"`
 }
 
 type NewToolsetResponse struct {
-	Tsid string `json:"toolset_id"`
+	ToolsetID int `json:"toolset_id"`
 }
 
 type ToolsetInstallBuiltinsRequest struct {
-	Tsid string `json:"toolset_id"`
+	ToolsetID int `json:"toolset_id"`
 }
 
 type ToolsetInstallBuiltinsResponse struct {
-	Tsid string `json:"toolset_id"`
+	ToolsetID int `json:"toolset_id"`
+}
+
+type ToolCallRequest struct {
+	ToolsetID int                    `json:"toolset_id"`
+	ToolID    int                    `json:"tool_id"`
+	Params    map[string]interface{} `json:"params"`
 }
 
 func (r *NewToolRequest) Marshal() ([]byte, error) {

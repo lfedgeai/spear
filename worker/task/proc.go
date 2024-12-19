@@ -60,6 +60,7 @@ func (p *ProcessTask) Stop() error {
 			return err
 		}
 		p.status = TaskStatusStopped
+		InvokeFinaleCallbacks(p)
 		return nil
 	}
 	return fmt.Errorf("process not started")

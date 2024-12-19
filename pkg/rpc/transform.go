@@ -8,7 +8,11 @@ import (
 	"github.com/lfedgeai/spear/pkg/utils"
 )
 
-func ChatCompletion(rpcMgr *GuestRPCManager, model string, msgs []payload.ChatMessageV2, tsId string) ([]payload.ChatMessageV2, error) {
+func ChatCompletion(rpcMgr *GuestRPCManager, model string, msgs []payload.ChatMessageV2) ([]payload.ChatMessageV2, error) {
+	return ChatCompletionWithToolset(rpcMgr, model, msgs, -1)
+}
+
+func ChatCompletionWithToolset(rpcMgr *GuestRPCManager, model string, msgs []payload.ChatMessageV2, tsId int) ([]payload.ChatMessageV2, error) {
 	req := &payload.ChatCompletionRequestV2{
 		Model:     model,
 		Messages:  msgs,

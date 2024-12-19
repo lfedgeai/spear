@@ -8,6 +8,7 @@ import (
 
 	"github.com/lfedgeai/spear/pkg/net"
 	"github.com/lfedgeai/spear/pkg/rpc/payload/transform"
+	"github.com/lfedgeai/spear/pkg/utils"
 	hostcalls "github.com/lfedgeai/spear/worker/hostcalls/common"
 	log "github.com/sirupsen/logrus"
 )
@@ -18,22 +19,16 @@ type HuggingFaceEmbeddingsRequest struct {
 
 func Embeddings(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
 	// verify the type of args is EmbeddingsRequest
-	// use json marshal and unmarshal to verify the type
-	jsonBytes, err := json.Marshal(args)
-	if err != nil {
-		return nil, fmt.Errorf("error marshalling args: %v", err)
-	}
 	embeddingsReq := transform.EmbeddingsRequest{}
-	err = embeddingsReq.Unmarshal(jsonBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling args: %v", err)
+	if err := utils.InterfaceToType(&embeddingsReq, args); err != nil {
+		return nil, err
 	}
 
 	embeddingsReq2 := HuggingFaceEmbeddingsRequest{
 		Inputs: embeddingsReq.Input,
 	}
 
-	jsonBytes, err = json.Marshal(embeddingsReq2)
+	jsonBytes, err := json.Marshal(embeddingsReq2)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling args: %v", err)
 	}

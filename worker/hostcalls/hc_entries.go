@@ -26,26 +26,10 @@ var Hostcalls = []*hostcalls.HostCall{
 		Name:    payload.HostCallToolsetInstallBuiltins,
 		Handler: ToolsetInstallBuiltins,
 	},
-	// // chat operations
-	// {
-	// 	Name:    transform.HostCallChatCompletion,
-	// 	Handler: ChatCompletionWithTools,
-	// },
-	// // text to speech operations
-	// {
-	// 	Name:    openai.HostCallTextToSpeech,
-	// 	Handler: openaihc.TextToSpeech,
-	// },
-	// // image generation operations
-	// {
-	// 	Name:    openai.HostCallImageGeneration,
-	// 	Handler: openaihc.ImageGeneration,
-	// },
-	// // embeddings operations
-	// {
-	// 	Name:    openai.HostCallEmbeddings,
-	// 	Handler: openaihc.Embeddings,
-	// },
+	{
+		Name:    payload.HostCallToolCall,
+		Handler: ToolCall,
+	},
 	// vector store operations
 	{
 		Name:    payload.HostCallVectorStoreCreate,

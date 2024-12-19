@@ -99,7 +99,7 @@ func getTextResponse(str string) (string, error) {
 			},
 			Content: str,
 		},
-	}, "")
+	})
 	if err != nil {
 		return "", err
 	}
