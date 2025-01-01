@@ -10,7 +10,7 @@ WORKDIR /
 COPY ./workload/docker/python/pytools/src/start.py /start
 
 COPY ./sdk/python/dist/spear*.whl /tmp/
-RUN pip install /tmp/spear*.whl
+RUN pip install --no-cache-dir /tmp/spear*.whl
 RUN rm /tmp/spear*.whl
 
 CMD ["sleep", "infinity"]

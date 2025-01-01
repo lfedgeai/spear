@@ -1,0 +1,11 @@
+include "common.fbs";
+
+namespace spear.proto.chat;
+
+table ChatCompletionResponse {
+    code: int = 0;
+    error: string;
+    messages: [ChatMessage] (required);
+}
+
+root_type ChatCompletionResponse;

@@ -1,0 +1,17 @@
+include "request.fbs";
+include "response.fbs";
+include "signal.fbs";
+
+namespace spear.proto.transport;
+
+union TransportMessageRaw_Data {
+    TransportRequest,
+    TransportResponse,
+    TransportSignal,
+}
+
+table TransportMessageRaw {
+    data: TransportMessageRaw_Data (required);
+}
+
+root_type TransportMessageRaw;

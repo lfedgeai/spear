@@ -1,0 +1,9 @@
+include "common.fbs";
+
+namespace spear.proto.tool;
+
+table InternalToolCreateResponse {
+  tool_id: int64;
+}
+
+root_type InternalToolCreateResponse;

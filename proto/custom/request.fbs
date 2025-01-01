@@ -1,0 +1,8 @@
+namespace spear.proto.custom;
+
+table CustomRequest {
+    method_str: string (required);
+    params_str: string (required);
+}
+
+root_type CustomRequest;

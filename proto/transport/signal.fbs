@@ -1,0 +1,15 @@
+include "../transform/request.fbs";
+
+namespace spear.proto.transport;
+
+enum Signal : uint32 {
+    Unknown = 0,
+    Terminate,
+}
+
+table TransportSignal {
+  method: Signal = Unknown;
+  payload: [ubyte];
+}
+
+root_type TransportSignal;

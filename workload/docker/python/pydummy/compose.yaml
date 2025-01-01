@@ -1,6 +1,6 @@
 services:
   dummy:
-    image: pydummy
+    image: pydummy:latest
     build:
       context: ../../../../
       dockerfile: ./workload/docker/python/pydummy/Dockerfile

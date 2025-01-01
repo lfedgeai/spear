@@ -80,7 +80,7 @@ SPEAR is an advanced AI Agent platform designed to support multiple runtime envi
   ```bash
   python -m pip install --upgrade pip
   pip install build
-  apt install portaudio19-dev libx11-dev libxtst-dev
+  apt install portaudio19-dev libx11-dev libxtst-dev flatbuffers-compiler
   curl -fsSL https://get.docker.com -o get-docker.sh
   sh get-docker.sh
   ```
@@ -105,11 +105,11 @@ To run SPEAR in local mode, use the following command:
 export OPENAI_API_KEY=<YOUR_OPENAI_API_KEY>
 export HUGGINGFACEHUB_API_TOKEN=<YOUR_HUGGINGFACEHUB_API_TOKEN>
 export SPEAR_RPC_ADDR=<YOUR_LOCAL_SPEAR_RPC_ADDR>
-bin/worker exec -n pyconversation
+bin/spearlet exec -n pyconversation
 ```
 
 This command will:
- - Start the SPEAR worker process in local mode.
+ - Start the SPEAR spearlet process in local mode.
  - Run the AI agent workload with an ID of 6. (pyconversation-local)
 
 Also, you need to set the environment variable `OPENAI_API_KEY` to your OpenAI API key. In the future, we will support other LLM providers.
@@ -122,7 +122,7 @@ Also, you need to set the environment variable `OPENAI_API_KEY` to your OpenAI A
   PortAudio is required for the audio processing component. To install PortAudio on MacOS, use the following command:
   
   ```bash
-  brew install portaudio
+  brew install portaudio flatbuffers
   ```
 ### Build Instructions
 
@@ -142,11 +142,11 @@ To run SPEAR in local mode, use the following command:
 
 ```bash
 export OPENAI_API_KEY=<YOUR_OPENAI_API_KEY>
-bin/worker exec -n pyconversation
+bin/spearlet exec -n pyconversation
 ```
 
 This command will:
- - Start the SPEAR worker process in local mode.
+ - Start the SPEAR spearlet process in local mode.
  - Run the AI agent workload with an ID of 6. (pyconversation-local)
 
 Also, you need to set the environment variable `OPENAI_API_KEY` to your OpenAI API key. In the future, we will support other LLM providers.

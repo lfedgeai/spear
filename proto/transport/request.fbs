@@ -1,0 +1,31 @@
+include "../transform/request.fbs";
+
+namespace spear.proto.transport;
+
+enum Method : uint32 {
+    Unknown = 0,
+    Transform,
+    TransformConfig,
+    // io related
+    Input,
+    Speak,
+    Record,
+    // tool and toolset
+    ToolInvoke,
+    InternalToolCreate,
+    // vec store
+    VecStoreCreate,
+    VecStoreInsert,
+    VecStoreQuery,
+    VecStoreDelete,
+    // Custom
+    Custom,
+}
+
+table TransportRequest {
+  id: int64 = -1; // negative id means no need to response
+  method: Method = Unknown;
+  request: [ubyte];
+}
+
+root_type TransportRequest;

@@ -5,15 +5,15 @@ import (
 	"time"
 
 	"github.com/lfedgeai/spear/pkg/common"
-	"github.com/lfedgeai/spear/worker"
-	"github.com/lfedgeai/spear/worker/task/docker"
+	"github.com/lfedgeai/spear/spearlet"
+	"github.com/lfedgeai/spear/spearlet/task/docker"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/docker/docker/api/types/container"
 )
 
 type TestSetup struct {
-	w        *worker.Worker
+	w        *spearlet.Spearlet
 	vecStore *container.CreateResponse
 }
 
@@ -44,8 +44,8 @@ func NewTestSetup() *TestSetup {
 	t.startVectorStoreContainer()
 
 	// setup the test environment
-	cfg := worker.NewServeWorkerConfig("localhost", "8080", []string{}, true, common.SpearPlatformAddress)
-	t.w = worker.NewWorker(cfg)
+	cfg := spearlet.NewServeSpearletConfig("localhost", "8080", []string{}, true, common.SpearPlatformAddress)
+	t.w = spearlet.NewSpearlet(cfg)
 	t.w.Initialize()
 	go t.w.StartServer()
 	time.Sleep(5 * time.Second)

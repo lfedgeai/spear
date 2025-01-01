@@ -1,0 +1,17 @@
+include "common.fbs";
+include "tool/common.fbs";
+
+namespace spear.proto.chat;
+
+table ToolInfo {
+    data: spear.proto.tool.ToolInfo;
+}
+
+table ChatCompletionRequest {
+    messages: [ChatMessage] (required);
+    model: string (required);
+    tools: [ToolInfo];
+    return_on_toolcall: bool = false;
+}
+
+root_type ChatCompletionRequest;

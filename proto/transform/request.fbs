@@ -1,0 +1,23 @@
+include "../chat/request.fbs";
+include "../chat/response.fbs";
+include "common.fbs";
+
+namespace spear.proto.transform;
+
+table TranformRequest_ParamsRaw {
+  data: string (required);
+}
+
+union TransformRequest_Params {
+    spear.proto.chat.ChatCompletionRequest,
+    TranformRequest_ParamsRaw
+}
+
+table TransformRequest {
+  input_types: [TransformType] (required);
+  output_types: [TransformType] (required);
+  operations: [TransformOperation] (required);
+  params: TransformRequest_Params (required);
+}
+
+root_type TransformRequest;

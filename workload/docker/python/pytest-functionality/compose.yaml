@@ -1,0 +1,6 @@
+services:
+  functionality:
+    image: pytest-functionality:latest
+    build:
+      context: ../../../../
+      dockerfile: ./workload/docker/python/pytest-functionality/Dockerfile

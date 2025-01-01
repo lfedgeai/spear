@@ -1,0 +1,8 @@
+namespace spear.proto.io;
+
+table RecordRequest {
+    prompt: string (required);
+    model: string;
+}
+
+root_type RecordRequest;

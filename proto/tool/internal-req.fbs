@@ -1,0 +1,18 @@
+include "common.fbs";
+
+namespace spear.proto.tool;
+
+table InternalToolCreateParamSpec {
+  name: string (required);
+  description: string;
+  type: string (required);
+  required: bool;
+}
+
+table InternalToolCreateRequest {
+  name: string (required);
+  description: string;
+  params: [InternalToolCreateParamSpec];
+}
+
+root_type InternalToolCreateRequest;

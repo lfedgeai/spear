@@ -1,0 +1,47 @@
+namespace spear.proto.tool;
+
+enum BuiltinToolID: uint16 {
+    Invalid = 0,
+    Datetime = 1,
+    Sleep = 2,
+    SearchContactEmail = 3,
+    // email tools
+    ListOpenEmails = 4,
+    ComposeEmail = 5,
+    SendEmailDraftWindow = 6,
+    // mouse tools
+    MouseRightClick = 7,
+    MouseLeftClick = 8,
+    // phone tools
+    PhoneCall = 9,
+    // screen tools
+    FullScreenshot = 10,
+    // web tools
+    OpenURL = 11,
+    ScrollDown = 12,
+    ScrollUp = 13,
+    PageDown = 14,
+    PageUp = 15,
+    WebScreenshot = 16,
+
+    Max = 17
+}
+
+table BuiltinToolInfo {
+    tool_id: uint16;
+}
+
+table NormalToolInfo {
+    workload_id: [ubyte];
+    tool_id: uint16;
+}
+
+table InternalToolInfo {
+    tool_id: uint16;
+}
+
+union ToolInfo {
+    BuiltinToolInfo,
+    NormalToolInfo,
+    InternalToolInfo,
+}

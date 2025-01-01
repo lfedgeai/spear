@@ -4,8 +4,8 @@ FROM python:3.9.20
 RUN apt-get update -y
 RUN apt-get install -y netcat-openbsd net-tools
 
-RUN pip install --upgrade pip
-RUN pip install py-spy
+RUN pip install --no-cache-dir --upgrade pip
+RUN pip install --no-cache-dir py-spy
 
 WORKDIR /
 
@@ -13,7 +13,7 @@ WORKDIR /
 COPY ./workload/docker/python/pyconversation-local/src/start.py /start
 
 COPY ./sdk/python/dist/spear*.whl /tmp/
-RUN pip install /tmp/spear*.whl
+RUN pip install --no-cache-dir /tmp/spear*.whl
 RUN rm /tmp/spear*.whl
 
 CMD ["sleep", "infinity"]
