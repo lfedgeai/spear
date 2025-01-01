@@ -1,4 +1,4 @@
-FROM python:3.9.20
+FROM python:3.12-slim-bookworm
 
 # update the package lists
 RUN apt-get update -y
