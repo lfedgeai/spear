@@ -3,7 +3,7 @@ OUTPUT_DIR := $(shell pwd)/bin
 PROJ_NAME := $(shell basename $(CURRENT_DIR))
 
 all: build
-	docker-compose build --no-cache
+	docker compose build --no-cache
 
 build: demo
 

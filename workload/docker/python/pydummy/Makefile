@@ -5,7 +5,7 @@ PROJ_NAME := $(shell basename $(CURRENT_DIR))
 all: build
 
 build:
-	docker-compose build --no-cache
+	docker compose build --no-cache
 
 clean:
 	rm -rf $(OUTPUT_DIR)
