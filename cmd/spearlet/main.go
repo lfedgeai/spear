@@ -76,7 +76,7 @@ func NewRootCmd() *cobra.Command {
 				}
 
 				// create config
-				config := spearlet.NewExecSpearletConfig(runDebug, runSpearAddr)
+				config := spearlet.NewExecSpearletConfig(runDebug, runSpearAddr, runSearchPath)
 				w := spearlet.NewSpearlet(config)
 				w.Initialize()
 
@@ -115,11 +115,6 @@ func NewRootCmd() *cobra.Command {
 		Use:   "serve",
 		Short: "Start the spearlet server",
 		Run: func(cmd *cobra.Command, args []string) {
-			// parse flags
-			addr, _ := cmd.Flags().GetString("addr")
-			port, _ := cmd.Flags().GetString("port")
-			paths, _ := cmd.Flags().GetStringArray("search-path")
-
 			// set log level
 			if runVerbose {
 				spearlet.SetLogLevel(log.DebugLevel)
@@ -130,7 +125,7 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			// create config
-			config := spearlet.NewServeSpearletConfig(addr, port, paths,
+			config := spearlet.NewServeSpearletConfig(serveAddr, servePort, runSearchPath,
 				runDebug, runSpearAddr)
 			w := spearlet.NewSpearlet(config)
 			w.Initialize()

@@ -122,10 +122,11 @@ func NewServeSpearletConfig(addr, port string, spath []string, debug bool,
 	}
 }
 
-func NewExecSpearletConfig(debug bool, spearAddr string) *SpearletConfig {
+func NewExecSpearletConfig(debug bool, spearAddr string, spath []string) *SpearletConfig {
 	return &SpearletConfig{
 		Addr:           "",
 		Port:           "",
+		SearchPath:     spath,
 		Debug:          debug,
 		LocalExecution: true,
 		SpearAddr:      spearAddr,
@@ -281,12 +282,14 @@ func (w *Spearlet) metaDataToTaskCfg(meta TaskMetaData) *task.TaskConfig {
 		// go though search patch to find ExecName
 		execName := ""
 		for _, path := range w.cfg.SearchPath {
-			if _, err := os.Stat(filepath.Join(path, meta.Name)); err == nil {
-				execName = filepath.Join(path, meta.Name)
+			log.Infof("Searching for exec %s in path %s", meta.ExecName, path)
+			if _, err := os.Stat(filepath.Join(path, meta.ExecName)); err == nil {
+				execName = filepath.Join(path, meta.ExecName)
 				break
 			}
 		}
 		if execName == "" {
+			log.Errorf("Error: exec not found: %s", meta.Name)
 			return nil
 		}
 		log.Infof("Using exec: %s", execName)
@@ -315,10 +318,11 @@ func (w *Spearlet) ExecuteTask(taskId int64, funcType task.TaskType, wait bool,
 		return "", fmt.Errorf("error: invalid task id: %d", taskId)
 	}
 	if meta.Type != funcType {
-		return "", fmt.Errorf("error: invalid task type: %d", funcType)
+		return "", fmt.Errorf("error: invalid task type: %d, %+v",
+			funcType, meta)
 	}
 
-	log.Infof("Using image: %s", meta.ImageName)
+	log.Infof("Using metadata: %+v", meta)
 
 	cfg := w.metaDataToTaskCfg(meta)
 	if cfg == nil {

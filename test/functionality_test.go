@@ -9,7 +9,7 @@ import (
 
 func TestFunctionality(t *testing.T) {
 	// create config
-	config := spearlet.NewExecSpearletConfig(true, common.SpearPlatformAddress)
+	config := spearlet.NewExecSpearletConfig(true, common.SpearPlatformAddress, []string{})
 	w := spearlet.NewSpearlet(config)
 	w.Initialize()
 

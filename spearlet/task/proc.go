@@ -15,7 +15,8 @@ import (
 )
 
 type ProcessTask struct {
-	name string
+	name   string
+	taskid TaskID
 
 	cmd *exec.Cmd
 
@@ -39,17 +40,23 @@ type ProcessTask struct {
 }
 
 func (p *ProcessTask) ID() TaskID {
-	return TaskID(strconv.Itoa(p.cmd.Process.Pid))
+	return p.taskid
 }
 
 func (p *ProcessTask) Start() error {
-	p.cmd.Start()
+	log.Infof("running command: %+v", p.cmd)
+	err := p.cmd.Start()
+	if err != nil {
+		log.Errorf("Error: %v", err)
+		return err
+	}
 
 	p.status = TaskStatusRunning
 
 	go func() {
 		if err := p.cmd.Wait(); err != nil {
-			log.Errorf("Error: %v", err)
+			// get stderr output
+			log.Errorf("Error: wait error. %v, command %s", err, p.cmd.String())
 		}
 
 		// set status to stopped
@@ -155,7 +162,7 @@ func (p *ProcessTask) Stop() error {
 	// kill process
 	if p.cmd.Process != nil {
 		if err := p.cmd.Process.Kill(); err != nil {
-			log.Errorf("Error: %v", err)
+			log.Errorf("Error stopping task: %v", err)
 			return err
 		}
 		p.status = TaskStatusStopped
@@ -216,6 +223,7 @@ func NewProcessTask(cfg *TaskConfig) *ProcessTask {
 
 	return &ProcessTask{
 		name:   cfg.Name,
+		taskid: TaskID(strconv.Itoa(rand.Int())),
 		status: TaskStatusInit,
 		result: nil,
 		done:   make(chan struct{}),
