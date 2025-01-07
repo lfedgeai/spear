@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/lfedgeai/spear/pkg/common"
 	spearlet "github.com/lfedgeai/spear/spearlet"
 	"github.com/lfedgeai/spear/spearlet/task"
@@ -20,9 +22,14 @@ var (
 	execWorkloadName string
 	execReqMethod    string
 	execReqPayload   string
-	execSpearAddr    string
-	execVerbose      bool
-	execDebug        bool
+
+	runSpearAddr  string
+	runSearchPath []string
+	runVerbose    bool
+	runDebug      bool
+
+	serveAddr string
+	servePort string
 )
 
 func NewRootCmd() *cobra.Command {
@@ -40,10 +47,10 @@ func NewRootCmd() *cobra.Command {
 		Short: "Execute a workload",
 		Run: func(cmd *cobra.Command, args []string) {
 			var validChoices = map[string]task.TaskType{
-				"Docker":  task.TaskTypeDocker,
-				"Process": task.TaskTypeProcess,
-				"Dylib":   task.TaskTypeDylib,
-				"Wasm":    task.TaskTypeWasm,
+				"docker":  task.TaskTypeDocker,
+				"process": task.TaskTypeProcess,
+				"dylib":   task.TaskTypeDylib,
+				"wasm":    task.TaskTypeWasm,
 			}
 
 			if execWorkloadName == "" {
@@ -54,22 +61,22 @@ func NewRootCmd() *cobra.Command {
 				log.Errorf("Invalid request method %s", execReqMethod)
 				return
 			}
-			if execSpearAddr == "" {
-				execSpearAddr = common.SpearPlatformAddress
+			if runSpearAddr == "" {
+				runSpearAddr = common.SpearPlatformAddress
 			}
 
 			// check if the workload type is valid
-			if rtType, ok := validChoices[execRtTypeStr]; !ok {
+			if rtType, ok := validChoices[strings.ToLower(execRtTypeStr)]; !ok {
 				log.Errorf("Invalid runtime type %s", execRtTypeStr)
 			} else {
 				log.Infof("Executing workload %s with runtime type %v", execWorkloadName, rtType)
 				// set log level
-				if execVerbose {
+				if runVerbose {
 					spearlet.SetLogLevel(log.DebugLevel)
 				}
 
 				// create config
-				config := spearlet.NewExecSpearletConfig(execDebug, execSpearAddr)
+				config := spearlet.NewExecSpearletConfig(runDebug, runSpearAddr)
 				w := spearlet.NewSpearlet(config)
 				w.Initialize()
 
@@ -102,10 +109,6 @@ func NewRootCmd() *cobra.Command {
 	// workload request payload
 	execCmd.PersistentFlags().StringVarP(&execReqMethod, "method", "m", "handle", "default method to invoke")
 	execCmd.PersistentFlags().StringVarP(&execReqPayload, "payload", "p", "", "request payload")
-	// verbose flag
-	execCmd.PersistentFlags().BoolVarP(&execVerbose, "verbose", "v", false, "verbose output")
-	// debug flag
-	execCmd.PersistentFlags().BoolVarP(&execDebug, "debug", "d", false, "debug mode")
 	rootCmd.AddCommand(execCmd)
 
 	var serveCmd = &cobra.Command{
@@ -115,42 +118,39 @@ func NewRootCmd() *cobra.Command {
 			// parse flags
 			addr, _ := cmd.Flags().GetString("addr")
 			port, _ := cmd.Flags().GetString("port")
-			verbose, _ := cmd.Flags().GetBool("verbose")
 			paths, _ := cmd.Flags().GetStringArray("search-path")
-			debug, _ := cmd.Flags().GetBool("debug")
 
 			// set log level
-			if verbose {
+			if runVerbose {
 				spearlet.SetLogLevel(log.DebugLevel)
 			}
 
-			if execSpearAddr == "" {
-				execSpearAddr = common.SpearPlatformAddress
+			if runSpearAddr == "" {
+				runSpearAddr = common.SpearPlatformAddress
 			}
 
 			// create config
 			config := spearlet.NewServeSpearletConfig(addr, port, paths,
-				debug, execSpearAddr)
+				runDebug, runSpearAddr)
 			w := spearlet.NewSpearlet(config)
 			w.Initialize()
 			w.StartServer()
 		},
 	}
 	// addr flag
-	serveCmd.PersistentFlags().StringP("addr", "a", "localhost", "address of the server")
+	serveCmd.PersistentFlags().StringVarP(&serveAddr, "addr", "a", "localhost", "address of the server")
 	// port flag
-	serveCmd.PersistentFlags().StringP("port", "p", "8080", "port of the server")
-	// verbose flag
-	serveCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
-	// search path
-	serveCmd.PersistentFlags().StringArrayP("search-path", "L", []string{},
-		"search path list for the spearlet")
-	// debug flag
-	serveCmd.PersistentFlags().BoolP("debug", "d", false, "debug mode")
+	serveCmd.PersistentFlags().StringVarP(&servePort, "port", "p", "8080", "port of the server")
 	rootCmd.AddCommand(serveCmd)
 
 	// spear platform address for workload to connect
-	rootCmd.PersistentFlags().StringVarP(&execSpearAddr, "spear-addr", "s", os.Getenv("SPEAR_RPC_ADDR"), "SPEAR platform address for workload RPC")
+	rootCmd.PersistentFlags().StringVarP(&runSpearAddr, "spear-addr", "s", os.Getenv("SPEAR_RPC_ADDR"), "SPEAR platform address for workload RPC")
+	// search path
+	rootCmd.PersistentFlags().StringArrayVarP(&runSearchPath, "search-path", "L", []string{}, "search path list for the spearlet")
+	// verbose flag
+	rootCmd.PersistentFlags().BoolVarP(&runVerbose, "verbose", "v", false, "verbose output")
+	// debug flag
+	rootCmd.PersistentFlags().BoolVarP(&runDebug, "debug", "d", false, "debug mode")
 	return rootCmd
 }
 

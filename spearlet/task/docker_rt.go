@@ -22,27 +22,24 @@ type DockerTaskRuntime struct {
 	containers map[string]*container.CreateResponse
 	stopCh     chan struct{}
 	stopWg     sync.WaitGroup
+	listenPort string
 }
 
 const (
 	DockerRuntimeTcpListenPortBase = 8100
 )
 
-var (
-	DockerRuntimeTcpListenPort = ""
-)
-
 func NewDockerTaskRuntime(rtCfg *TaskRuntimeConfig) (*DockerTaskRuntime, error) {
 	// create docker client
 	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
+		log.Errorf("Error creating docker client: %v", err)
 		return nil, err
 	}
 
 	// generate a random port to use
 	rand.Seed(time.Now().UnixNano())
 	randomInt := rand.Intn(500) + DockerRuntimeTcpListenPortBase
-	DockerRuntimeTcpListenPort = fmt.Sprintf("%d", randomInt)
 
 	res := &DockerTaskRuntime{
 		cli:        cli,
@@ -51,9 +48,10 @@ func NewDockerTaskRuntime(rtCfg *TaskRuntimeConfig) (*DockerTaskRuntime, error) 
 		containers: make(map[string]*container.CreateResponse),
 		stopCh:     make(chan struct{}),
 		stopWg:     sync.WaitGroup{},
+		listenPort: fmt.Sprintf("%d", randomInt),
 	}
 
-	go res.runTCPServer(DockerRuntimeTcpListenPort)
+	go res.runTCPServer(res.listenPort)
 
 	res.stopWg.Add(1)
 	go func() {
@@ -69,6 +67,7 @@ func NewDockerTaskRuntime(rtCfg *TaskRuntimeConfig) (*DockerTaskRuntime, error) 
 
 	if rtCfg.StartServices {
 		if err := res.startBackendServices(); err != nil {
+			log.Errorf("Error starting backend services: %v", err)
 			return nil, err
 		}
 	}
@@ -123,7 +122,7 @@ func (d *DockerTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 		OpenStdin:    true,
 		Env: []string{
 			fmt.Sprintf("SERVICE_ADDR=%s:%s", cfg.HostAddr,
-				DockerRuntimeTcpListenPort),
+				d.listenPort),
 			fmt.Sprintf("SECRET=%d", secretGenerated),
 		},
 	}
@@ -143,8 +142,8 @@ func (d *DockerTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 		runtime:   d,
 
 		attachResp: nil,
-		chanIn:     make(chan Message, 100),
-		chanOut:    make(chan Message, 100),
+		chanIn:     make(chan Message, 128),
+		chanOut:    make(chan Message, 128),
 
 		secret:    secretGenerated,
 		conn:      nil,

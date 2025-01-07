@@ -7,6 +7,8 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -53,49 +55,56 @@ type Spearlet struct {
 }
 
 type TaskMetaData struct {
-	Id    int64
-	Type  task.TaskType
-	Image string
-	Name  string
+	Id        int64
+	Type      task.TaskType
+	ImageName string
+	ExecName  string
+	Name      string
 }
 
 var (
 	tmpMetaData = map[int]TaskMetaData{
 		3: {
-			Id:    3,
-			Type:  task.TaskTypeDocker,
-			Image: "gen_image:latest",
-			Name:  "gen_image",
+			Id:        3,
+			Type:      task.TaskTypeDocker,
+			ImageName: "gen_image:latest",
+			Name:      "gen_image",
 		},
 		4: {
-			Id:    4,
-			Type:  task.TaskTypeDocker,
-			Image: "pychat:latest",
-			Name:  "pychat",
+			Id:        4,
+			Type:      task.TaskTypeDocker,
+			ImageName: "pychat:latest",
+			Name:      "pychat",
 		},
 		5: {
-			Id:    5,
-			Type:  task.TaskTypeDocker,
-			Image: "pytools:latest",
-			Name:  "pytools",
+			Id:        5,
+			Type:      task.TaskTypeDocker,
+			ImageName: "pytools:latest",
+			Name:      "pytools",
 		},
 		6: {
-			Id:    6,
-			Type:  task.TaskTypeDocker,
-			Image: "pyconversation:latest",
-			Name:  "pyconversation",
+			Id:        6,
+			Type:      task.TaskTypeDocker,
+			ImageName: "pyconversation:latest",
+			Name:      "pyconversation",
 		},
 		7: {
-			Id:    7,
-			Type:  task.TaskTypeDocker,
-			Image: "pydummy:latest",
-			Name:  "pydummy",
+			Id:        7,
+			Type:      task.TaskTypeDocker,
+			ImageName: "pydummy:latest",
+			Name:      "pydummy",
 		},
 		8: {
-			Id:    8,
-			Type:  task.TaskTypeDocker,
-			Image: "pytest-functionality:latest",
-			Name:  "pytest-functionality",
+			Id:        8,
+			Type:      task.TaskTypeDocker,
+			ImageName: "pytest-functionality:latest",
+			Name:      "pytest-functionality",
+		},
+		11: {
+			Id:       11,
+			Type:     task.TaskTypeProcess,
+			ExecName: "pytest-functionality.py",
+			Name:     "pytest-functionality-proc",
 		},
 	}
 )
@@ -156,6 +165,7 @@ func (w *Spearlet) initializeRuntimes() {
 		StartServices: true,
 	}
 	task.RegisterSupportedTaskType(task.TaskTypeDocker)
+	task.RegisterSupportedTaskType(task.TaskTypeProcess)
 	task.InitTaskRuntimes(cfg)
 }
 
@@ -254,6 +264,44 @@ func (w *Spearlet) ExecuteTaskByName(name string, wait bool, method string,
 	return "", fmt.Errorf("error: task name not found: %s", name)
 }
 
+func (w *Spearlet) metaDataToTaskCfg(meta TaskMetaData) *task.TaskConfig {
+	randSrc := rand.NewSource(time.Now().UnixNano())
+	randGen := rand.New(randSrc)
+	name := fmt.Sprintf("task-%s-%d", meta.Name, randGen.Intn(10000))
+	switch meta.Type {
+	case task.TaskTypeDocker:
+		return &task.TaskConfig{
+			Name:     name,
+			Cmd:      "/start",
+			Args:     []string{},
+			Image:    meta.ImageName,
+			HostAddr: w.spearAddr,
+		}
+	case task.TaskTypeProcess:
+		// go though search patch to find ExecName
+		execName := ""
+		for _, path := range w.cfg.SearchPath {
+			if _, err := os.Stat(filepath.Join(path, meta.Name)); err == nil {
+				execName = filepath.Join(path, meta.Name)
+				break
+			}
+		}
+		if execName == "" {
+			return nil
+		}
+		log.Infof("Using exec: %s", execName)
+		return &task.TaskConfig{
+			Name:     name,
+			Cmd:      execName,
+			Args:     []string{},
+			Image:    "",
+			HostAddr: w.spearAddr,
+		}
+	default:
+		return nil
+	}
+}
+
 func (w *Spearlet) ExecuteTask(taskId int64, funcType task.TaskType, wait bool,
 	method string, data string) (string, error) {
 	rt, err := task.GetTaskRuntime(funcType)
@@ -270,17 +318,13 @@ func (w *Spearlet) ExecuteTask(taskId int64, funcType task.TaskType, wait bool,
 		return "", fmt.Errorf("error: invalid task type: %d", funcType)
 	}
 
-	log.Infof("Using image: %s", meta.Image)
+	log.Infof("Using image: %s", meta.ImageName)
 
-	randSrc := rand.NewSource(time.Now().UnixNano())
-	randGen := rand.New(randSrc)
-	newTask, err := rt.CreateTask(&task.TaskConfig{
-		Name:     fmt.Sprintf("task-%s-%d", meta.Name, randGen.Intn(10000)),
-		Cmd:      "/start", //"sh", //"./dummy_task",
-		Args:     []string{},
-		Image:    meta.Image,
-		HostAddr: w.spearAddr,
-	})
+	cfg := w.metaDataToTaskCfg(meta)
+	if cfg == nil {
+		return "", fmt.Errorf("error: invalid task type: %d", funcType)
+	}
+	newTask, err := rt.CreateTask(cfg)
 	if err != nil {
 		return "", fmt.Errorf("error: %v", err)
 	}

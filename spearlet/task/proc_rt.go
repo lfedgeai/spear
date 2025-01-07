@@ -1,21 +1,43 @@
 package task
 
 import (
-	"bufio"
+	"encoding/binary"
 	"fmt"
+	"math/rand"
+	"net"
 	"os"
 	"os/exec"
-	"syscall"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
 // implement TaskRuntimeProcess
 type ProcessTaskRuntime struct {
+	listenPort string
+	tasks      map[TaskID]Task
 }
 
+const (
+	ProcessRuntimeTcpListenPortBase = 9100
+)
+
+var (
+	ProcessRuntimeTcpListenPort = ""
+)
+
 func NewProcessTaskRuntime() *ProcessTaskRuntime {
-	return &ProcessTaskRuntime{}
+	rt := &ProcessTaskRuntime{
+		tasks: make(map[TaskID]Task),
+	}
+
+	rand.Seed(time.Now().UnixNano())
+	randomInt := rand.Intn(500) + ProcessRuntimeTcpListenPortBase
+	rt.listenPort = fmt.Sprintf("%d", randomInt)
+
+	go rt.runTCPServer(rt.listenPort)
+
+	return rt
 }
 
 func (p *ProcessTaskRuntime) Start() error {
@@ -29,112 +51,62 @@ func (p *ProcessTaskRuntime) Stop() error {
 func (p *ProcessTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 	log.Debugf("Creating process task with name: %s", cfg.Name)
 
+	if cfg.Image != "" {
+		return nil, fmt.Errorf("image not supported for process task")
+	}
+
 	task := NewProcessTask(cfg)
 
-	// make sure there is no -o or -i in the args
-	for _, arg := range cfg.Args {
-		if arg == "-o" || arg == "-i" {
-			return nil, fmt.Errorf("-i/-o is not allowed in the args")
-		}
-	}
-
-	// create named pipe and add -i -o to the args
-	// generate name for the named pipes
-	inPipe := fmt.Sprintf("/tmp/%s_in_%d", cfg.Name, os.Getpid())
-	outPipe := fmt.Sprintf("/tmp/%s_out_%d", cfg.Name, os.Getpid())
-
-	// create the named pipes using os.mkfifo
-	if err := syscall.Mkfifo(inPipe, 0666); err != nil {
-		return nil, err
-	}
-	if err := syscall.Mkfifo(outPipe, 0666); err != nil {
-		return nil, err
-	}
-	// add -i and -o to the args
-	cfg.Args = append(cfg.Args, "-i", inPipe, "-o", outPipe)
 	log.Infof("Command: %s %v", cfg.Cmd, cfg.Args)
 
 	// execute the task
 	cmd := exec.Command(cfg.Cmd, cfg.Args...)
-
-	// open the named pipes
-	inPipeFile, err := os.OpenFile(inPipe, os.O_RDWR, os.ModeNamedPipe)
-	if err != nil {
-		return nil, err
-	}
-	outPipeFile, err := os.OpenFile(outPipe, os.O_RDWR, os.ModeNamedPipe)
-	if err != nil {
-		return nil, err
-	}
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, fmt.Sprintf("SERVICE_ADDR=127.0.0.1:%s", p.listenPort))
+	cmd.Env = append(cmd.Env, fmt.Sprintf("SECRET=%d", task.secret))
 
 	task.cmd = cmd
 
-	// create read goroutine to read and put into the channel
-	go func() {
-		defer close(task.out)
-		reader := bufio.NewReader(outPipeFile)
-		for {
-			data, err := reader.ReadBytes('\n')
-			if err != nil {
-				break
-			}
-
-			task.out <- data
-
-			// check if the task is done
-			select {
-			case <-task.done:
-				log.Debugf("closing stdout")
-				return
-			default:
-			}
-		}
-	}()
-
-	// create write goroutine to write
-	go func() {
-		defer inPipeFile.Close()
-		for {
-			select {
-			case buf := <-task.in:
-				inPipeFile.Write(buf)
-				// log.Debugf("Input: %s", buf)
-			case <-task.done:
-				log.Debugf("closing stdin")
-				return
-			}
-		}
-	}()
-
-	// read from stderr and print to log
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	go func() {
-		for {
-			buf := make([]byte, maxDataSize)
-			n, err := stdout.Read(buf)
-			if err != nil {
-				break
-			}
-			log.Infof("STDOUT[%s]:\033[0;32m%s\033[0m", task.name, buf[:n])
-		}
-	}()
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, err
-	}
-	go func() {
-		for {
-			buf := make([]byte, maxDataSize)
-			n, err := stderr.Read(buf)
-			if err != nil {
-				break
-			}
-			log.Infof("STDERR[%s]:\033[0;32m%s\033[0m", task.name, buf[:n])
-		}
-	}()
-
+	p.tasks[task.ID()] = task
 	return task, nil
+}
+
+func (p *ProcessTaskRuntime) runTCPServer(port string) {
+	log.Infof("Starting docker hostcall TCP server on port %s", port)
+
+	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%s", port))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer listener.Close()
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Debugf("Accepted connection from %s", conn.RemoteAddr())
+
+		go p.handleRequest(conn)
+	}
+}
+
+func (p *ProcessTaskRuntime) handleRequest(conn net.Conn) {
+	// read a int64 secret from the connection (8 bytes, little endian)
+	buf := make([]byte, 8)
+	_, err := conn.Read(buf)
+	if err != nil {
+		log.Errorf("Error reading from initial connection: %v", err)
+		return
+	}
+	secret := binary.LittleEndian.Uint64(buf)
+
+	// find out the task
+	for _, task := range p.tasks {
+		if task.(*ProcessTask).secret == int64(secret) {
+			// found the task
+			task.(*ProcessTask).conn = conn
+			task.(*ProcessTask).connReady <- struct{}{}
+		}
+	}
 }

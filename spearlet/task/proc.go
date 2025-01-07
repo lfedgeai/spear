@@ -1,19 +1,21 @@
 package task
 
 import (
+	"encoding/binary"
 	"fmt"
+	"io"
+	"math/rand"
+	"net"
 	"os/exec"
 	"strconv"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
 type ProcessTask struct {
 	name string
-
-	in  chan Message
-	out chan Message
 
 	cmd *exec.Cmd
 
@@ -23,10 +25,17 @@ type ProcessTask struct {
 	// a channel for the termination signal
 	done chan struct{}
 
-	reqId uint64
+	chanIn  chan Message
+	chanOut chan Message
+
+	secret    int64 // used for tcp auth
+	conn      net.Conn
+	connReady chan struct{}
 
 	taskVars   map[TaskVar]interface{}
 	taskVarsMu sync.RWMutex
+
+	reqId uint64
 }
 
 func (p *ProcessTask) ID() TaskID {
@@ -48,6 +57,95 @@ func (p *ProcessTask) Start() error {
 
 		// close the done channel
 		close(p.done)
+	}()
+
+	go func() {
+		<-p.connReady
+		log.Infof("Connection ready for task %s", p.name)
+
+		// input goroutine
+		go func() {
+			for {
+				// read a int64 data size
+				buf := make([]byte, 8)
+				_, err := p.conn.Read(buf)
+				if err != nil {
+					if err == io.EOF {
+						log.Infof("Connection closed for task %s", p.name)
+						return
+					}
+					log.Errorf("Error reading from connection: %v", err)
+					return
+				}
+				sz := binary.LittleEndian.Uint64(buf)
+				log.Debugf("DockerTask got message size: 0x%x", sz)
+
+				// read data
+				data := make([]byte, sz)
+				if _, err = io.ReadFull(p.conn, data); err != nil {
+					log.Errorf("Error reading from connection: %v, size: %d", err, sz)
+					return
+				}
+
+				// send data to container
+				p.chanOut <- Message(data)
+			}
+		}()
+
+		// output goroutine
+		go func() {
+			for msg := range p.chanIn {
+				// write little endian int64 size
+				buf := make([]byte, 8)
+				binary.LittleEndian.PutUint64(buf, uint64(len(msg)))
+				_, err := p.conn.Write(buf)
+				if err != nil {
+					log.Errorf("Error writing to connection: %v", err)
+					return
+				}
+
+				// write data
+				n, err := p.conn.Write([]byte(msg))
+				if n != len(msg) {
+					log.Errorf("Error writing to connection: %v", err)
+					return
+				}
+				if err != nil {
+					log.Errorf("Error writing to connection: %v", err)
+					return
+				}
+			}
+		}()
+	}()
+
+	// read from stderr and print to log
+	stdout, err := p.cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	go func() {
+		for {
+			buf := make([]byte, maxDataSize)
+			n, err := stdout.Read(buf)
+			if err != nil {
+				break
+			}
+			log.Infof("STDOUT[%s]:\033[0;32m%s\033[0m", p.name, buf[:n])
+		}
+	}()
+	stderr, err := p.cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+	go func() {
+		for {
+			buf := make([]byte, maxDataSize)
+			n, err := stderr.Read(buf)
+			if err != nil {
+				break
+			}
+			log.Infof("STDERR[%s]:\033[0;32m%s\033[0m", p.name, buf[:n])
+		}
 	}()
 
 	return nil
@@ -79,7 +177,7 @@ func (p *ProcessTask) GetResult() *error {
 }
 
 func (p *ProcessTask) CommChannels() (chan Message, chan Message, error) {
-	return p.in, p.out, nil
+	return p.chanIn, p.chanOut, nil
 }
 
 func (p *ProcessTask) Wait() (int, error) {
@@ -113,14 +211,24 @@ func (p *ProcessTask) GetVar(key TaskVar) (interface{}, bool) {
 }
 
 func NewProcessTask(cfg *TaskConfig) *ProcessTask {
+	rand.Seed(time.Now().UnixNano())
+	secretGenerated := rand.Int63()
+
 	return &ProcessTask{
-		name:       cfg.Name,
-		in:         make(chan Message, 1024),
-		out:        make(chan Message, 1024),
-		status:     TaskStatusInit,
-		result:     nil,
-		done:       make(chan struct{}),
-		reqId:      1,
+		name:   cfg.Name,
+		status: TaskStatusInit,
+		result: nil,
+		done:   make(chan struct{}),
+
+		chanIn:  make(chan Message, 128),
+		chanOut: make(chan Message, 128),
+
+		secret:    secretGenerated,
+		conn:      nil,
+		connReady: make(chan struct{}),
+
+		reqId: 1,
+
 		taskVars:   make(map[TaskVar]interface{}),
 		taskVarsMu: sync.RWMutex{},
 	}
