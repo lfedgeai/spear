@@ -9,6 +9,7 @@ import (
 	"github.com/lfedgeai/spear/pkg/spear/proto/chat"
 	"github.com/lfedgeai/spear/pkg/spear/proto/tool"
 	"github.com/lfedgeai/spear/pkg/spear/proto/transform"
+	"github.com/lfedgeai/spear/pkg/spear/proto/transport"
 	"github.com/lfedgeai/spear/spearlet/hostcalls/common"
 	hcommon "github.com/lfedgeai/spear/spearlet/hostcalls/common"
 	hcopenai "github.com/lfedgeai/spear/spearlet/hostcalls/openai"
@@ -171,6 +172,9 @@ func chatCompletion(inv *hcommon.InvocationInfo, args *transform.TransformReques
 	}
 
 	log.Infof("Using model %s", chatReq.Model())
+	if hasTool {
+		log.Infof("# of tools %d", chatReq.ToolsLength())
+	}
 
 	msgList, err := innerChatCompletion(inv, &chatReq, hasTool)
 	if err != nil {
@@ -276,8 +280,35 @@ func innerChatCompletion(inv *hcommon.InvocationInfo, chatReq *chat.ChatCompleti
 				case tool.ToolInfoInternalToolInfo:
 					toolInfo := tool.InternalToolInfo{}
 					toolInfo.Init(tbl.Bytes, tbl.Pos)
-					// TODO: implement this
-					panic("not implemented")
+					log.Infof("Internal tool: %d", toolInfo.ToolId())
+					tool, ok := hcommon.GetTaskInternalTool(inv.Task, hcommon.BuiltinToolID(toolInfo.ToolId()))
+					if !ok {
+						return nil, fmt.Errorf("internal tool not found")
+					}
+					requiredParams := make([]string, 0)
+					t := hcopenai.OpenAIChatToolFunction{
+						Type: "function",
+						Func: hcopenai.OpenAIChatToolFunctionSub{
+							Name:        fmt.Sprintf("I-%d", tool.Id),
+							Description: tool.Description,
+							Parameters: hcopenai.OpenAIChatToolParameter{
+								Type:                 "object",
+								AdditionalProperties: false,
+								Properties:           make(map[string]hcopenai.OpenAIChatToolParameterProperty),
+							},
+						},
+					}
+					for k, v := range tool.Params {
+						t.Func.Parameters.Properties[k] = hcopenai.OpenAIChatToolParameterProperty{
+							Type:        v.Ptype,
+							Description: v.Description,
+						}
+						if v.Required {
+							requiredParams = append(requiredParams, k)
+						}
+					}
+					t.Func.Parameters.Required = requiredParams
+					openAiChatReq2.Tools = append(openAiChatReq2.Tools, t)
 				case tool.ToolInfoNormalToolInfo:
 					toolInfo := tool.NormalToolInfo{}
 					toolInfo.Init(tbl.Bytes, tbl.Pos)
@@ -294,6 +325,7 @@ func innerChatCompletion(inv *hcommon.InvocationInfo, chatReq *chat.ChatCompleti
 		if len(ep) == 0 {
 			return nil, fmt.Errorf("no endpoint found")
 		}
+		openAiChatReq2.Model = ep[0].Model // update the model name
 		respData, err = hcopenai.OpenAIChatCompletion(ep[0], &openAiChatReq2)
 		if err != nil {
 			return nil, fmt.Errorf("error calling OpenAIChatCompletion: %v", err)
@@ -343,7 +375,9 @@ func innerChatCompletion(inv *hcommon.InvocationInfo, chatReq *chat.ChatCompleti
 			})
 
 			toolCalls := choice.Message.ToolCalls
+			log.Infof("Tool calls: %d", len(toolCalls))
 			for _, toolCall := range toolCalls {
+				log.Infof("Tool call: %s", toolCall.Function.Name)
 				argsStr := toolCall.Function.Arguments
 				// use json to unmarshal the arguments to interface{}
 				var args interface{} = nil
@@ -399,7 +433,86 @@ func innerChatCompletion(inv *hcommon.InvocationInfo, chatReq *chat.ChatCompleti
 						Content: fmt.Sprintf("%v", res),
 					})
 				case "I":
-				// it is an internal tool
+					// it is an internal tool
+					toolReg, ok := hcommon.GetTaskInternalTool(inv.Task, hcommon.BuiltinToolID(toolId))
+					if !ok {
+						return nil, fmt.Errorf("internal tool not found")
+					}
+					// send internal tool execution request to task
+					builder := flatbuffers.NewBuilder(0)
+					tool.InternalToolInfoStart(builder)
+					tool.InternalToolInfoAddToolId(builder, uint16(toolId))
+					infoOff := tool.InternalToolInfoEnd(builder)
+
+					// create tool name string in buffer
+					toolNameOff := builder.CreateString(toolReg.Name)
+
+					// create params
+					paramCount := len(args.(map[string]interface{}))
+					if paramCount != len(toolReg.Params) {
+						log.Infof("Param count mismatch: %d vs %d", paramCount, len(toolReg.Params))
+						return nil, fmt.Errorf("invalid parameter count")
+					}
+					paramOffs := make([]flatbuffers.UOffsetT, 0)
+					for k, v := range args.(map[string]interface{}) {
+						if _, ok := toolReg.Params[k]; !ok {
+							return nil, fmt.Errorf("invalid parameter")
+						}
+						log.Infof("Internal Tool Call Param: %s %v", k, v)
+						paramName := builder.CreateString(k)
+						paramValue := builder.CreateString(fmt.Sprintf("%v", v))
+						tool.ParamStart(builder)
+						tool.ParamAddKey(builder, paramName)
+						tool.ParamAddValue(builder, paramValue)
+						paramOffs = append(paramOffs, tool.ParamEnd(builder))
+					}
+					tool.InternalToolCreateRequestStartParamsVector(builder, paramCount)
+					for i := len(paramOffs) - 1; i >= 0; i-- {
+						builder.PrependUOffsetT(paramOffs[i])
+					}
+					params := builder.EndVector(paramCount)
+
+					tool.ToolInvocationRequestStart(builder)
+					tool.ToolInvocationRequestAddToolInfoType(builder, tool.ToolInfoInternalToolInfo)
+					tool.ToolInvocationRequestAddToolInfo(builder, infoOff)
+					tool.ToolInvocationRequestAddToolName(builder, toolNameOff)
+					tool.ToolInvocationRequestAddParams(builder, params)
+					req := tool.ToolInvocationRequestEnd(builder)
+					builder.Finish(req)
+
+					log.Infof("Sending internal tool request to task")
+					if r, err := inv.CommMgr.SendOutgoingRPCRequest(inv.Task, transport.MethodToolInvoke,
+						builder.FinishedBytes()); err != nil {
+						return nil, fmt.Errorf("error sending internal tool request: %v", err)
+					} else {
+						if r == nil {
+							return nil, fmt.Errorf("nil response")
+						}
+						if len(r.ResponseBytes()) == 0 {
+							log.Infof("Internal Tool call response: nil")
+							mem.AddMessage(ChatMessage{
+								Metadata: map[string]interface{}{
+									"role":         "tool",
+									"tool_call_id": toolCall.Id,
+								},
+								Content: "",
+							})
+						}
+						toolInvResp := tool.GetRootAsToolInvocationResponse(r.ResponseBytes(), 0)
+						if toolInvResp == nil {
+							return nil, fmt.Errorf("could not get ToolInvocationResponse")
+						}
+						// get results as string
+						res := string(toolInvResp.Result())
+						log.Infof("Internal Tool call response: %s", res)
+						mem.AddMessage(ChatMessage{
+							Metadata: map[string]interface{}{
+								"role":         "tool",
+								"tool_call_id": toolCall.Id,
+							},
+							Content: res,
+						})
+					}
 				case "N":
 				// it is a normal tool
 				default:

@@ -35,11 +35,19 @@ var (
 	GaiaToolQWen72BBase   = "https://qwen72b.gaia.domains/v1"
 	GaiaQWen7BBase        = "https://qwen7b.gaia.domains/v1"
 	GaiaWhisperBase       = "https://whisper.gaia.domains/v1"
+	DeepSeekBase          = "https://api.deepseek.com"
 )
 
 var (
 	APIEndpointMap = map[OpenAIFunctionType][]APIEndpointInfo{
 		OpenAIFunctionTypeChatWithTools: {
+			{
+				Name:   "deepseek-toolchat",
+				Model:  "deepseek-chat",
+				Base:   &DeepSeekBase,
+				APIKey: os.Getenv("DEEPSEEK_API_KEY"),
+				Url:    "/chat/completions",
+			},
 			{
 				Name:   "openai-toolchat",
 				Model:  "gpt-4o",
@@ -169,6 +177,9 @@ func GetAPIEndpointInfo(ft OpenAIFunctionType, modelOrName string) []APIEndpoint
 			Base:   e.Base,
 			APIKey: "********",
 			Url:    e.Url,
+		}
+		if e.APIKey == "" {
+			tmp.APIKey = ""
 		}
 		tmpList = append(tmpList, *tmp)
 	}

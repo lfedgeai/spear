@@ -29,8 +29,11 @@ def handle(params):
     """
     logger.info("Handling request: %s", params)
 
+    logger.info("testing tool")
+    test_tool("deepseek-toolchat")
+
     logger.info("testing chat")
-    test_chat("gpt-4o")
+    test_chat("deepseek-toolchat")  # "gpt-4o")
 
     logger.info("testing speak")
     test_speak("tts-1")
@@ -41,8 +44,6 @@ def handle(params):
     logger.info("testing input")
     test_input()
 
-    logger.info("testing tool")
-    test_tool()
     # test("text-embedding-ada-002")
     # test("bge-large-en-v1.5")
 
@@ -97,22 +98,33 @@ def test_input():
 
 def test_tool_cb(param1, param2):
     """
-    spear tool callback test function
-    
-    @param param1: test parameter 1
-    @param param2: test parameter 2
+    spear tool function for getting the sum of two numbers
+
+    @param param1: first number
+    @param param2: second number
     """
     logger.info("Testing tool callback %s %s", param1, param2)
     return "test"
 
 
-def test_tool():
+def test_tool(model):
     """
     test the model
     """
     logger.info("Testing tool")
     tid = register_internal_tool(agent, test_tool_cb)
     logger.info("Registered tool: %d", tid)
+
+    resp = chat.chat(agent, "hi", model=model)
+    logger.info(resp)
+    resp = chat.chat(agent, "what is sum of 123 and 456?",
+                     model=model, builtin_tools=[
+                         BuiltinToolID.BuiltinToolID.Datetime,
+                     ],
+                     internal_tools=[
+                         tid,
+                     ])
+    logger.info(resp)
 
 
 if __name__ == "__main__":

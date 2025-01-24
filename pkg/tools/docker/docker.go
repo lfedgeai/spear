@@ -25,7 +25,7 @@ func (t *TestSetup) stopVectorStoreContainer() {
 }
 
 func (t *TestSetup) startVectorStoreContainer() {
-	c, err := docker.StartVectorStoreContainer(true)
+	c, err := docker.StartVectorStoreContainer(true, false)
 	if err != nil {
 		panic(err)
 	}

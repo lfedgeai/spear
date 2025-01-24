@@ -23,6 +23,8 @@ type DockerTaskRuntime struct {
 	stopCh     chan struct{}
 	stopWg     sync.WaitGroup
 	listenPort string
+
+	pullImages bool
 }
 
 const (
@@ -49,6 +51,8 @@ func NewDockerTaskRuntime(rtCfg *TaskRuntimeConfig) (*DockerTaskRuntime, error) 
 		stopCh:     make(chan struct{}),
 		stopWg:     sync.WaitGroup{},
 		listenPort: fmt.Sprintf("%d", randomInt),
+
+		pullImages: false,
 	}
 
 	go res.runTCPServer(res.listenPort)
@@ -72,6 +76,7 @@ func NewDockerTaskRuntime(rtCfg *TaskRuntimeConfig) (*DockerTaskRuntime, error) 
 		}
 	}
 
+	log.Infof("Docker task runtime initialized")
 	return res, nil
 }
 
@@ -97,7 +102,7 @@ func (d *DockerTaskRuntime) startBackendServices() error {
 	// -v $(pwd)/qdrant_storage:/qdrant/storage:z \
 	// qdrant/qdrant
 
-	c, err := docker.StartVectorStoreContainer(d.rtCfg.Cleanup)
+	c, err := docker.StartVectorStoreContainer(d.rtCfg.Cleanup, d.pullImages)
 	if err != nil {
 		return err
 	}

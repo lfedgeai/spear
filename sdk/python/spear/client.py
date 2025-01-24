@@ -13,9 +13,10 @@ from typing import Callable
 import flatbuffers as fbs
 
 from spear.proto.custom import CustomRequest
+from spear.proto.tool import ToolInvocationRequest, InternalToolInfo, ToolInfo, ToolInvocationResponse
 from spear.proto.transport import (Method, TransportMessageRaw,
                                    TransportMessageRaw_Data, TransportRequest,
-                                   TransportResponse, TransportSignal)
+                                   TransportResponse, TransportSignal, Signal)
 
 MAX_INFLIGHT_REQUESTS = 128
 DEFAULT_MESSAGE_SIZE = 4096
@@ -39,6 +40,7 @@ class HostAgent(object):
         self._send_task_pipe_r, self._send_task_pipe_w = os.pipe()
         self._recv_task = None
         self._handlers = {}
+        self._internal_tools = {}
         event_sock_r, event_sock_w = socket.socketpair()
         self._stop_event_r = event_sock_r
         self._stop_event_w = event_sock_w
@@ -112,10 +114,12 @@ class HostAgent(object):
                 self._put_rpc_response(req_id, result)
             except Exception as e:
                 logger.error("Error: %s", traceback.format_exc())
-                self._put_rpc_error(req_id, -32603, str(e), "Internal error")
+                self._put_rpc_error(req_id, -32603, str(e),
+                                    "Internal error: ")
             with self._inflight_requests_lock:
                 self._inflight_requests_count -= 1
-            logger.debug("Inflight requests: %d", self._inflight_requests_count)
+            logger.debug("Inflight requests: %d",
+                         self._inflight_requests_count)
 
         while True:
             rpc_data = self._get_rpc_data()
@@ -128,19 +132,74 @@ class HostAgent(object):
                 req.Init(rpc_data.Data().Bytes, rpc_data.Data().Pos)
 
                 if req.Method() != Method.Method.Custom:
-                    if req.Method() == Method.Method.Terminate:
-                        self.stop()
-                        break
-                    logger.error("Invalid method: %d", req.Method())
+                    if req.Method() == Method.Method.ToolInvoke:
+                        tool_invoke = ToolInvocationRequest.ToolInvocationRequest.\
+                            GetRootAsToolInvocationRequest(
+                                req.RequestAsNumpy())
+                        if tool_invoke.ToolInfoType() != ToolInfo.ToolInfo.InternalToolInfo:
+                            logger.error("Invalid tool info type: %s",
+                                         tool_invoke.ToolInfoType())
+                            raise ValueError("Invalid tool info type")
+                        tool_tbl = tool_invoke.ToolInfo()
+                        if tool_tbl is None:
+                            logger.error("Invalid tool info")
+                            raise ValueError("Invalid tool info")
+                        tool_info = InternalToolInfo.InternalToolInfo()
+                        tool_info.Init(tool_tbl.Bytes, tool_tbl.Pos)
+                        tool_id = tool_info.ToolId()
+                        logger.info("Invoking tool: %d", tool_id)
+                        if tool_id not in self._internal_tools:
+                            logger.error("tool id does not exist")
+                            raise ValueError("tool id does not exist")
+                        handler = self._internal_tools[tool_id]
+
+                        def internal_tool_handler(handler, **kwargs):
+                            try:
+                                result = handler(**kwargs)
+                                logger.debug("Result: %s", result)
+                                builder = fbs.Builder(1024)
+                                res_off = builder.CreateString(result)
+                                ToolInvocationResponse.ToolInvocationResponseStart(
+                                    builder)
+                                ToolInvocationResponse.ToolInvocationResponseAddResult(
+                                    builder, res_off)
+                                end = ToolInvocationResponse.ToolInvocationResponseEnd(
+                                    builder)
+                                builder.Finish(end)
+                                self._put_rpc_response(req.Id(), builder.Output())
+                            except Exception as e:
+                                logger.error(
+                                    "Error: %s", traceback.format_exc())
+                                self._put_rpc_error(req.Id(), -32603, str(e),
+                                                    "Internal error: ")
+                        params_dict = {}
+                        for i in range(tool_invoke.ParamsLength()):
+                            k = tool_invoke.Params(i).Key().decode("utf-8")
+                            v = tool_invoke.Params(i).Value().decode("utf-8")
+                            logger.info("Param: %s %s", k, v)
+                            params_dict[k] = v
+                        t = threading.Thread(
+                            target=internal_tool_handler,
+                            args=(
+                                handler,
+                            ),
+                            kwargs=params_dict
+                        )
+                        t.daemon = True
+                        t.start()
+                        continue
+                    logger.error("Invalid method: %s", req.Method())
                     raise ValueError("Invalid method")
 
                 custom_req = CustomRequest.CustomRequest.GetRootAsCustomRequest(
                     req.RequestAsNumpy(), 0
                 )
 
-                handler = self._handlers.get(custom_req.MethodStr().decode("utf-8"))
+                handler = self._handlers.get(
+                    custom_req.MethodStr().decode("utf-8"))
                 if handler is None:
-                    logger.error("Method not found: %s", custom_req.MethodStr())
+                    logger.error("Method not found: %s",
+                                 custom_req.MethodStr())
                     self._put_rpc_error(
                         req.Id(),
                         -32601,
@@ -157,14 +216,16 @@ class HostAgent(object):
                         )
                     else:
                         # create a thread to handle the request
-                        threading.Thread(
+                        t = threading.Thread(
                             target=handle_worker,
                             args=(
                                 handler,
                                 req.Id(),
                                 custom_req.ParamsStr().decode("utf-8"),
                             ),
-                        ).start()
+                        )
+                        t.daemon = True
+                        t.start()
             elif (
                 rpc_data.DataType()
                 == TransportMessageRaw_Data.TransportMessageRaw_Data.TransportResponse
@@ -186,7 +247,7 @@ class HostAgent(object):
             ):
                 sig = TransportSignal.TransportSignal()
                 sig.Init(rpc_data.Data().Bytes, rpc_data.Data().Pos)
-                if sig.Method() == Method.Method.Terminate:
+                if sig.Method() == Signal.Signal.Terminate:
                     logger.info("Terminating the agent")
                     self.stop()
                     return
@@ -194,7 +255,13 @@ class HostAgent(object):
                 logger.error("Invalid rpc data")
                 raise ValueError("Invalid rpc data")
 
-    def register_handler(self, method, handler):
+    def set_internal_tool(self, tid: int, handler):
+        """
+        register internal tool callback function
+        """
+        self._internal_tools[tid] = handler
+
+    def register_handler(self, method: str, handler):
         """
         register the handler for the method
         """

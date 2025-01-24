@@ -45,7 +45,38 @@ func (p *ProcessTask) ID() TaskID {
 
 func (p *ProcessTask) Start() error {
 	log.Infof("running command: %+v", p.cmd)
-	err := p.cmd.Start()
+
+	// read from stderr and print to log
+	stdout, err := p.cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	go func() {
+		for {
+			buf := make([]byte, maxDataSize)
+			n, err := stdout.Read(buf)
+			if err != nil {
+				break
+			}
+			log.Infof("STDOUT[%s]:\033[0;32m%s\033[0m", p.name, buf[:n])
+		}
+	}()
+	stderr, err := p.cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+	go func() {
+		for {
+			buf := make([]byte, maxDataSize)
+			n, err := stderr.Read(buf)
+			if err != nil {
+				break
+			}
+			log.Infof("STDERR[%s]:\033[0;32m%s\033[0m", p.name, buf[:n])
+		}
+	}()
+
+	err = p.cmd.Start()
 	if err != nil {
 		log.Errorf("Error: %v", err)
 		return err
@@ -123,36 +154,6 @@ func (p *ProcessTask) Start() error {
 				}
 			}
 		}()
-	}()
-
-	// read from stderr and print to log
-	stdout, err := p.cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	go func() {
-		for {
-			buf := make([]byte, maxDataSize)
-			n, err := stdout.Read(buf)
-			if err != nil {
-				break
-			}
-			log.Infof("STDOUT[%s]:\033[0;32m%s\033[0m", p.name, buf[:n])
-		}
-	}()
-	stderr, err := p.cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-	go func() {
-		for {
-			buf := make([]byte, maxDataSize)
-			n, err := stderr.Read(buf)
-			if err != nil {
-				break
-			}
-			log.Infof("STDERR[%s]:\033[0;32m%s\033[0m", p.name, buf[:n])
-		}
 	}()
 
 	return nil

@@ -301,7 +301,7 @@ func (c *CommunicationManager) SendOutgoingRPCRequest(t task.Task, method transp
 	if err := c.SendOutgoingRPCRequestCallback(t, int64(t.NextRequestID()), method, req_buffer,
 		func(resp *transport.TransportResponse) error {
 			if resp.Code() != 0 {
-				errCh <- fmt.Errorf("error response: %v", resp.Code())
+				errCh <- fmt.Errorf("error response: %d, %s", resp.Code(), string(resp.Message()))
 			} else {
 				ch <- resp
 			}

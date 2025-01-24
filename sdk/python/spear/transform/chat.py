@@ -11,7 +11,7 @@ import spear.hostcalls.transform as tf
 from spear.proto.chat import (ChatCompletionRequest, ChatCompletionResponse,
                               ChatMessage, ChatMetadata, Role)
 from spear.proto.chat import ToolInfo as ChatToolInfo
-from spear.proto.tool import BuiltinToolInfo, ToolInfo
+from spear.proto.tool import BuiltinToolInfo, ToolInfo, InternalToolInfo
 from spear.proto.transform import (TransformOperation, TransformRequest,
                                    TransformRequest_Params, TransformResponse,
                                    TransformResponse_Data, TransformType)
@@ -32,7 +32,8 @@ DEFAULT_LLM_MODEL = "llama"  # "gpt-4o"
 
 def chat(agent: client.HostAgent, message: str,
          model: str = DEFAULT_LLM_MODEL,
-         builtin_tools: list[int] = []):
+         builtin_tools: list[int] = [],
+         internal_tools: list[int] = []):
     """
     handle the llm request
     """
@@ -41,8 +42,9 @@ def chat(agent: client.HostAgent, message: str,
     model_off = builder.CreateString(model)
 
     tools_off = -1
+    builtin_tool_offs = []
+    internal_tool_offs = []
     if len(builtin_tools) > 0:
-        builtin_tool_offs = []
         for tool in builtin_tools:
             assert isinstance(tool, int)
             BuiltinToolInfo.BuiltinToolInfoStart(builder)
@@ -55,9 +57,26 @@ def chat(agent: client.HostAgent, message: str,
                 ToolInfo.ToolInfo.BuiltinToolInfo,
             )
             builtin_tool_offs.append(ChatToolInfo.End(builder))
-        # create vector
-        ChatCompletionRequest.StartToolsVector(builder, len(builtin_tool_offs))
+    if len(internal_tools) > 0:
+        for tool in internal_tools:
+            assert isinstance(tool, int)
+            InternalToolInfo.InternalToolInfoStart(builder)
+            InternalToolInfo.AddToolId(builder, tool)
+            tmp = InternalToolInfo.End(builder)
+            ChatToolInfo.ToolInfoStart(builder)
+            ChatToolInfo.ToolInfoAddData(builder, tmp)
+            ChatToolInfo.AddDataType(
+                builder,
+                ToolInfo.ToolInfo.InternalToolInfo,
+            )
+            internal_tool_offs.append(ChatToolInfo.End(builder))
+
+    if len(builtin_tool_offs) + len(internal_tool_offs) > 0:
+        ChatCompletionRequest.StartToolsVector(
+            builder, len(builtin_tool_offs) + len(internal_tool_offs))
         for off in builtin_tool_offs:
+            builder.PrependUOffsetTRelative(off)
+        for off in internal_tool_offs:
             builder.PrependUOffsetTRelative(off)
         tools_off = builder.EndVector()
 

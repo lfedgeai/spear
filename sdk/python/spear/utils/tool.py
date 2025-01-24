@@ -92,4 +92,7 @@ def register_internal_tool(agent: client.HostAgent, cb: callable,
     resp = InternalToolCreateResponse.InternalToolCreateResponse.\
         GetRootAsInternalToolCreateResponse(
             data, 0)
-    return resp.ToolId()
+    tid = resp.ToolId()
+    agent.set_internal_tool(tid, cb)
+    logger.info("Registered tool: %d", tid)
+    return tid

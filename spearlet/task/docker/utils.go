@@ -33,7 +33,7 @@ func StopContainer(cid string) error {
 	return nil
 }
 
-func StartVectorStoreContainer(cleanup bool) (*container.CreateResponse, error) {
+func StartVectorStoreContainer(cleanup bool, pull bool) (*container.CreateResponse, error) {
 	// start the vector store container
 	// docker run -p 6333:6333 -p 6334:6334 \
 	// -v $(pwd)/qdrant_storage:/qdrant/storage:z \
@@ -46,16 +46,18 @@ func StartVectorStoreContainer(cleanup bool) (*container.CreateResponse, error) 
 	}
 
 	// pull the image
-	r, err := cli.ImagePull(context.TODO(), "docker.io/qdrant/qdrant", image.PullOptions{})
-	if err != nil {
-		return nil, err
-	}
+	if pull {
+		r, err := cli.ImagePull(context.TODO(), "docker.io/qdrant/qdrant", image.PullOptions{})
+		if err != nil {
+			return nil, err
+		}
 
-	// read the response
-	buf := new(bytes.Buffer)
-	_, err = io.Copy(buf, r)
-	if err != nil {
-		return nil, err
+		// read the response
+		buf := new(bytes.Buffer)
+		_, err = io.Copy(buf, r)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// delete all existing qdrant containers

@@ -135,6 +135,7 @@ func InitTaskRuntimes(cfg *TaskRuntimeConfig) {
 		panic("no supported task types")
 	}
 	for _, taskType := range supportedTaskTypes {
+		log.Infof("Initializing task runtime: %v", taskType)
 		switch taskType {
 		case TaskTypeDocker:
 			rt, err := NewDockerTaskRuntime(cfg)

@@ -72,7 +72,7 @@ func (p *ProcessTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 }
 
 func (p *ProcessTaskRuntime) runTCPServer(port string) {
-	log.Infof("Starting docker hostcall TCP server on port %s", port)
+	log.Infof("Starting proc hostcall TCP server on port %s", port)
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%s", port))
 	if err != nil {
