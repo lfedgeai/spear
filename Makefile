@@ -31,11 +31,10 @@ spearlet: pkg/spear
 test: workload
 	@set -e; \
 	cd $(REPO_ROOT); \
-	go test -v test/... && \
+	go test -v ./test/... && \
 	for dir in $(SUBDIRS); do \
 		make -C $$dir test; \
 	done; \
-	cd ..
 
 workload: build
 	@set -e; \
