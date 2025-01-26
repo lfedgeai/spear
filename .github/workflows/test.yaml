@@ -17,8 +17,10 @@ jobs:
 
     - name: Install flatbuffers
       run: |
-        sudo apt-get update
-        sudo apt-get install -y flatbuffers-compiler
+        wget -q https://github.com/google/flatbuffers/releases/download/v24.12.23/Linux.flatc.binary.clang++-18.zip
+        unzip Linux.flatc.binary.clang++-18.zip
+        sudo cp flatc /usr/local/bin
+        rm flatc Linux.flatc.binary.clang++-18.zip
 
     - name: Verify Go version
       run: go version
