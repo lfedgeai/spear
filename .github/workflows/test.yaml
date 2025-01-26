@@ -4,7 +4,7 @@ on: push
 
 jobs:
   Spear-build:
-    name: make and run Spear DEMO
+    name: Make & Run Spear DEMO
     runs-on: ubuntu-latest
     steps:
     - name: Read warehouse contents
@@ -44,6 +44,10 @@ jobs:
         curl -fsSL https://get.docker.com -o get-docker.sh
         sudo sh get-docker.sh
         make
+
+    - name: Pull related docker images
+      run: |
+        docker pull qdrant/qdrant:latest
 
     - name: Set environment variables and run test program
       run: |
