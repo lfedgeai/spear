@@ -6,9 +6,9 @@ import time
 import spear.client as client
 import spear.transform.chat as chat
 import spear.utils.io as io
+from spear.utils.tool import register_internal_tool
 
 from spear.proto.tool import BuiltinToolID
-from spear.utils.tool import register_internal_tool
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the desired logging level
@@ -23,6 +23,8 @@ logger.setLevel(logging.DEBUG)
 agent = client.HostAgent()
 
 
+TEST_LLM_MODEL = "gpt-4o" #"deepseek-toolchat"
+
 def handle(params):
     """
     handle the request
@@ -30,10 +32,10 @@ def handle(params):
     logger.info("Handling request: %s", params)
 
     logger.info("testing tool")
-    test_tool("deepseek-toolchat")
+    test_tool(TEST_LLM_MODEL)
 
     logger.info("testing chat")
-    test_chat("deepseek-toolchat")  # "gpt-4o")
+    test_chat(TEST_LLM_MODEL)
 
     logger.info("testing speak")
     test_speak("tts-1")
@@ -82,7 +84,7 @@ def test_record(model):
     """
     logger.info("Testing model: %s", model)
 
-    resp = io.record(agent, "recording test")
+    resp = io.record(agent, "recording test", dryrun=True)
     assert resp is not None
 
 
@@ -104,7 +106,8 @@ def test_tool_cb(param1, param2):
     @param param2: second number
     """
     logger.info("Testing tool callback %s %s", param1, param2)
-    return "test"
+    # parse params as int
+    return str(int(param1) + int(param2))
 
 
 def test_tool(model):

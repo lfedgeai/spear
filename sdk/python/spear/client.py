@@ -13,10 +13,11 @@ from typing import Callable
 import flatbuffers as fbs
 
 from spear.proto.custom import CustomRequest
-from spear.proto.tool import ToolInvocationRequest, InternalToolInfo, ToolInfo, ToolInvocationResponse
-from spear.proto.transport import (Method, TransportMessageRaw,
+from spear.proto.tool import (InternalToolInfo, ToolInfo,
+                              ToolInvocationRequest, ToolInvocationResponse)
+from spear.proto.transport import (Method, Signal, TransportMessageRaw,
                                    TransportMessageRaw_Data, TransportRequest,
-                                   TransportResponse, TransportSignal, Signal)
+                                   TransportResponse, TransportSignal)
 
 MAX_INFLIGHT_REQUESTS = 128
 DEFAULT_MESSAGE_SIZE = 4096

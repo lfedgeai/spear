@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-import logging
 import inspect
+import logging
 
 import flatbuffers as fbs
 import spear.client as client
 
-from spear.proto.tool import (
-    InternalToolCreateRequest, InternalToolCreateResponse, InternalToolCreateParamSpec)
+from spear.proto.tool import (InternalToolCreateParamSpec,
+                              InternalToolCreateRequest,
+                              InternalToolCreateResponse)
 from spear.proto.transport import Method
 
 logger = logging.getLogger(__name__)

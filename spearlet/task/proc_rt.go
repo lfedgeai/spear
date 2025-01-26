@@ -45,6 +45,10 @@ func (p *ProcessTaskRuntime) Start() error {
 }
 
 func (p *ProcessTaskRuntime) Stop() error {
+	// iterate all tasks and kill them
+	for _, task := range p.tasks {
+		task.Stop()
+	}
 	return nil
 }
 
@@ -57,7 +61,7 @@ func (p *ProcessTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 
 	task := NewProcessTask(cfg)
 
-	log.Infof("Command: %s %v", cfg.Cmd, cfg.Args)
+	log.Debugf("Command: %s %v", cfg.Cmd, cfg.Args)
 
 	// execute the task
 	cmd := exec.Command(cfg.Cmd, cfg.Args...)

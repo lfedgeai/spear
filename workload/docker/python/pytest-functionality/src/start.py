@@ -6,9 +6,9 @@ import time
 import spear.client as client
 import spear.transform.chat as chat
 import spear.utils.io as io
+from spear.utils.tool import register_internal_tool
 
 from spear.proto.tool import BuiltinToolID
-from spear.utils.tool import register_internal_tool
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the desired logging level
@@ -23,14 +23,19 @@ logger.setLevel(logging.DEBUG)
 agent = client.HostAgent()
 
 
+TEST_LLM_MODEL = "gpt-4o" #"deepseek-toolchat"
+
 def handle(params):
     """
     handle the request
     """
     logger.info("Handling request: %s", params)
 
+    logger.info("testing tool")
+    test_tool(TEST_LLM_MODEL)
+
     logger.info("testing chat")
-    test_chat("gpt-4o")
+    test_chat(TEST_LLM_MODEL)
 
     logger.info("testing speak")
     test_speak("tts-1")
@@ -41,8 +46,6 @@ def handle(params):
     logger.info("testing input")
     test_input()
 
-    logger.info("testing tool")
-    test_tool()
     # test("text-embedding-ada-002")
     # test("bge-large-en-v1.5")
 
@@ -81,7 +84,7 @@ def test_record(model):
     """
     logger.info("Testing model: %s", model)
 
-    resp = io.record(agent, "recording test")
+    resp = io.record(agent, "recording test", dryrun=True)
     assert resp is not None
 
 
@@ -97,22 +100,34 @@ def test_input():
 
 def test_tool_cb(param1, param2):
     """
-    spear tool callback test function
-    
-    @param param1: test parameter 1
-    @param param2: test parameter 2
+    spear tool function for getting the sum of two numbers
+
+    @param param1: first number
+    @param param2: second number
     """
     logger.info("Testing tool callback %s %s", param1, param2)
-    return "test"
+    # parse params as int
+    return str(int(param1) + int(param2))
 
 
-def test_tool():
+def test_tool(model):
     """
     test the model
     """
     logger.info("Testing tool")
     tid = register_internal_tool(agent, test_tool_cb)
     logger.info("Registered tool: %d", tid)
+
+    resp = chat.chat(agent, "hi", model=model)
+    logger.info(resp)
+    resp = chat.chat(agent, "what is sum of 123 and 456?",
+                     model=model, builtin_tools=[
+                         BuiltinToolID.BuiltinToolID.Datetime,
+                     ],
+                     internal_tools=[
+                         tid,
+                     ])
+    logger.info(resp)
 
 
 if __name__ == "__main__":

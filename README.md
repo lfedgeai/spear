@@ -141,6 +141,8 @@ This command will:
 To run SPEAR in local mode, use the following command:
 
 ```bash
+# if you are using openai official api, you can set OPENAI_API_BASE=https://api.openai.com/v1
+export OPENAI_API_BASE=<YOUR_OPENAI_API_BASE>
 export OPENAI_API_KEY=<YOUR_OPENAI_API_KEY>
 bin/spearlet exec -n pyconversation
 ```

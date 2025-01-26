@@ -375,7 +375,7 @@ func innerChatCompletion(inv *hcommon.InvocationInfo, chatReq *chat.ChatCompleti
 			})
 
 			toolCalls := choice.Message.ToolCalls
-			log.Infof("Tool calls: %d", len(toolCalls))
+			log.Debugf("Tool calls amount: %d", len(toolCalls))
 			for _, toolCall := range toolCalls {
 				log.Infof("Tool call: %s", toolCall.Function.Name)
 				argsStr := toolCall.Function.Arguments

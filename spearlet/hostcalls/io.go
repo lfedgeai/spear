@@ -228,6 +228,11 @@ func Record(inv *hostcalls.InvocationInfo, args []byte) ([]byte, error) {
 
 	// Wait for the user to press enter
 	go func() {
+		if req.Dryrun() {
+			time.Sleep(3 * time.Second)
+			close(stopChan)
+			return
+		}
 		_, _ = bufio.NewReader(os.Stdin).ReadBytes('\n')
 		close(stopChan)
 	}()

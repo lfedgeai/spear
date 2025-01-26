@@ -11,7 +11,7 @@ import spear.hostcalls.transform as tf
 from spear.proto.chat import (ChatCompletionRequest, ChatCompletionResponse,
                               ChatMessage, ChatMetadata, Role)
 from spear.proto.chat import ToolInfo as ChatToolInfo
-from spear.proto.tool import BuiltinToolInfo, ToolInfo, InternalToolInfo
+from spear.proto.tool import BuiltinToolInfo, InternalToolInfo, ToolInfo
 from spear.proto.transform import (TransformOperation, TransformRequest,
                                    TransformRequest_Params, TransformResponse,
                                    TransformResponse_Data, TransformType)

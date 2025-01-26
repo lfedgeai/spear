@@ -70,7 +70,7 @@ def speak(
 
 
 def record(agent: client.HostAgent, prompt: str,
-           model: str = "whisper-1") -> str:
+           model: str = "whisper-1", dryrun=False) -> str:
     """
     get user input
     """
@@ -83,6 +83,7 @@ def record(agent: client.HostAgent, prompt: str,
     RecordRequest.RecordRequestAddPrompt(builder, prompt_off)
     if model:
         RecordRequest.RecordRequestAddModel(builder, model_off)
+    RecordRequest.RecordRequestAddDryrun(builder, dryrun)
     data_off = RecordRequest.RecordRequestEnd(builder)
     builder.Finish(data_off)
     res = agent.exec_request(

@@ -20,6 +20,7 @@ type SpearletConfig struct {
 var (
 	execRtTypeStr    string
 	execWorkloadName string
+	execProcFileName string
 	execReqMethod    string
 	execReqPayload   string
 
@@ -51,10 +52,14 @@ func NewRootCmd() *cobra.Command {
 				"process": task.TaskTypeProcess,
 				"dylib":   task.TaskTypeDylib,
 				"wasm":    task.TaskTypeWasm,
+				"unknown": task.TaskTypeUnknown,
 			}
 
-			if execWorkloadName == "" {
+			if execWorkloadName == "" && execProcFileName == "" {
 				log.Errorf("Invalid workload name %s", execWorkloadName)
+				return
+			} else if execProcFileName != "" && execWorkloadName != "" {
+				log.Errorf("Cannot specify both workload name and process filename at the same time")
 				return
 			}
 			if execReqMethod == "" {
@@ -80,32 +85,47 @@ func NewRootCmd() *cobra.Command {
 				w := spearlet.NewSpearlet(config)
 				w.Initialize()
 
-				// lookup task id
-				execWorkloadId, err := w.LookupTaskId(execWorkloadName)
-				if err != nil {
-					log.Errorf("Error looking up task id: %v", err)
-					// print available tasks
-					tasks := w.ListTasks()
-					log.Infof("Available tasks: %v", tasks)
+				defer func() {
 					w.Stop()
-					return
+				}()
+				if execWorkloadName != "" {
+					// lookup task id
+					execWorkloadId, err := w.LookupTaskId(execWorkloadName)
+					if err != nil {
+						log.Errorf("Error looking up task id: %v", err)
+						// print available tasks
+						tasks := w.ListTasks()
+						log.Infof("Available tasks: %v", tasks)
+						return
+					} else {
+						res, err := w.ExecuteTask(execWorkloadId, rtType, true, execReqMethod, execReqPayload)
+						if err != nil {
+							log.Errorf("Error executing workload: %v", err)
+							return
+						}
+						log.Debugf("Workload execution result: %v", res)
+					}
+				} else if execProcFileName != "" {
+					res, err := w.ExecuteTaskNoMeta(execProcFileName, rtType, true, execReqMethod, execReqPayload)
+					if err != nil {
+						log.Errorf("Error executing workload: %v", err)
+						return
+					}
+					log.Debugf("Workload execution result: %v", res)
 				}
-
-				res, err := w.ExecuteTask(execWorkloadId, rtType, true, execReqMethod, execReqPayload)
-				if err != nil {
-					log.Errorf("Error executing workload: %v", err)
-				}
-				log.Debugf("Workload execution result: %v", res)
-				w.Stop()
-				// TODO: implement workload execution
 			}
 		},
 	}
 
-	// workload id
-	execCmd.PersistentFlags().StringVarP(&execWorkloadName, "name", "n", "", "workload name")
+	// workload name
+	execCmd.PersistentFlags().StringVarP(&execWorkloadName, "name", "n", "",
+		"workload name. Cannot be used with process workload filename at the same time")
+	// workload filename
+	execCmd.PersistentFlags().StringVarP(&execProcFileName, "file", "f", "",
+		"process workload filename. Only valid for process type workload")
 	// workload type, a choice of Docker, Process, Dylib or Wasm
-	execCmd.PersistentFlags().StringVarP(&execRtTypeStr, "type", "t", "Docker", "type of the workload")
+	execCmd.PersistentFlags().StringVarP(&execRtTypeStr, "type", "t", "unknown",
+		"type of the workload. By default, it is unknown and the spearlet will try to determine the type.")
 	// workload request payload
 	execCmd.PersistentFlags().StringVarP(&execReqMethod, "method", "m", "handle", "default method to invoke")
 	execCmd.PersistentFlags().StringVarP(&execReqPayload, "payload", "p", "", "request payload")

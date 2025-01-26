@@ -22,6 +22,8 @@ import (
 	hostcalls "github.com/lfedgeai/spear/spearlet/hostcalls/common"
 	"github.com/lfedgeai/spear/spearlet/task"
 	_ "github.com/lfedgeai/spear/spearlet/tools"
+
+	"github.com/docker/docker/client"
 )
 
 var (
@@ -305,17 +307,117 @@ func (w *Spearlet) metaDataToTaskCfg(meta TaskMetaData) *task.TaskConfig {
 	}
 }
 
-func (w *Spearlet) ExecuteTask(taskId int64, funcType task.TaskType, wait bool,
-	method string, data string) (string, error) {
+func (w *Spearlet) ExecuteTaskNoMeta(funcName string, funcType task.TaskType,
+	wait bool, method string, data string) (string, error) {
+	var fakeMeta TaskMetaData
+	switch funcType {
+	case task.TaskTypeDocker:
+		// search if the docker image exists
+		// if not, return error
+		cli, err := client.NewClientWithOpts(client.FromEnv)
+		if err != nil {
+			return "", fmt.Errorf("error: %v", err)
+		}
+
+		_, _, err = cli.ImageInspectWithRaw(context.Background(), funcName)
+		if err != nil {
+			return "", fmt.Errorf("error: %v", err)
+		}
+
+		fakeMeta = TaskMetaData{
+			Id:        -1,
+			Type:      task.TaskTypeDocker,
+			ImageName: funcName,
+			Name:      funcName,
+		}
+	case task.TaskTypeProcess:
+
+		fakeMeta = TaskMetaData{
+			Id:       -1,
+			Type:     task.TaskTypeProcess,
+			ExecName: funcName,
+			Name:     funcName,
+		}
+	case task.TaskTypeDylib:
+		panic("not implemented")
+	case task.TaskTypeWasm:
+		panic("not implemented")
+	default:
+		panic("invalid task type")
+	}
+
+	log.Infof("Using metadata: %+v", fakeMeta)
+
+	cfg := w.metaDataToTaskCfg(fakeMeta)
+	if cfg == nil {
+		return "", fmt.Errorf("error: invalid task type: %d", funcType)
+	}
+
 	rt, err := task.GetTaskRuntime(funcType)
 	if err != nil {
 		return "", fmt.Errorf("error: %v", err)
 	}
 
+	newTask, err := rt.CreateTask(cfg)
+	if err != nil {
+		return "", fmt.Errorf("error: %v", err)
+	}
+	err = w.commMgr.InstallToTask(newTask)
+	if err != nil {
+		return "", fmt.Errorf("error: %v", err)
+	}
+
+	log.Debugf("Starting task: %s", newTask.Name())
+	newTask.Start()
+
+	res := ""
+	builder := flatbuffers.NewBuilder(512)
+	methodOff := builder.CreateString(method)
+	dataOff := builder.CreateString(data)
+	custom.CustomRequestStart(builder)
+	custom.CustomRequestAddMethodStr(builder, methodOff)
+	custom.CustomRequestAddParamsStr(builder, dataOff)
+	builder.Finish(custom.CustomRequestEnd(builder))
+
+	if r, err := w.commMgr.SendOutgoingRPCRequest(newTask, transport.MethodCustom,
+		builder.FinishedBytes()); err != nil {
+		return "", fmt.Errorf("error: %v", err)
+	} else {
+		if len(r.ResponseBytes()) == 0 {
+			return "", nil // no response
+		}
+		customResp := custom.GetRootAsCustomResponse(r.ResponseBytes(), 0)
+		// marshal the result
+		if resTmp, err := json.Marshal(customResp.DataBytes()); err != nil {
+			return "", fmt.Errorf("error: %v", err)
+		} else {
+			res = string(resTmp)
+		}
+	}
+
+	// terminate the task by sending a signal
+	if err := w.commMgr.SendOutgoingRPCSignal(newTask, transport.SignalTerminate,
+		[]byte{}); err != nil {
+		return "", fmt.Errorf("error: %v", err)
+	}
+
+	if wait {
+		// wait for the task to finish
+		newTask.Wait()
+	}
+
+	return res, nil
+}
+
+func (w *Spearlet) ExecuteTask(taskId int64, funcType task.TaskType, wait bool,
+	method string, data string) (string, error) {
 	// get metadata from taskId
 	meta, ok := tmpMetaData[int(taskId)]
 	if !ok {
 		return "", fmt.Errorf("error: invalid task id: %d", taskId)
+	}
+	if funcType == task.TaskTypeUnknown {
+		funcType = meta.Type
 	}
 	if meta.Type != funcType {
 		return "", fmt.Errorf("error: invalid task type: %d, %+v",
@@ -328,6 +430,12 @@ func (w *Spearlet) ExecuteTask(taskId int64, funcType task.TaskType, wait bool,
 	if cfg == nil {
 		return "", fmt.Errorf("error: invalid task type: %d", funcType)
 	}
+
+	rt, err := task.GetTaskRuntime(funcType)
+	if err != nil {
+		return "", fmt.Errorf("error: %v", err)
+	}
+
 	newTask, err := rt.CreateTask(cfg)
 	if err != nil {
 		return "", fmt.Errorf("error: %v", err)

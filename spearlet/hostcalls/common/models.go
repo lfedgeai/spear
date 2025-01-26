@@ -2,7 +2,6 @@ package common
 
 import (
 	"os"
-	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -10,11 +9,12 @@ import (
 type OpenAIFunctionType int
 
 type APIEndpointInfo struct {
-	Name   string
-	Model  string
-	Base   *string
-	APIKey string
-	Url    string
+	Name        string
+	Model       string
+	Base        *string
+	APIKey      string // used if APIKeyInEnv is empty
+	APIKeyInEnv string // if not empty, the API key is in env var
+	Url         string
 }
 
 const (
@@ -42,18 +42,18 @@ var (
 	APIEndpointMap = map[OpenAIFunctionType][]APIEndpointInfo{
 		OpenAIFunctionTypeChatWithTools: {
 			{
-				Name:   "deepseek-toolchat",
-				Model:  "deepseek-chat",
-				Base:   &DeepSeekBase,
-				APIKey: os.Getenv("DEEPSEEK_API_KEY"),
-				Url:    "/chat/completions",
+				Name:        "deepseek-toolchat",
+				Model:       "deepseek-chat",
+				Base:        &DeepSeekBase,
+				APIKeyInEnv: "DEEPSEEK_API_KEY",
+				Url:         "/chat/completions",
 			},
 			{
-				Name:   "openai-toolchat",
-				Model:  "gpt-4o",
-				Base:   &OpenAIBase,
-				APIKey: os.Getenv("OPENAI_API_KEY"),
-				Url:    "/chat/completions",
+				Name:        "openai-toolchat",
+				Model:       "gpt-4o",
+				Base:        &OpenAIBase,
+				APIKeyInEnv: "OPENAI_API_KEY",
+				Url:         "/chat/completions",
 			},
 			{
 				Name:   "qwen-toolchat-72b",
@@ -93,11 +93,11 @@ var (
 		},
 		OpenAIFunctionTypeChatOnly: {
 			{
-				Name:   "openai-chat",
-				Model:  "gpt-4o",
-				Base:   &OpenAIBase,
-				APIKey: os.Getenv("OPENAI_API_KEY"),
-				Url:    "/chat/completions"},
+				Name:        "openai-chat",
+				Model:       "gpt-4o",
+				Base:        &OpenAIBase,
+				APIKeyInEnv: "OPENAI_API_KEY",
+				Url:         "/chat/completions"},
 			{
 				Name:   "llama-chat",
 				Model:  "llama",
@@ -108,11 +108,11 @@ var (
 		},
 		OpenAIFunctionTypeEmbeddings: {
 			{
-				Name:   "openai-embed",
-				Model:  "text-embedding-ada-002",
-				Base:   &OpenAIBase,
-				APIKey: os.Getenv("OPENAI_API_KEY"),
-				Url:    "/embeddings",
+				Name:        "openai-embed",
+				Model:       "text-embedding-ada-002",
+				Base:        &OpenAIBase,
+				APIKeyInEnv: "OPENAI_API_KEY",
+				Url:         "/embeddings",
 			},
 			{
 				Name:   "nomic-embed",
@@ -124,20 +124,20 @@ var (
 		},
 		OpenAIFunctionTypeTextToSpeech: {
 			{
-				Name:   "openai-tts",
-				Model:  "tts-1",
-				Base:   &OpenAIBase,
-				APIKey: os.Getenv("OPENAI_API_KEY"),
-				Url:    "/audio/speech",
+				Name:        "openai-tts",
+				Model:       "tts-1",
+				Base:        &OpenAIBase,
+				APIKeyInEnv: "OPENAI_API_KEY",
+				Url:         "/audio/speech",
 			},
 		},
 		OpenAIFunctionTypeImageGeneration: {
 			{
-				Name:   "openai-genimage",
-				Model:  "dall-e-3",
-				Base:   &OpenAIBase,
-				APIKey: os.Getenv("OPENAI_API_KEY"),
-				Url:    "/images/generations",
+				Name:        "openai-genimage",
+				Model:       "dall-e-3",
+				Base:        &OpenAIBase,
+				APIKeyInEnv: "OPENAI_API_KEY",
+				Url:         "/images/generations",
 			},
 		},
 		OpenAIFunctionTypeSpeechToText: {
@@ -149,11 +149,11 @@ var (
 				Url:    "/audio/transcriptions",
 			},
 			{
-				Name:   "openai-whisper",
-				Model:  "whisper-1",
-				Base:   &OpenAIBase,
-				APIKey: os.Getenv("OPENAI_API_KEY"),
-				Url:    "/audio/transcriptions",
+				Name:        "openai-whisper",
+				Model:       "whisper-1",
+				Base:        &OpenAIBase,
+				APIKeyInEnv: "OPENAI_API_KEY",
+				Url:         "/audio/transcriptions",
 			},
 		},
 	}
@@ -169,40 +169,48 @@ func GetAPIEndpointInfo(ft OpenAIFunctionType, modelOrName string) []APIEndpoint
 			res = append(res, info)
 		}
 	}
-	tmpList := make([]APIEndpointInfo, 0)
+
+	// remove if the api key is from env but not set
+	res2 := make([]APIEndpointInfo, 0)
 	for _, e := range res {
-		tmp := &APIEndpointInfo{
-			Name:   e.Name,
-			Model:  e.Model,
-			Base:   e.Base,
-			APIKey: "********",
-			Url:    e.Url,
+		if e.APIKeyInEnv != "" {
+			key := os.Getenv(e.APIKeyInEnv)
+			if key == "" {
+				// skip if the key is not set
+				continue
+			}
+			res2 = append(res2, e)
+			res2[len(res2)-1].APIKey = key
+		} else {
+			res2 = append(res2, e)
 		}
-		if e.APIKey == "" {
-			tmp.APIKey = ""
-		}
-		tmpList = append(tmpList, *tmp)
 	}
-	log.Infof("Found %d endpoint(s) for %s: %v", len(tmpList), modelOrName, tmpList)
-	return res
+
+	func() {
+		// print the endpoint info found
+		tmpList := make([]APIEndpointInfo, 0)
+		for _, e := range res2 {
+			tmp := &APIEndpointInfo{
+				Name:   e.Name,
+				Model:  e.Model,
+				Base:   e.Base,
+				APIKey: "********",
+				Url:    e.Url,
+			}
+			if e.APIKey == "" {
+				tmp.APIKey = ""
+			}
+			tmpList = append(tmpList, *tmp)
+		}
+		log.Infof("Found %d endpoint(s) for %s: %v", len(tmpList), modelOrName, tmpList)
+	}()
+
+	return res2
 }
 
 func init() {
-	if os.Getenv("OPENAI_API_KEY") == "" {
-		log.Warnf("OPENAI_API_KEY not set, disabling openai functions")
-		newAPIEndpointMap := map[OpenAIFunctionType][]APIEndpointInfo{}
-		for ft, infoList := range APIEndpointMap {
-			newInfoList := []APIEndpointInfo{}
-			for _, info := range infoList {
-				// copy data only if the name does not contain "openai"
-				if !strings.Contains(info.Name, "openai") {
-					newInfoList = append(newInfoList, info)
-				}
-			}
-			newAPIEndpointMap[ft] = newInfoList
-		}
-		APIEndpointMap = newAPIEndpointMap
-	} else {
-		OpenAIBase = "https://api.openai.com/v1"
+	if os.Getenv("OPENAI_API_BASE") != "" {
+		// official "https://api.openai.com/v1"
+		OpenAIBase = os.Getenv("OPENAI_API_BASE")
 	}
 }
