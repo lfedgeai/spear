@@ -8,6 +8,7 @@ import struct
 import threading
 import time
 import traceback
+from typing import Callable
 
 import flatbuffers as fbs
 
@@ -324,7 +325,7 @@ class HostAgent(object):
         self,
         method: int,
         req_buf: bytes,
-        cb,
+        cb: Callable[[TransportResponse.TransportResponse], None],
     ):
         new_id = self._global_id
         self._global_id += 1

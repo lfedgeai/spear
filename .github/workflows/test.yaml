@@ -49,17 +49,20 @@ jobs:
       run: |
         docker pull qdrant/qdrant:latest
 
-    - name: Set environment variables and run test program
+    - name: Run tests
       run: |
-        ip_address=$(ip addr show eth0 | grep -oP 'inet \K[\d.]+')
-        echo "IP Address: $ip_address"
-        export SPEAR_RPC_ADDR=$ip_address
-        echo "SPEAR_RPC_ADDR=$ip_address" >> $GITHUB_ENV
-        OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-        HUGGINGFACEHUB_API_TOKEN=${{ secrets.HUGGINGFACEHUB_API_TOKEN }}
-        export OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-        export HUGGINGFACEHUB_API_TOKEN=${{ secrets.HUGGINGFACEHUB_API_TOKEN }}
-        echo "SPEAR_RPC_ADDR=$ip_address" >> $GITHUB_ENV
-        echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
-        echo "HUGGINGFACEHUB_API_TOKEN=${{ secrets.HUGGINGFACEHUB_API_TOKEN }}" >> $GITHUB_ENV
-        go test -v ./test/simple_req_test.go
+        make test
+    # - name: Set environment variables and run test program
+    #   run: |
+    #     ip_address=$(ip addr show eth0 | grep -oP 'inet \K[\d.]+')
+    #     echo "IP Address: $ip_address"
+    #     export SPEAR_RPC_ADDR=$ip_address
+    #     echo "SPEAR_RPC_ADDR=$ip_address" >> $GITHUB_ENV
+    #     OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+    #     HUGGINGFACEHUB_API_TOKEN=${{ secrets.HUGGINGFACEHUB_API_TOKEN }}
+    #     export OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+    #     export HUGGINGFACEHUB_API_TOKEN=${{ secrets.HUGGINGFACEHUB_API_TOKEN }}
+    #     echo "SPEAR_RPC_ADDR=$ip_address" >> $GITHUB_ENV
+    #     echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
+    #     echo "HUGGINGFACEHUB_API_TOKEN=${{ secrets.HUGGINGFACEHUB_API_TOKEN }}" >> $GITHUB_ENV
+    #     go test -v ./test/simple_req_test.go
