@@ -52,6 +52,6 @@ format: format_python format_golang
 
 pkg/spear:
 	allfiles=`find ${REPO_ROOT}/proto -name "*.fbs"`; \
-	flatc -o $(REPO_ROOT)/pkg/ -I ${REPO_ROOT}/proto --go-module-name "github.com/lfedgeai/spear/pkg" --go $${allfiles}
+	flatc -o $(REPO_ROOT)/pkg/ -I ${REPO_ROOT}/proto --go-module-name "github.com/lfedgeai/spear/pkg" --go --gen-all $${allfiles}
 
 .PHONY: all spearlet test workload clean format_python format

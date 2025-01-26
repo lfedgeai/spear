@@ -11,7 +11,7 @@ build: spear/proto
 
 spear/proto:
 	allfiles=`find ${REPO_ROOT}/proto -name "*.fbs"`; \
-	flatc -o ${CURRENT_DIR}/ -I ${REPO_ROOT}/proto --python --python-typing $${allfiles}
+	flatc -o ${CURRENT_DIR}/ -I ${REPO_ROOT}/proto --python --python-typing --gen-all $${allfiles}
 
 clean:
 	rm -rf ${CURRENT_DIR}/spear/proto && \

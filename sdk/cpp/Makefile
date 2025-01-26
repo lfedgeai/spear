@@ -7,7 +7,7 @@ all: include/proto
 
 include/proto:
 	allfiles=`find ${REPO_ROOT}/proto -name "*.fbs"`; \
-	flatc -o ${CURRENT_DIR}/include/proto -I ${REPO_ROOT}/proto --cpp $${allfiles}
+	flatc -o ${CURRENT_DIR}/include/proto -I ${REPO_ROOT}/proto --cpp --gen-all $${allfiles}
 
 clean:
 	rm -rf ${CURRENT_DIR}/include/proto;
