@@ -65,7 +65,7 @@ type TaskMetaData struct {
 }
 
 var (
-	tmpMetaData = map[int]TaskMetaData{
+	tmpMetaData = map[int64]TaskMetaData{
 		3: {
 			Id:        3,
 			Type:      task.TaskTypeDocker,
@@ -412,7 +412,7 @@ func (w *Spearlet) ExecuteTaskNoMeta(funcName string, funcType task.TaskType,
 func (w *Spearlet) ExecuteTask(taskId int64, funcType task.TaskType, wait bool,
 	method string, data string) (string, error) {
 	// get metadata from taskId
-	meta, ok := tmpMetaData[int(taskId)]
+	meta, ok := tmpMetaData[taskId]
 	if !ok {
 		return "", fmt.Errorf("error: invalid task id: %d", taskId)
 	}
