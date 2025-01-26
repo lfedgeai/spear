@@ -34,7 +34,7 @@ test: workload
 	go test -v test/... && \
 	for dir in $(SUBDIRS); do \
 		make -C $$dir test; \
-	done \
+	done; \
 	popd
 
 workload: build
