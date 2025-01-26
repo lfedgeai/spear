@@ -30,10 +30,12 @@ spearlet: pkg/spear
 
 test: workload
 	@set -e; \
-	go test -v $(REPO_ROOT)/test/... && \
+	pushd $(REPO_ROOT); \
+	go test -v test/... && \
 	for dir in $(SUBDIRS); do \
 		make -C $$dir test; \
-	done
+	done \
+	popd
 
 workload: build
 	@set -e; \
