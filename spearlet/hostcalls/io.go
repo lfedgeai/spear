@@ -193,6 +193,16 @@ func Record(inv *hostcalls.InvocationInfo, args []byte) ([]byte, error) {
 		return nil, fmt.Errorf("could not get RecordRequest")
 	}
 
+	if req.Dryrun() {
+		builder := flatbuffers.NewBuilder(0)
+		textOff := builder.CreateString("test test test")
+
+		protoio.RecordResponseStart(builder)
+		protoio.RecordResponseAddText(builder, textOff)
+		builder.Finish(protoio.RecordResponseEnd(builder))
+		return builder.FinishedBytes(), nil
+	}
+
 	model := defaultTTSModel
 	if req.Model() != nil {
 		model = string(req.Model())
@@ -230,11 +240,6 @@ func Record(inv *hostcalls.InvocationInfo, args []byte) ([]byte, error) {
 
 	// Wait for the user to press enter
 	go func() {
-		if req.Dryrun() {
-			time.Sleep(3 * time.Second)
-			close(stopChan)
-			return
-		}
 		_, _ = bufio.NewReader(os.Stdin).ReadBytes('\n')
 		close(stopChan)
 	}()
