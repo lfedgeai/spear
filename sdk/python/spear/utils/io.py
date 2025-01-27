@@ -38,6 +38,7 @@ def speak(
     model: str = None,
     voice: str = None,
     fmt: str = None,
+    dryrun=False,
 ) -> bytes:
     """
     get user input
@@ -58,6 +59,8 @@ def speak(
         SpeakRequest.SpeakRequestAddVoice(builder, voice_off)
     if fmt:
         SpeakRequest.SpeakRequestAddFormat(builder, fmt_off)
+    if dryrun:
+        SpeakRequest.SpeakRequestAddDryrun(builder, dryrun)
 
     data_off = SpeakRequest.SpeakRequestEnd(builder)
     builder.Finish(data_off)

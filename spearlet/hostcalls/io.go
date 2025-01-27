@@ -114,9 +114,11 @@ func Speak(inv *hostcalls.InvocationInfo, args []byte) ([]byte, error) {
 	f.Close()
 	log.Debugf("Created temp file: %s", f.Name())
 
-	err = playMP3(f.Name())
-	if err != nil {
-		return nil, fmt.Errorf("could not play MP3 file: %w", err)
+	if req.Dryrun() {
+		err = playMP3(f.Name())
+		if err != nil {
+			return nil, fmt.Errorf("could not play MP3 file: %w", err)
+		}
 	}
 
 	builder := flatbuffers.NewBuilder(0)
