@@ -82,6 +82,7 @@ require (
 	github.com/chromedp/chromedp v0.11.2
 	github.com/faiface/beep v1.1.0
 	github.com/go-vgo/robotgo v0.110.5
+	github.com/google/flatbuffers v24.3.25+incompatible
 	github.com/gordonklaus/portaudio v0.0.0-20230709114228-aafa478834f5
 	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

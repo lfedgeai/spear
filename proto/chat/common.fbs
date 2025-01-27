@@ -1,0 +1,26 @@
+namespace spear.proto.chat;
+
+enum Role:byte {
+    System = 0,
+    User = 1,
+    Assistant = 2,
+    Developer = 3,
+    Other = 4,
+}
+
+enum Reason:byte {
+    ToolCalls = 0,
+    Length = 1,
+    Stop = 2,
+    Other = 3,
+}
+
+table ChatMetadata {
+    role: Role;
+    reason: Reason;
+}
+
+table ChatMessage {
+    metadata: ChatMetadata (required);
+    content: string (required);
+}

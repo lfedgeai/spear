@@ -1,0 +1,9 @@
+
+namespace spear.proto.io;
+
+table InputRequest {
+    prompt: string (required);
+    dryrun: bool=false;
+}
+
+root_type InputRequest;

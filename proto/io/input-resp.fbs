@@ -1,0 +1,8 @@
+
+namespace spear.proto.io;
+
+table InputResponse {
+    text: string (required);
+}
+
+root_type InputResponse;

@@ -1,0 +1,7 @@
+namespace spear.proto.tool;
+
+table ToolInvocationResponse {
+    result: string (required);
+}
+
+root_type ToolInvocationResponse;

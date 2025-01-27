@@ -1,0 +1,24 @@
+include "../chat/request.fbs";
+include "../chat/response.fbs";
+
+namespace spear.proto.transform;
+
+enum TransformType : int {
+  Image,
+  Text,
+  Audio,
+  Video,
+  Tensor,
+  Vector,
+  Unknown
+}
+
+enum TransformOperation : int {
+  LLM,
+  Tools,
+  Embeddings,
+  OCR,
+  TextToSpeech,
+  SpeechToText,
+  TextToImage
+}

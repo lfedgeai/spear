@@ -1,0 +1,7 @@
+setuptools
+wheel
+pytest
+pytest-print
+flatbuffers
+dataclasses_json
+numpy

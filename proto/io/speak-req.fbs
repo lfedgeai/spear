@@ -1,0 +1,12 @@
+
+namespace spear.proto.io;
+
+table SpeakRequest {
+    text: string (required);
+    model: string;
+    voice: string;
+    format: string;
+    dryrun: bool=false;
+}
+
+root_type SpeakRequest;

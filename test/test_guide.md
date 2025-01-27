@@ -48,7 +48,7 @@ Example Result:
 ```bash
 === RUN   TestSimpleReq
 time="2024-12-18T15:49:56+08:00" level=info msg="Starting docker hostcall TCP server on port 8502"
-time="2024-12-18T15:50:06+08:00" level=info msg="Starting worker on localhost:8080"
+time="2024-12-18T15:50:06+08:00" level=info msg="Starting spearlet on localhost:8080"
 time="2024-12-18T15:50:11+08:00" level=info msg="Using transform registry chat_with_tools"
 time="2024-12-18T15:50:11+08:00" level=info msg="Using model gpt-4o"
 time="2024-12-18T15:50:11+08:00" level=info msg="Found 1 endpoints for gpt-4o: [{openai-toolchat gpt-4o https://api.chatanywhere.tech/v1 ******** /chat/completions}]"

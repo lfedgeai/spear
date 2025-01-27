@@ -1,8 +1,9 @@
 bin
 bin/dummy_task
-bin/worker
+bin/spearlet
 .idea
 .DS_Store
 *.whl
 *.egg-info
 sdk/python/dist
+__pycache__

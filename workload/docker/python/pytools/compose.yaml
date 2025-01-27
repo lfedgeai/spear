@@ -1,6 +1,6 @@
 services:
-  dummy:
-    image: pytools
+  pytools:
+    image: pytools:latest
     build:
       context: ../../../../
       dockerfile: ./workload/docker/python/pytools/Dockerfile

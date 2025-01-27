@@ -1,0 +1,20 @@
+include "../chat/request.fbs";
+include "../chat/response.fbs";
+include "common.fbs";
+
+namespace spear.proto.transform;
+
+table TranformResponse_DataRaw {
+  data: string (required);
+}
+
+union TransformResponse_Data {
+  spear.proto.chat.ChatCompletionResponse,
+  TranformResponse_DataRaw
+}
+
+table TransformResponse {
+  data: TransformResponse_Data;
+}
+
+root_type TransformResponse;

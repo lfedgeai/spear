@@ -1,6 +1,6 @@
 services:
-  dummy:
-    image: gen_image
+  gen_image:
+    image: gen_image:latest
     build:
       context: .
       dockerfile: Dockerfile

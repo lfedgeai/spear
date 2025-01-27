@@ -1,6 +1,0 @@
-services:
-  dummy:
-    image: voice_chat
-    build:
-      context: .
-      dockerfile: Dockerfile

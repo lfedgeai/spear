@@ -1,0 +1,7 @@
+namespace spear.proto.io;
+
+table RecordResponse {
+    text: string (required);
+}
+
+root_type RecordResponse;

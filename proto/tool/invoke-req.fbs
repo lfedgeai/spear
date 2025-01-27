@@ -1,0 +1,16 @@
+include "common.fbs";
+namespace spear.proto.tool;
+
+
+table Param {
+    key: string;
+    value: string;
+}
+
+table ToolInvocationRequest {
+    tool_info: ToolInfo;
+    tool_name: string;
+    params: [Param];
+}
+
+root_type ToolInvocationRequest;

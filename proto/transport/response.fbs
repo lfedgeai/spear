@@ -1,0 +1,12 @@
+include "../transform/response.fbs";
+
+namespace spear.proto.transport;
+
+table TransportResponse {
+    id: int64 = -1; // negative id is not valid
+    code: int32 = 0;
+    message: string;
+    response: [ubyte];
+}
+
+root_type TransportResponse;
