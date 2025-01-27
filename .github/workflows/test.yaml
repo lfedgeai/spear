@@ -48,6 +48,7 @@ jobs:
     - name: Pull related docker images
       run: |
         docker pull qdrant/qdrant:latest
+        docker pull docker.io/library/alpine:latest
 
     - name: Run tests
       env:

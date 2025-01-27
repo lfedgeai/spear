@@ -8,7 +8,7 @@ all: build
 	docker compose build --no-cache
 
 start:
-	GOOS=linux go build -o $(OUTPUT_DIR)/start \
+	CGO_ENABLED=0 GOOS=linux go build -o $(OUTPUT_DIR)/start \
 	$(CURRENT_DIR)/src/start.go
 
 build: start
