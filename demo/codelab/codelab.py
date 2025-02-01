@@ -37,6 +37,7 @@ def test_tool_cb(content):
 
     @param content: html content string
     """
+    # NOTE: this callback function should not block
     import tempfile
     import webbrowser
     with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as temp_file:
