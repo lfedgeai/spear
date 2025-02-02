@@ -110,7 +110,7 @@ def chat(agent: client.HostAgent, message: str,
 
     TransformRequest.StartOperationsVector(builder, 1)
     builder.PrependInt32(TransformOperation.TransformOperation.LLM)
-    if len(builtin_tools) > 0:
+    if len(builtin_tools) > 0 or len(internal_tools) > 0:
         builder.PrependInt32(TransformOperation.TransformOperation.Tools)
     operations_off = builder.EndVector()
 
