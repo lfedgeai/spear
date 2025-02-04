@@ -9,7 +9,7 @@ import (
 
 func TestLocalPydummy(t *testing.T) {
 	// create config
-	config := spearlet.NewExecSpearletConfig(true, common.SpearPlatformAddress, []string{})
+	config := spearlet.NewExecSpearletConfig(true, common.SpearPlatformAddress, []string{}, true)
 	w := spearlet.NewSpearlet(config)
 	w.Initialize()
 
@@ -23,7 +23,7 @@ func TestLocalPydummy(t *testing.T) {
 
 func TestLocalGenImage(t *testing.T) {
 	// create config
-	config := spearlet.NewExecSpearletConfig(true, common.SpearPlatformAddress, []string{})
+	config := spearlet.NewExecSpearletConfig(true, common.SpearPlatformAddress, []string{}, true)
 	w := spearlet.NewSpearlet(config)
 	w.Initialize()
 
