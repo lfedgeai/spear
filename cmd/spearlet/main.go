@@ -18,11 +18,12 @@ type SpearletConfig struct {
 }
 
 var (
-	execRtTypeStr    string
-	execWorkloadName string
-	execProcFileName string
-	execReqMethod    string
-	execReqPayload   string
+	execRtTypeStr            string
+	execWorkloadName         string
+	execProcFileName         string
+	execReqMethod            string
+	execReqPayload           string
+	execStartBackendServices bool
 
 	runSpearAddr  string
 	runSearchPath []string
@@ -81,7 +82,7 @@ func NewRootCmd() *cobra.Command {
 				}
 
 				// create config
-				config := spearlet.NewExecSpearletConfig(runDebug, runSpearAddr, runSearchPath)
+				config := spearlet.NewExecSpearletConfig(runDebug, runSpearAddr, runSearchPath, execStartBackendServices)
 				w := spearlet.NewSpearlet(config)
 				w.Initialize()
 
@@ -129,6 +130,8 @@ func NewRootCmd() *cobra.Command {
 	// workload request payload
 	execCmd.PersistentFlags().StringVarP(&execReqMethod, "method", "m", "handle", "default method to invoke")
 	execCmd.PersistentFlags().StringVarP(&execReqPayload, "payload", "p", "", "request payload")
+	execCmd.PersistentFlags().BoolVarP(&execStartBackendServices, "backend-services", "b", false,
+		"start backend services")
 	rootCmd.AddCommand(execCmd)
 
 	var serveCmd = &cobra.Command{
