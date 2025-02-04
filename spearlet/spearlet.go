@@ -42,6 +42,9 @@ type SpearletConfig struct {
 	LocalExecution bool
 
 	SpearAddr string
+
+	// backend service
+	StartBackendServices bool
 }
 
 type Spearlet struct {
@@ -115,23 +118,26 @@ var (
 func NewServeSpearletConfig(addr, port string, spath []string, debug bool,
 	spearAddr string) *SpearletConfig {
 	return &SpearletConfig{
-		Addr:           addr,
-		Port:           port,
-		SearchPath:     spath,
-		Debug:          debug,
-		LocalExecution: false,
-		SpearAddr:      spearAddr,
+		Addr:                 addr,
+		Port:                 port,
+		SearchPath:           spath,
+		Debug:                debug,
+		LocalExecution:       false,
+		SpearAddr:            spearAddr,
+		StartBackendServices: true,
 	}
 }
 
-func NewExecSpearletConfig(debug bool, spearAddr string, spath []string) *SpearletConfig {
+func NewExecSpearletConfig(debug bool, spearAddr string, spath []string,
+	startBackendServices bool) *SpearletConfig {
 	return &SpearletConfig{
-		Addr:           "",
-		Port:           "",
-		SearchPath:     spath,
-		Debug:          debug,
-		LocalExecution: true,
-		SpearAddr:      spearAddr,
+		Addr:                 "",
+		Port:                 "",
+		SearchPath:           spath,
+		Debug:                debug,
+		LocalExecution:       true,
+		SpearAddr:            spearAddr,
+		StartBackendServices: startBackendServices,
 	}
 }
 
@@ -165,7 +171,7 @@ func (w *Spearlet) initializeRuntimes() {
 	cfg := &task.TaskRuntimeConfig{
 		Debug:         w.cfg.Debug,
 		Cleanup:       true,
-		StartServices: true,
+		StartServices: w.cfg.StartBackendServices,
 	}
 	task.RegisterSupportedTaskType(task.TaskTypeDocker)
 	task.RegisterSupportedTaskType(task.TaskTypeProcess)
