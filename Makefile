@@ -1,5 +1,5 @@
 
-VERSION := $(shell git describe --tags --always --dirty)
+VERSION := $(shell git describe --tags --match "*" --always --dirty)
 REPO_ROOT := $(shell pwd)
 OUTPUT_DIR := $(REPO_ROOT)/bin
 
