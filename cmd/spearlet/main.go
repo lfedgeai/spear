@@ -169,6 +169,8 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.PersistentFlags().BoolVarP(&runVerbose, "verbose", "v", false, "verbose output")
 	// debug flag
 	rootCmd.PersistentFlags().BoolVarP(&runDebug, "debug", "d", false, "debug mode")
+	// version flag
+	rootCmd.Version = common.Version
 	return rootCmd
 }
 

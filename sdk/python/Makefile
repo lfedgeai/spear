@@ -2,10 +2,12 @@
 
 CURRENT_DIR := $(shell pwd)
 REPO_ROOT := $(shell git rev-parse --show-toplevel)
+VERSION := $(shell git describe --tags --always --dirty | sed 's/-dirty/+dirty/')
 
 all: clean build
 
 build: spear/proto
+	sed -i '' "s/version = .*/version = \"${VERSION}\"/g" ${REPO_ROOT}/sdk/python/pyproject.toml; \
 	python3 -m pip install -r requirements.txt; \
 	python3 -m build
 
