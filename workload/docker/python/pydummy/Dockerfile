@@ -1,4 +1,5 @@
 FROM python:3.12-slim-bookworm
+ARG WHL_FILENAME
 
 # update the package lists
 RUN apt-get update -y
@@ -12,8 +13,8 @@ WORKDIR /
 # COPY ./scripts/start.sh /start
 COPY ./workload/docker/python/pydummy/src/start.py /start
 
-COPY ./sdk/python/dist/spear*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/spear*.whl
-RUN rm /tmp/spear*.whl
+COPY ./sdk/python/dist/$WHL_FILENAME /tmp/
+RUN pip install --no-cache-dir /tmp/$WHL_FILENAME
+RUN rm /tmp/$WHL_FILENAME
 
 CMD ["sleep", "infinity"]

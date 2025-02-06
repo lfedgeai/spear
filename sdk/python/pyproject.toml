@@ -9,9 +9,9 @@ description = "Spear Python SDK"
 authors = [
     { name = "Wilson Wang", email = "wilson.wang@bytedance.com" }
 ]
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 requires-python = ">=3.6"
-version = "v0.0.0"
+version = "0.0.0
 
 [project.urls]
 Homepage = "https://github.com/lfedgeai/spear"

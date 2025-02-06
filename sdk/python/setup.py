@@ -1,6 +1,7 @@
-from setuptools import find_packages, setup
-import subprocess
 import re
+import subprocess
+
+from setuptools import find_packages, setup
 
 
 def convert_to_pep440(version_str):
@@ -46,7 +47,7 @@ setup(
     description="Spear Python SDK",
     author="Wilson Wang",
     author_email="wilson.wang@bytedance.com",
-    license="MIT",
+    license="Apache-2.0",
     python_requires=">=3.6",
     packages=find_packages(include=["spear", "spear.*"]),
     include_package_data=True,
