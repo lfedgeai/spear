@@ -1,4 +1,5 @@
 
+VERSION := $(shell git describe --tags --match "*" --always --dirty)
 REPO_ROOT := $(shell pwd)
 OUTPUT_DIR := $(REPO_ROOT)/bin
 
@@ -26,6 +27,7 @@ build: spearlet
 
 spearlet: pkg/spear
 	go build -o $(OUTPUT_DIR)/spearlet \
+	-ldflags "-X 'github.com/lfedgeai/spear/pkg/common.Version=$(VERSION)'" \
 	$(REPO_ROOT)/cmd/spearlet/main.go
 
 test: workload

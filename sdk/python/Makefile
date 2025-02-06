@@ -2,10 +2,19 @@
 
 CURRENT_DIR := $(shell pwd)
 REPO_ROOT := $(shell git rev-parse --show-toplevel)
+VERSION := $(shell git describe --tags --match "*" --always --dirty | sed -E 's/^v//' | sed -E 's|^([0-9.]+)-([0-9]+)-g([0-9a-f]+)(-dirty)?$$|\1+\2.g\3\4|' | sed -E 's/-dirty/.dirty/')
+
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+	SED_INPLACE = sed -i ''
+else
+	SED_INPLACE = sed -i
+endif
 
 all: clean build
 
 build: spear/proto
+	$(SED_INPLACE) "s/version = .*/version = \"${VERSION}\"/g" ${REPO_ROOT}/sdk/python/pyproject.toml; \
 	python3 -m pip install -r requirements.txt; \
 	python3 -m build
 
