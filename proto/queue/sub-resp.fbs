@@ -1,0 +1,9 @@
+include "common.fbs";
+
+namespace spear.proto.queue;
+
+table MQSubResponse {
+  queue_id: int64;
+}
+
+root_type MQSubResponse;

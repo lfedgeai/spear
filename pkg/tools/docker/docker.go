@@ -44,7 +44,11 @@ func NewTestSetup() *TestSetup {
 	t.startVectorStoreContainer()
 
 	// setup the test environment
-	cfg := spearlet.NewServeSpearletConfig("localhost", "8080", []string{}, true, common.SpearPlatformAddress)
+	cfg, err := spearlet.NewServeSpearletConfig("localhost", "8080", []string{}, true,
+		common.SpearPlatformAddress, "", "", true)
+	if err != nil {
+		panic(err)
+	}
 	t.w = spearlet.NewSpearlet(cfg)
 	t.w.Initialize()
 	go t.w.StartServer()

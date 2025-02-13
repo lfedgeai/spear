@@ -1,0 +1,9 @@
+include "common.fbs";
+
+namespace spear.proto.queue;
+
+table MQDeleteRequest {
+  queue_id: int64;
+}
+
+root_type MQDeleteRequest;

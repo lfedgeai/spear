@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -62,32 +63,47 @@ func main() {
 
 	done := make(chan bool)
 
-	hdl.RegisterIncomingCustomRequestHandler("handle", func(args *custom.CustomRequest) (*custom.CustomResponse, error) {
-		defer func() {
-			done <- true
-		}()
-		log.Debugf("Incoming request: %v", args)
-		str := string(args.ParamsStr())
-		// make sure args is a string
-		resp, err := generateImage(str)
-		if err != nil {
-			log.Errorf("failed to generate image: %v", err)
-			return nil, err
-		}
-		log.Debugf("Generated image: %v", resp)
+	hdl.RegisterIncomingCustomRequestHandler("handle",
+		func(args *custom.CustomRequest) (*custom.CustomResponse, error) {
+			defer func() {
+				done <- true
+			}()
+			log.Debugf("Incoming request: %v", args)
+			if args.RequestInfoType() != custom.RequestInfoNormalRequestInfo {
+				log.Errorf("we do not support types other than NormalReqeustInfo.")
+				return nil, fmt.Errorf("we do not support types other than NormalReqeustInfo.")
+			}
 
-		builder := flatbuffers.NewBuilder(0)
-		respOff := builder.CreateByteVector(resp)
+			tbl := flatbuffers.Table{}
+			if !args.RequestInfo(&tbl) {
+				log.Errorf("failed to get table from request info.")
+				return nil, fmt.Errorf("failed to get table from request info.")
+			}
+			req := &custom.NormalRequestInfo{}
+			req.Init(tbl.Bytes, tbl.Pos)
 
-		custom.CustomResponseStart(builder)
-		custom.CustomResponseAddData(builder, respOff)
-		builder.Finish(custom.CustomResponseEnd(builder))
+			str := string(req.ParamsStr())
+			// make sure args is a string
+			resp, err := generateImage(str)
+			if err != nil {
+				log.Errorf("failed to generate image: %v", err)
+				return nil, err
+			}
 
-		respBytes := builder.FinishedBytes()
+			log.Debugf("Generated image: %v", resp)
 
-		customResp := custom.GetRootAsCustomResponse(respBytes, 0)
-		return customResp, nil
-	})
+			builder := flatbuffers.NewBuilder(0)
+			respOff := builder.CreateByteVector(resp)
+
+			custom.CustomResponseStart(builder)
+			custom.CustomResponseAddData(builder, respOff)
+			builder.Finish(custom.CustomResponseEnd(builder))
+
+			respBytes := builder.FinishedBytes()
+
+			customResp := custom.GetRootAsCustomResponse(respBytes, 0)
+			return customResp, nil
+		})
 	go hdl.Run()
 
 	<-done
