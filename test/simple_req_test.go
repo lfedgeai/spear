@@ -5,15 +5,18 @@ import (
 
 	"github.com/lfedgeai/spear/pkg/common"
 	"github.com/lfedgeai/spear/spearlet"
+	"github.com/lfedgeai/spear/spearlet/task"
 )
 
 func TestLocalPydummy(t *testing.T) {
 	// create config
-	config := spearlet.NewExecSpearletConfig(true, common.SpearPlatformAddress, []string{}, true)
+	config := spearlet.NewExecSpearletConfig(true, common.SpearPlatformAddress,
+		[]string{}, true)
 	w := spearlet.NewSpearlet(config)
 	w.Initialize()
 
-	res, err := w.ExecuteTaskByName("pydummy", true, "handle", "")
+	res, _, err := w.RunTask(-1, "pydummy", task.TaskTypeDocker, "handle", "", nil,
+		true, true)
 	if err != nil {
 		t.Fatalf("Error executing workload: %v", err)
 	}
@@ -23,11 +26,13 @@ func TestLocalPydummy(t *testing.T) {
 
 func TestLocalGenImage(t *testing.T) {
 	// create config
-	config := spearlet.NewExecSpearletConfig(true, common.SpearPlatformAddress, []string{}, true)
+	config := spearlet.NewExecSpearletConfig(true, common.SpearPlatformAddress,
+		[]string{}, true)
 	w := spearlet.NewSpearlet(config)
 	w.Initialize()
 
-	res, err := w.ExecuteTaskByName("gen_image", true, "handle", "a red bird.")
+	res, _, err := w.RunTask(-1, "gen_image", task.TaskTypeDocker, "handle",
+		"a red bird", nil, true, true)
 	if err != nil {
 		t.Fatalf("Error executing workload: %v", err)
 	}

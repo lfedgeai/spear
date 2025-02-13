@@ -1,7 +1,8 @@
 namespace spear.proto.custom;
 
 table CustomResponse {
-    data: [ubyte] (required);
+    return_stream: bool = false;
+    data: [ubyte];
 }
 
 root_type CustomResponse;

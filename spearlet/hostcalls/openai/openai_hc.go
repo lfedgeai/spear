@@ -28,7 +28,7 @@ type OpenAIChatToolCall struct {
 type OpenAIChatMessage struct {
 	Role       string               `json:"role"`
 	Content    string               `json:"content"`
-	ToolCalls  []OpenAIChatToolCall `json:"tool_calls"`
+	ToolCalls  []OpenAIChatToolCall `json:"tool_calls,omitempty"`
 	ToolCallId string               `json:"tool_call_id"`
 }
 
@@ -71,7 +71,7 @@ type OpenAIChatCompletionRequest struct {
 	Messages          []OpenAIChatMessage      `json:"messages"`
 	Model             string                   `json:"model"`
 	ParallelToolCalls *bool                    `json:"parallel_tool_calls,omitempty"`
-	Tools             []OpenAIChatToolFunction `json:"tools"`
+	Tools             []OpenAIChatToolFunction `json:"tools,omitempty"`
 }
 
 type EndpointInfo struct {
@@ -86,15 +86,22 @@ func OpenAIChatCompletion(ep common.APIEndpointInfo, chatReq *OpenAIChatCompleti
 	}
 
 	// create a https request to https://<base_url>/chat/completions and use b as the request body
-	u := *ep.Base + ep.Url
-	log.Debugf("URL: %s", u)
-	log.Debugf("Request: %s", string(jsonBytes))
+	l := *ep.Base
+	r := ep.Url
+	var u string
+	if l[len(l)-1] == '/' && r[0] == '/' {
+		u = l[:len(l)-1] + r
+	} else {
+		u = *ep.Base + ep.Url
+	}
+	log.Infof("URL: %s", u)
+	log.Infof("Request: %s", string(jsonBytes))
 	res, err := net.SendRequest(u, bytes.NewBuffer(jsonBytes), net.ContentTypeJSON, ep.APIKey)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %v", err)
 	}
 
-	log.Debugf("Response: %s", string(res))
+	log.Infof("Response: %s", string(res))
 	respData := OpenAIChatCompletionResponse{}
 	err = json.Unmarshal(res, &respData)
 	if err != nil {
@@ -106,7 +113,8 @@ func OpenAIChatCompletion(ep common.APIEndpointInfo, chatReq *OpenAIChatCompleti
 		var tmpMap map[string]map[string]string
 		err = json.Unmarshal(res, &tmpMap)
 		if err != nil {
-			return nil, fmt.Errorf("error unmarshalling response: %v", err)
+			return nil, fmt.Errorf("error unmarshalling response: %v. Content: %s",
+				err, res)
 		}
 		if tmpMap["error"] != nil {
 			return nil, fmt.Errorf("error from OpenAI: %v", tmpMap["error"])

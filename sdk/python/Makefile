@@ -11,6 +11,12 @@ else
 	SED_INPLACE = sed -i
 endif
 
+FLATC := $(shell command -v flatc 2> /dev/null)
+
+ifndef FLATC
+  $(error "flatc binary not found in PATH. Please install flatc.")
+endif
+
 all: clean build
 
 build: spear/proto
@@ -20,7 +26,7 @@ build: spear/proto
 
 spear/proto:
 	allfiles=`find ${REPO_ROOT}/proto -name "*.fbs"`; \
-	flatc -o ${CURRENT_DIR}/ -I ${REPO_ROOT}/proto --python --python-typing --gen-all $${allfiles}
+	$(FLATC) -o ${CURRENT_DIR}/ -I ${REPO_ROOT}/proto --python --python-typing --gen-all $${allfiles}
 
 clean:
 	rm -rf ${CURRENT_DIR}/spear/proto && \

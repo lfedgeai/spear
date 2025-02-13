@@ -1,0 +1,27 @@
+#!/bin/bash
+
+CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+REPO_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../../" &> /dev/null && pwd )"
+
+# check if screen command is there
+if ! command -v screen &> /dev/null
+then
+    echo "screen command could not be found"
+    exit
+fi
+
+# check if curl command is there
+if ! command -v curl &> /dev/null
+then
+    echo "curl command could not be found"
+    exit
+fi
+
+function start_server() {
+    # append all parameters to this function to the end of spearlet serve command
+    ${REPO_ROOT}/bin/spearlet serve -k ${REPO_ROOT}/test/server.key -c ${REPO_ROOT}/test/server.crt $@
+}
+
+function wait_keypress() {
+    read -p "Press any key to continue..."
+}

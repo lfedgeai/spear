@@ -12,7 +12,7 @@ from typing import Callable
 
 import flatbuffers as fbs
 
-from spear.proto.custom import CustomRequest
+from spear.proto.custom import CustomRequest, NormalRequestInfo, RequestInfo
 from spear.proto.tool import (InternalToolInfo, ToolInfo,
                               ToolInvocationRequest, ToolInvocationResponse)
 from spear.proto.transport import (Method, Signal, TransportMessageRaw,
@@ -195,7 +195,20 @@ class HostAgent(object):
                 custom_req = CustomRequest.CustomRequest.GetRootAsCustomRequest(
                     req.RequestAsNumpy(), 0
                 )
-
+                if custom_req.RequestInfoType() != RequestInfo.RequestInfo.NormalRequestInfo:
+                    logger.error("streaming not yet supported. Type: %s, Expected: %s",
+                                 custom_req.RequestInfoType(),
+                                 RequestInfo.RequestInfo.NormalRequestInfo)
+                    self._put_rpc_error(
+                        req.Id(),
+                        -32601,
+                        "stream not supported yet",
+                        "stream not supported yet",
+                    )
+                    continue
+                normal_req = NormalRequestInfo.NormalRequestInfo()
+                normal_req.Init(custom_req.RequestInfo().Bytes, custom_req.RequestInfo().Pos)
+                params_str = normal_req.ParamsStr().decode("utf-8")
                 handler = self._handlers.get(
                     custom_req.MethodStr().decode("utf-8"))
                 if handler is None:
@@ -222,7 +235,7 @@ class HostAgent(object):
                             args=(
                                 handler,
                                 req.Id(),
-                                custom_req.ParamsStr().decode("utf-8"),
+                                params_str,
                             ),
                         )
                         t.daemon = True

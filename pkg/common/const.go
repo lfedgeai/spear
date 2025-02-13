@@ -2,7 +2,10 @@ package common
 
 import "runtime"
 
-const MaxDataResponseSize = 4096 * 1024
+const (
+	MaxDataRequestSize  = 4096 * 1024
+	MaxDataResponseSize = 4096 * 1024
+)
 
 var SpearPlatformAddress string
 

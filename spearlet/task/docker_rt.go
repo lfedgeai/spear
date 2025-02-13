@@ -35,7 +35,13 @@ func NewDockerTaskRuntime(rtCfg *TaskRuntimeConfig) (*DockerTaskRuntime, error) 
 	// create docker client
 	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
-		log.Errorf("Error creating docker client: %v", err)
+		log.Warnf("Error creating docker client: %v", err)
+		return nil, err
+	}
+
+	// check if the daemon is running
+	if _, err := cli.Ping(context.Background()); err != nil {
+		log.Warnf("Error pinging docker daemon: %v", err)
 		return nil, err
 	}
 

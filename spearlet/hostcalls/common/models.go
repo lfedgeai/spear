@@ -9,12 +9,12 @@ import (
 type OpenAIFunctionType int
 
 type APIEndpointInfo struct {
-	Name        string
-	Model       string
-	Base        *string
-	APIKey      string // used if APIKeyInEnv is empty
-	APIKeyInEnv string // if not empty, the API key is in env var
-	Url         string
+	Name        string  `json:"name"`
+	Model       string  `json:"model"`
+	Base        *string `json:"base"`
+	APIKey      string  `json:"apikey"`        // used if APIKeyInEnv is empty
+	APIKeyInEnv string  `json:"apikey_in_env"` // if not empty, the API key is in env var
+	Url         string  `json:"url"`
 }
 
 const (
