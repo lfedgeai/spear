@@ -196,7 +196,9 @@ class HostAgent(object):
                     req.RequestAsNumpy(), 0
                 )
                 if custom_req.RequestInfoType() != RequestInfo.RequestInfo.NormalRequestInfo:
-                    logger.error("streaming not yet supported")
+                    logger.error("streaming not yet supported. Type: %s, Expected: %s",
+                                 custom_req.RequestInfoType(),
+                                 RequestInfo.RequestInfo.NormalRequestInfo)
                     self._put_rpc_error(
                         req.Id(),
                         -32601,
