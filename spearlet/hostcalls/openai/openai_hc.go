@@ -106,7 +106,8 @@ func OpenAIChatCompletion(ep common.APIEndpointInfo, chatReq *OpenAIChatCompleti
 		var tmpMap map[string]map[string]string
 		err = json.Unmarshal(res, &tmpMap)
 		if err != nil {
-			return nil, fmt.Errorf("error unmarshalling response: %v", err)
+			return nil, fmt.Errorf("error unmarshalling response: %v. Content: %s",
+				err, res)
 		}
 		if tmpMap["error"] != nil {
 			return nil, fmt.Errorf("error from OpenAI: %v", tmpMap["error"])
