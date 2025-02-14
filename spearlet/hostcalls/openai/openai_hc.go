@@ -86,15 +86,22 @@ func OpenAIChatCompletion(ep common.APIEndpointInfo, chatReq *OpenAIChatCompleti
 	}
 
 	// create a https request to https://<base_url>/chat/completions and use b as the request body
-	u := *ep.Base + ep.Url
-	log.Debugf("URL: %s", u)
-	log.Debugf("Request: %s", string(jsonBytes))
+	l := *ep.Base
+	r := ep.Url
+	var u string
+	if l[len(l)-1] == '/' && r[0] == '/' {
+		u = l[:len(l)-1] + r
+	} else {
+		u = *ep.Base + ep.Url
+	}
+	log.Infof("URL: %s", u)
+	log.Infof("Request: %s", string(jsonBytes))
 	res, err := net.SendRequest(u, bytes.NewBuffer(jsonBytes), net.ContentTypeJSON, ep.APIKey)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %v", err)
 	}
 
-	log.Debugf("Response: %s", string(res))
+	log.Infof("Response: %s", string(res))
 	respData := OpenAIChatCompletionResponse{}
 	err = json.Unmarshal(res, &respData)
 	if err != nil {
