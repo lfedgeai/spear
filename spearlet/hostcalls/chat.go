@@ -213,6 +213,7 @@ func innerChatCompletion(inv *hcommon.InvocationInfo, chatReq *chat.ChatCompleti
 		openAiChatReq2 := hcopenai.OpenAIChatCompletionRequest{
 			Model:    string(chatReq.Model()),
 			Messages: []hcopenai.OpenAIChatMessage{},
+			Tools:    []hcopenai.OpenAIChatToolFunction{},
 		}
 		// build the messages
 		for _, msg := range mem.GetMessages() {
