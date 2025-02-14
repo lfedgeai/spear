@@ -525,7 +525,7 @@ func (w *Spearlet) ExecuteTask2(taskId int64, funcType task.TaskType, method str
 		dataOff = builder.CreateString(reqData)
 	}
 
-	if reqData != "" {
+	if reqStream == nil {
 		custom.NormalRequestInfoStart(builder)
 		custom.NormalRequestInfoAddParamsStr(builder, dataOff)
 		infoOff := custom.NormalRequestInfoEnd(builder)
