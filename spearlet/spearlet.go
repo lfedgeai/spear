@@ -518,14 +518,12 @@ func (w *Spearlet) ExecuteTask2(taskId int64, funcType task.TaskType, method str
 		respMQueueID: make(chan task.Message, 1024),
 	}
 
-	var dataOff flatbuffers.UOffsetT
 	builder := flatbuffers.NewBuilder(512)
 	methodOff := builder.CreateString(method)
-	if reqData != "" {
-		dataOff = builder.CreateString(reqData)
-	}
 
 	if reqStream == nil {
+		dataOff := builder.CreateString(reqData)
+
 		custom.NormalRequestInfoStart(builder)
 		custom.NormalRequestInfoAddParamsStr(builder, dataOff)
 		infoOff := custom.NormalRequestInfoEnd(builder)
