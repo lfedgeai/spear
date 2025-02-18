@@ -27,7 +27,7 @@ const (
 )
 
 var (
-	OpenAIBase            = "https://api.chatanywhere.tech/v1"
+	OpenAIBase            = "https://api.openai.com/v1"
 	GaiaToolLlamaGroqBase = "https://llamatool.us.gaianet.network/v1"
 	GaiaToolLlama70BBase  = "https://llama70b.gaia.domains/v1"
 	GaiaToolLlama8BBase   = "https://llama8b.gaia.domains/v1"
@@ -201,6 +201,11 @@ func GetAPIEndpointInfo(ft OpenAIFunctionType, modelOrName string) []APIEndpoint
 				tmp.APIKey = ""
 			}
 			tmpList = append(tmpList, *tmp)
+			baseValue := "nil"
+			if e.Base != nil {
+				baseValue = *e.Base
+			}
+			log.Infof("API_Base %s ",baseValue)
 		}
 		log.Infof("Found %d endpoint(s) for %s: %v", len(tmpList), modelOrName, tmpList)
 	}()
