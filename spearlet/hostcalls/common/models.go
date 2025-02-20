@@ -212,6 +212,7 @@ func GetAPIEndpointInfo(ft OpenAIFunctionType, modelOrName string) []APIEndpoint
 }
 
 func init() {
+	log.Infof("OPENAI_API_BASE: %s", os.Getenv("OPENAI_API_BASE"))
 	if os.Getenv("OPENAI_API_BASE") != "" {
 		// official "https://api.openai.com/v1"
 		OpenAIBase = os.Getenv("OPENAI_API_BASE")
