@@ -202,7 +202,7 @@ func GetAPIEndpointInfo(ft OpenAIFunctionType, modelOrName string) []APIEndpoint
 			}
 			tmpList = append(tmpList, *tmp)
 		}
-		log.Infof("Found %d endpoint(s) for %s: %v", len(tmpList), modelOrName, tmpList)
+		log.Infof("Found %d endpoint(s) for %s: %+v", len(tmpList), modelOrName, tmpList)
 	}()
 
 	return res2
@@ -212,5 +212,6 @@ func init() {
 	if os.Getenv("OPENAI_API_BASE") != "" {
 		// official "https://api.openai.com/v1"
 		OpenAIBase = os.Getenv("OPENAI_API_BASE")
+		log.Infof("Setting OpenAIBase to %s", OpenAIBase)
 	}
 }
