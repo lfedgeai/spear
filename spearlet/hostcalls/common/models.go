@@ -202,7 +202,10 @@ func GetAPIEndpointInfo(ft OpenAIFunctionType, modelOrName string) []APIEndpoint
 			}
 			tmpList = append(tmpList, *tmp)
 		}
-		log.Infof("Found %d endpoint(s) for %s: %+v", len(tmpList), modelOrName, tmpList)
+		for _, e := range tmpList {
+			log.Infof("Found endpoint for %s: name=%s, model=%s, base=%s, apikey=%s, url=%s",
+				modelOrName, e.Name, e.Model, *e.Base, e.APIKey, e.Url)
+		}
 	}()
 
 	return res2
