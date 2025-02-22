@@ -22,8 +22,6 @@ func AudioASR(inv *hostcalls.InvocationInfo,
 		return nil, fmt.Errorf("error unwrapping ASRRequest: %v", err)
 	}
 
-	log.Infof("Using model %s", asrReq.Model())
-
 	req2 := &oai.OpenAISpeechToTextRequest{
 		Model: string(asrReq.Model()),
 		Audio: asrReq.AudioBytes(),
@@ -32,6 +30,10 @@ func AudioASR(inv *hostcalls.InvocationInfo,
 	if len(ep) == 0 {
 		return nil, fmt.Errorf("error getting endpoint for model %s", req2.Model)
 	}
+
+	req2.Model = ep[0].Model
+	log.Infof("Using model %s", req2.Model)
+
 	res, err := oai.OpenAISpeechToText(ep[0], req2)
 	if err != nil {
 		return nil, fmt.Errorf("error calling openai AudioASR: %v", err)

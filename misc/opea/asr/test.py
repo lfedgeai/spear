@@ -20,7 +20,7 @@ agent = client.HostAgent()
 
 
 TEST_ASR_MODEL = "whisper-small"
-WAV_FILE = "../../../misc/opea/asr/bmaher0.wav"
+WAV_FILE = "../../../misc/opea/asr/english_male_tts.wav"
 
 
 def handle(params):
@@ -29,14 +29,8 @@ def handle(params):
     """
     logger.info("Handling request: %s", params)
 
-    logger.info("testing ASR")
     test_asr(TEST_ASR_MODEL)
 
-    # test("text-embedding-ada-002")
-    # test("bge-large-en-v1.5")
-
-    time.sleep(10)
-    # agent.stop()
 
 
 def test_asr(model):
@@ -46,7 +40,7 @@ def test_asr(model):
     logger.info("Testing ASR: %s", model)
 
     # load file content using relative path from current directory
-    # ../../../misc/opea/asr/bmaher0.wav
+    # ../../../misc/opea/asr/english_male_tts.wav
     with open(WAV_FILE, "rb") as f:
         data = f.read()
         res = speech.audio_asr(agent, data, model=model)

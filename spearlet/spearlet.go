@@ -762,9 +762,11 @@ func (w *Spearlet) handler(req *http.Request, resp http.ResponseWriter) {
 		[]byte{}); err != nil {
 		log.Warnf("Error: %v", err)
 	}
-	if err := t.Stop(); err != nil {
-		log.Warnf("Error stopping task: %v", err)
-	}
+	go func() {
+		if err := t.Stop(); err != nil {
+			log.Warnf("Error stopping task: %v", err)
+		}
+	}()
 }
 
 func (w *Spearlet) addRoutes() {

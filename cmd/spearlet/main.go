@@ -158,6 +158,8 @@ func NewRootCmd() *cobra.Command {
 					[]byte{}); err != nil {
 					log.Warnf("Error: %v", err)
 				}
+				// stop the task with out running in a goroutine to avoid
+				// existing without terminating the workload
 				if err := t.Stop(); err != nil {
 					log.Warnf("Error stopping task: %v", err)
 				}

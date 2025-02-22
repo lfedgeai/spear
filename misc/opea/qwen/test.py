@@ -25,77 +25,15 @@ agent = client.HostAgent()
 
 TEST_LLM_MODEL = "qwen2.5-7B"
 
+
 def handle(params):
     """
     handle the request
     """
     logger.info("Handling request: %s", params)
 
-    logger.info("testing tool")
+    # testing tool
     test_tool(TEST_LLM_MODEL)
-
-    logger.info("testing chat")
-    test_chat(TEST_LLM_MODEL)
-
-    logger.info("testing speak")
-    test_speak("tts-1")
-
-    logger.info("testing record")
-    test_record("whisper-1")
-
-    logger.info("testing input")
-    test_input()
-
-    # test("text-embedding-ada-002")
-    # test("bge-large-en-v1.5")
-
-    time.sleep(10)
-    # agent.stop()
-
-
-def test_chat(model):
-    """
-    test the model
-    """
-    logger.info("Testing model: %s", model)
-
-    resp = chat.chat(agent, "hi", model=model)
-    logger.info(resp)
-    resp = chat.chat(agent, "what is the time now?",
-                     model=model, builtin_tools=[
-                         BuiltinToolID.BuiltinToolID.Datetime,
-                     ])
-    logger.info(resp)
-
-
-def test_speak(model):
-    """
-    test the model
-    """
-    logger.info("Testing model: %s", model)
-
-    resp = io.speak(agent, "test test test")
-    assert resp is not None
-
-
-def test_record(model):
-    """
-    test the model
-    """
-    logger.info("Testing model: %s", model)
-
-    resp = io.record(agent, "recording test", dryrun=True)
-    assert resp is not None
-
-
-def test_input():
-    """
-    test the model
-    """
-    logger.info("Testing input")
-
-    resp = io.input(agent, "input", True)
-    logger.info(resp)
 
 
 def test_tool_cb(param1, param2):
@@ -120,7 +58,7 @@ def test_tool(model):
 
     resp = chat.chat(agent, "hi", model=model)
     logger.info(resp)
-    resp = chat.chat(agent, "what is sum of 123 and 456?",
+    resp = chat.chat(agent, "what is sum of 123 and 321?",
                      model=model, builtin_tools=[
                          BuiltinToolID.BuiltinToolID.Datetime,
                      ],

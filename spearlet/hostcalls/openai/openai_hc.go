@@ -310,7 +310,7 @@ func OpenAISpeechToText(ep common.APIEndpointInfo, args *OpenAISpeechToTextReque
 		return nil, fmt.Errorf("error sending request: %v", err)
 	}
 
-	log.Debugf("Speech to Text Response: %s", string(res))
+	log.Infof("Speech to Text Response: %s", string(res))
 	respData := OpenAISpeechToTextResponse{}
 	err = json.Unmarshal(res, &respData)
 	if err != nil {
