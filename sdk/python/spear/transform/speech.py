@@ -26,7 +26,7 @@ DEFAULT_ASR_MODEL = "whisper-1"
 
 def audio_asr(agent: client.HostAgent, data, model=DEFAULT_ASR_MODEL) -> str:
     """
-    test the model
+    convert audio to text
     """
     logger.info("Testing ASR model: %s with data len: %d", model, len(data))
 
