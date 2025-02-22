@@ -29,7 +29,7 @@ type OpenAIChatMessage struct {
 	Role       string               `json:"role"`
 	Content    string               `json:"content"`
 	ToolCalls  []OpenAIChatToolCall `json:"tool_calls,omitempty"`
-	ToolCallId string               `json:"tool_call_id"`
+	ToolCallId string               `json:"tool_call_id,omitempty"`
 }
 
 type OpenAIChatCompletionResponse struct {
