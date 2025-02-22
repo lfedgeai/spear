@@ -1,0 +1,11 @@
+include "common.fbs";
+
+namespace spear.proto.speech;
+
+table ASRRequest {
+    model: string;
+    audio: [ubyte];
+    audio_format: string;
+}
+
+root_type ASRRequest;

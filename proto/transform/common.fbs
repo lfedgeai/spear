@@ -19,6 +19,6 @@ enum TransformOperation : int {
   Embeddings,
   OCR,
   TextToSpeech,
-  SpeechToText,
+  ASR,
   TextToImage
 }

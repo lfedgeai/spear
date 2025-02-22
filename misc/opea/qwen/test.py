@@ -23,7 +23,7 @@ logger.setLevel(logging.DEBUG)
 agent = client.HostAgent()
 
 
-TEST_LLM_MODEL = "gpt-4o" #"qwen2.5-7B"
+TEST_LLM_MODEL = "qwen2.5-7B"
 
 def handle(params):
     """

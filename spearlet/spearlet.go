@@ -358,20 +358,24 @@ func (w *Spearlet) metaDataToTaskCfg(meta TaskMetaData) *task.TaskConfig {
 			Cmd:      "/start",
 			Args:     []string{},
 			Image:    meta.ImageName,
+			WorkDir:  "",
 			HostAddr: w.spearAddr,
 		}
 	case task.TaskTypeProcess:
 		// go though search patch to find ExecName
 		execName := ""
+		execPath := ""
 		for _, path := range w.cfg.SearchPath {
 			log.Infof("Searching for exec %s in path %s", meta.ExecName, path)
 			if _, err := os.Stat(filepath.Join(path, meta.ExecName)); err == nil {
 				execName = filepath.Join(path, meta.ExecName)
+				execPath = path
 				break
 			}
 		}
-		if execName == "" {
-			log.Errorf("Error: exec not found: %s", meta.Name)
+		if execName == "" || execPath == "" {
+			log.Errorf("Error: exec name %s and path %s not found",
+				meta.ExecName, execPath)
 			return nil
 		}
 		log.Infof("Using exec: %s", execName)
@@ -380,6 +384,7 @@ func (w *Spearlet) metaDataToTaskCfg(meta TaskMetaData) *task.TaskConfig {
 			Cmd:      execName,
 			Args:     []string{},
 			Image:    "",
+			WorkDir:  execPath,
 			HostAddr: w.spearAddr,
 		}
 	default:
@@ -419,7 +424,6 @@ func (w *Spearlet) ExecuteTaskByName(taskName string, funcType task.TaskType, me
 			Name:      taskName,
 		}
 	case task.TaskTypeProcess:
-
 		fakeMeta = TaskMetaData{
 			Id:       -1,
 			Type:     task.TaskTypeProcess,

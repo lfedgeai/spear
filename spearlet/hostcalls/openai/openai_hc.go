@@ -274,7 +274,7 @@ func OpenAISpeechToText(ep common.APIEndpointInfo, args *OpenAISpeechToTextReque
 		return nil, fmt.Errorf("error unmarshalling args: %v", err)
 	}
 
-	log.Debugf("SpeechToText Request: %v", sttReq)
+	log.Debugf("AudioASR Request: %v", sttReq)
 	u := *ep.Base + ep.Url
 
 	// send data as multipart/form-data

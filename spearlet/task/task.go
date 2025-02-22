@@ -12,6 +12,7 @@ type TaskConfig struct {
 	Image    string
 	Cmd      string
 	Args     []string
+	WorkDir  string
 	HostAddr string
 }
 

@@ -1,5 +1,6 @@
 include "../chat/request.fbs";
 include "../chat/response.fbs";
+include "../speech/asr-resp.fbs";
 include "common.fbs";
 
 namespace spear.proto.transform;
@@ -10,6 +11,7 @@ table TranformResponse_DataRaw {
 
 union TransformResponse_Data {
   spear.proto.chat.ChatCompletionResponse,
+  spear.proto.speech.ASRResponse,
   TranformResponse_DataRaw
 }
 

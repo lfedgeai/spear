@@ -22,7 +22,7 @@ const (
 	OpenAIFunctionTypeChatOnly
 	OpenAIFunctionTypeEmbeddings
 	OpenAIFunctionTypeTextToSpeech
-	OpenAIFunctionTypeSpeechToText
+	OpenAIFunctionTypeASR
 	OpenAIFunctionTypeImageGeneration
 )
 
@@ -140,7 +140,7 @@ var (
 				Url:         "/images/generations",
 			},
 		},
-		OpenAIFunctionTypeSpeechToText: {
+		OpenAIFunctionTypeASR: {
 			{
 				Name:   "gaia-whisper",
 				Model:  "whisper",

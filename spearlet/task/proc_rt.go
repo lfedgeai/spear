@@ -68,6 +68,7 @@ func (p *ProcessTaskRuntime) CreateTask(cfg *TaskConfig) (Task, error) {
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, fmt.Sprintf("SERVICE_ADDR=127.0.0.1:%s", p.listenPort))
 	cmd.Env = append(cmd.Env, fmt.Sprintf("SECRET=%d", task.secret))
+	cmd.Dir = cfg.WorkDir
 
 	task.cmd = cmd
 
