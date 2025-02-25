@@ -1,0 +1,10 @@
+include "common.fbs";
+
+namespace spear.proto.queue;
+
+table MQPubRequest {
+  queue_id: int64;
+  data: [ubyte] (required);
+}
+
+root_type MQPubRequest;

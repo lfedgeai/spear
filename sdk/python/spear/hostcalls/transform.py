@@ -32,7 +32,7 @@ class TransformOperation(IntEnum):
     EMBEDDINGS = 2
     OCR = 3
     TEXT_TO_SPEECH = 4
-    SPEECH_TO_TEXT = 5
+    ASR = 5
     TEXT_TO_IMAGE = 6
 
 

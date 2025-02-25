@@ -2,6 +2,7 @@ package task
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -87,7 +89,7 @@ func (p *ProcessTask) Start() error {
 	go func() {
 		if err := p.cmd.Wait(); err != nil {
 			// get stderr output
-			log.Errorf("Error: wait error. %v, command %s", err, p.cmd.String())
+			log.Infof("Wait error. %v, command %s", err, p.cmd.String())
 		}
 
 		// set status to stopped
@@ -110,6 +112,10 @@ func (p *ProcessTask) Start() error {
 				if err != nil {
 					if err == io.EOF {
 						log.Infof("Connection closed for task %s", p.name)
+						return
+					}
+					if errors.Is(err, syscall.ECONNRESET) {
+						log.Warnf("Connection reset for task %s", p.name)
 						return
 					}
 					log.Errorf("Error reading from connection: %v", err)

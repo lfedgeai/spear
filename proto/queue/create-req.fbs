@@ -1,0 +1,13 @@
+include "common.fbs";
+
+namespace spear.proto.queue;
+
+table MQCreateRequest {
+  name: string (required);
+  description: string;
+  idle_timeout_sec: int64 = 0;
+  ttl_sec: int64 = 0;
+  shared: bool = false;
+}
+
+root_type MQCreateRequest;

@@ -56,7 +56,7 @@ def audio_to_text(audio):
         tf.TransformRequest(
             input_types=[tf.TransformType.AUDIO],
             output_types=[tf.TransformType.TEXT],
-            operations=[tf.TransformOperation.SPEECH_TO_TEXT],
+            operations=[tf.TransformOperation.ASR],
             params={
                 "model": STT_MODEL,
                 "audio": audio,

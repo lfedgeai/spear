@@ -3,12 +3,13 @@ package hostcalls
 import (
 	"fmt"
 
+	"github.com/lfedgeai/spear/pkg/spear/proto/transform"
 	"github.com/lfedgeai/spear/spearlet/hostcalls/common"
 	hostcalls "github.com/lfedgeai/spear/spearlet/hostcalls/common"
 	oai "github.com/lfedgeai/spear/spearlet/hostcalls/openai"
 )
 
-func TextToSpeech(inv *hostcalls.InvocationInfo, args interface{}) (interface{}, error) {
+func TextToSpeech(inv *hostcalls.InvocationInfo, args *transform.TransformRequest) ([]byte, error) {
 	// // right now we just call openai TextToSpeech
 	// req := &transform.TextToSpeechRequest{}
 	// err := utils.InterfaceToType(&req, args)

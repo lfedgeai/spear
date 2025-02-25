@@ -5,6 +5,7 @@ import (
 
 	"github.com/lfedgeai/spear/pkg/common"
 	"github.com/lfedgeai/spear/spearlet"
+	"github.com/lfedgeai/spear/spearlet/task"
 )
 
 func TestFunctionality(t *testing.T) {
@@ -13,7 +14,7 @@ func TestFunctionality(t *testing.T) {
 	w := spearlet.NewSpearlet(config)
 	w.Initialize()
 
-	res, err := w.ExecuteTaskByName("pytest-functionality", true, "handle", "")
+	res, _, err := w.RunTask(-1, "pytest-functionality", task.TaskTypeDocker, "handle", "", nil, true, true)
 	if err != nil {
 		t.Fatalf("Error executing workload: %v", err)
 	}

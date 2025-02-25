@@ -12,6 +12,7 @@ type TaskConfig struct {
 	Image    string
 	Cmd      string
 	Args     []string
+	WorkDir  string
 	HostAddr string
 }
 
@@ -35,16 +36,13 @@ const (
 	TaskStatusStopped
 )
 
+var GlobalTaskRuntimes = make(map[TaskType]TaskRuntime)
+
 const (
 	maxDataSize = 4096 * 1024
 )
 
-// global task runtimes
-var (
-	globalTaskRuntimes = make(map[TaskType]TaskRuntime)
-
-	supportedTaskTypes = []TaskType{}
-)
+var supportedTaskTypes = []TaskType{}
 
 // message type []bytes
 type Message []byte
@@ -140,15 +138,16 @@ func InitTaskRuntimes(cfg *TaskRuntimeConfig) {
 		case TaskTypeDocker:
 			rt, err := NewDockerTaskRuntime(cfg)
 			if err != nil {
-				panic(err)
+				log.Warn("Failed to init Docker runtime")
+				continue
 			}
-			globalTaskRuntimes[TaskTypeDocker] = rt
+			GlobalTaskRuntimes[TaskTypeDocker] = rt
 		case TaskTypeProcess:
-			globalTaskRuntimes[TaskTypeProcess] = NewProcessTaskRuntime()
+			GlobalTaskRuntimes[TaskTypeProcess] = NewProcessTaskRuntime()
 		case TaskTypeDylib:
-			globalTaskRuntimes[TaskTypeDylib] = &DylibTaskRuntime{}
+			GlobalTaskRuntimes[TaskTypeDylib] = &DylibTaskRuntime{}
 		case TaskTypeWasm:
-			globalTaskRuntimes[TaskTypeWasm] = &WasmTaskRuntime{}
+			GlobalTaskRuntimes[TaskTypeWasm] = &WasmTaskRuntime{}
 		default:
 			panic("invalid task type")
 		}
@@ -156,7 +155,7 @@ func InitTaskRuntimes(cfg *TaskRuntimeConfig) {
 }
 
 func StopTaskRuntimes() {
-	for rtName, rt := range globalTaskRuntimes {
+	for rtName, rt := range GlobalTaskRuntimes {
 		log.Debugf("Stopping task runtime: %v", rtName)
 		rt.Stop()
 	}
@@ -185,7 +184,7 @@ func UnregisterSupportedTaskType(taskType TaskType) {
 
 // factory method for TaskRuntime
 func GetTaskRuntime(taskType TaskType) (TaskRuntime, error) {
-	if rt, ok := globalTaskRuntimes[taskType]; ok {
+	if rt, ok := GlobalTaskRuntimes[taskType]; ok {
 		return rt, nil
 	}
 	return nil, fmt.Errorf("task runtime not found")
