@@ -116,6 +116,12 @@ async fn test_admin_list_nodes_empty() {
         )
         .await
         .unwrap();
+    let admin_llm_config_client =
+        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let state = GatewayState {
         config: Arc::new(SmsConfig::default()),
         node_client,
@@ -126,6 +132,7 @@ async fn test_admin_list_nodes_empty() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        admin_llm_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -247,6 +254,12 @@ async fn test_admin_list_nodes_filter_and_sort() {
         )
         .await
         .unwrap();
+    let admin_llm_config_client =
+        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let state = GatewayState {
         config: Arc::new(SmsConfig::default()),
         node_client,
@@ -257,6 +270,7 @@ async fn test_admin_list_nodes_filter_and_sort() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        admin_llm_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -373,6 +387,12 @@ async fn test_admin_stats() {
         )
         .await
         .unwrap();
+    let admin_llm_config_client =
+        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let state = GatewayState {
         config: Arc::new(SmsConfig::default()),
         node_client,
@@ -383,6 +403,7 @@ async fn test_admin_stats() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        admin_llm_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -458,6 +479,12 @@ async fn test_admin_nodes_stream() {
         )
         .await
         .unwrap();
+    let admin_llm_config_client =
+        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let state = GatewayState {
         config: Arc::new(SmsConfig::default()),
         node_client,
@@ -468,6 +495,7 @@ async fn test_admin_nodes_stream() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        admin_llm_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -579,6 +607,12 @@ async fn test_admin_node_detail_includes_resource() {
         )
         .await
         .unwrap();
+    let admin_llm_config_client =
+        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let state = GatewayState {
         config: Arc::new(SmsConfig::default()),
         node_client,
@@ -589,6 +623,7 @@ async fn test_admin_node_detail_includes_resource() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        admin_llm_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -666,6 +701,12 @@ async fn test_admin_mcp_servers_crud() {
         )
         .await
         .unwrap();
+    let admin_llm_config_client =
+        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
 
     let state = GatewayState {
         config: Arc::new(SmsConfig::default()),
@@ -677,6 +718,7 @@ async fn test_admin_mcp_servers_crud() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        admin_llm_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -782,6 +824,12 @@ async fn test_admin_mcp_servers_validation() {
         )
         .await
         .unwrap();
+    let admin_llm_config_client =
+        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
 
     let state = GatewayState {
         config: Arc::new(SmsConfig::default()),
@@ -793,6 +841,7 @@ async fn test_admin_mcp_servers_validation() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        admin_llm_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),

@@ -51,6 +51,8 @@ use crate::proto::sms::{
     DeleteModelDeploymentResponse,
     DeleteNodeRequest,
     DeleteNodeResponse,
+    DeleteRemoteBackendRequest,
+    DeleteRemoteBackendResponse,
     EventEnvelope,
     EventOp,
     Execution,
@@ -80,12 +82,12 @@ use crate::proto::sms::{
     ListModelDeploymentsResponse,
     ListNodeBackendSnapshotsRequest,
     ListNodeBackendSnapshotsResponse,
-    ListRemoteBackendsRequest,
-    ListRemoteBackendsResponse,
     ListNodeResourcesRequest,
     ListNodeResourcesResponse,
     ListNodesRequest,
     ListNodesResponse,
+    ListRemoteBackendsRequest,
+    ListRemoteBackendsResponse,
     ListTaskInstancesRequest,
     ListTaskInstancesResponse,
     ListTasksRequest,
@@ -106,6 +108,7 @@ use crate::proto::sms::{
     // Task service messages / 任务服务消息
     RegisterTaskRequest,
     RegisterTaskResponse,
+    RemoteBackendConfig,
     ReportExecutionResponse,
     ReportInstanceResponse,
     ReportInvocationOutcomeRequest,
@@ -133,9 +136,6 @@ use crate::proto::sms::{
     UpsertModelDeploymentResponse,
     UpsertRemoteBackendRequest,
     UpsertRemoteBackendResponse,
-    DeleteRemoteBackendRequest,
-    DeleteRemoteBackendResponse,
-    RemoteBackendConfig,
     WatchMcpServersRequest,
     WatchMcpServersResponse,
     WatchModelDeploymentsRequest,
@@ -292,11 +292,15 @@ impl AdminLlmConfigState {
         if !replaced {
             snap.backends.push(backend);
         }
-        snap.backends
-            .sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+        snap.backends.sort_by(|a, b| {
+            a.name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase())
+        });
         snap.revision = snap.revision.saturating_add(1);
 
-        let bytes = serialization::serialize(&*snap).map_err(|e| Status::internal(e.to_string()))?;
+        let bytes =
+            serialization::serialize(&*snap).map_err(|e| Status::internal(e.to_string()))?;
         self.kv
             .put(&ADMIN_REMOTE_BACKENDS_KEY.to_string(), &bytes)
             .await
@@ -1343,7 +1347,10 @@ impl AdminLlmConfigServiceTrait for SmsServiceImpl {
     ) -> Result<Response<DeleteRemoteBackendResponse>, Status> {
         let name = request.into_inner().name;
         let (revision, deleted) = self.admin_llm_config.delete(&name).await?;
-        Ok(Response::new(DeleteRemoteBackendResponse { revision, deleted }))
+        Ok(Response::new(DeleteRemoteBackendResponse {
+            revision,
+            deleted,
+        }))
     }
 }
 

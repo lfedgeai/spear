@@ -33,6 +33,7 @@ async fn backend_snapshot_report_and_query_works() {
             provider: "openai".to_string(),
             model: String::new(),
             hosting: BackendHosting::Remote as i32,
+            credential_ref: String::new(),
         }],
     };
 

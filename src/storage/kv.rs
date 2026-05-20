@@ -1333,7 +1333,6 @@ pub fn create_kv_store(store_type: KvStoreType) -> Result<Box<dyn KvStore>, SmsE
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[tokio::test]
     async fn test_memory_kv_basic_operations() {

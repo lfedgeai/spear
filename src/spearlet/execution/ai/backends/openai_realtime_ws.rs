@@ -82,7 +82,6 @@ impl BackendAdapter for OpenAIRealtimeWsBackendAdapter {
                 format!("Bearer ${{env:{}}}", api_key_env),
             ));
         }
-        headers.push(("OpenAI-Beta".to_string(), "realtime=v1".to_string()));
 
         Ok(StreamingPlan::Websocket(StreamingWebsocketPlan {
             prepare: Vec::new(),
@@ -92,10 +91,14 @@ impl BackendAdapter for OpenAIRealtimeWsBackendAdapter {
                 client_events: vec![serde_json::json!({
                     "type": "session.update",
                     "session": {
-                        "input_audio_format": "pcm16",
-                        "input_audio_transcription": {
-                            "model": model,
-                        },
+                        "type": "realtime",
+                        "output_modalities": ["text"],
+                        "audio": {
+                            "input": {
+                                "format": { "type": "audio/pcm", "rate": 24000 },
+                                "transcription": { "model": model },
+                            }
+                        }
                     }
                 })],
                 supports_turn_detection: true,
@@ -134,11 +137,18 @@ fn derive_openai_realtime_ws_url(base_url: &str) -> Result<String, CanonicalErro
     })?;
 
     let mut path = u.path().trim_end_matches('/').to_string();
-    if !path.ends_with("/v1") {
-        path = format!("{path}/v1");
+    if !path.ends_with("/realtime") {
+        if path.ends_with("/v1") {
+            path = format!("{path}/realtime");
+        } else {
+            path = format!("{path}/v1/realtime");
+        }
+        u.set_path(&path);
     }
-    u.set_path(&format!("{}/realtime", path));
-    u.set_query(Some("model=gpt-realtime"));
+    let has_model = u.query_pairs().any(|(k, _)| k == "model");
+    if !has_model {
+        u.set_query(Some("model=gpt-realtime"));
+    }
     Ok(u.to_string())
 }
 

@@ -1,8 +1,8 @@
+use super::errno::{EACCES, EBADF, EINVAL, EIO};
 use crate::spearlet::execution::ai::ir::{CanonicalRequestEnvelope, Payload, ResultPayload};
 use crate::spearlet::execution::ai::ir::{ChatMessage, ToolCall};
 use crate::spearlet::execution::ai::normalize::chat::normalize_cchat_session;
 use crate::spearlet::execution::host_api::DefaultHostApi;
-use super::errno::{EACCES, EBADF, EINVAL, EIO};
 use crate::spearlet::execution::hostcall::types::{
     ChatResponseState, ChatSessionState, FdEntry, FdFlags, FdInner, FdKind, PollEvents,
 };

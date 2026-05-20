@@ -1,13 +1,13 @@
 //! User stream bridge (WS <-> WASM fd) / 用户流桥接（WS <-> WASM fd）
 
+use crate::spearlet::execution::host_api::errno::{
+    SPEAR_EAGAIN, SPEAR_EBADF, SPEAR_EINVAL, SPEAR_ENOSPC, SPEAR_ENOTCONN, SPEAR_EPIPE,
+};
 use crate::spearlet::execution::host_api::DefaultHostApi;
 use crate::spearlet::execution::hostcall::fd_table::FdTable;
 use crate::spearlet::execution::hostcall::types::{
     FdEntry, FdFlags, FdInner, FdKind, PollEvents, UserStreamChannel, UserStreamConnState,
     UserStreamCtlState, UserStreamDirection, UserStreamState,
-};
-use crate::spearlet::execution::host_api::errno::{
-    SPEAR_EAGAIN, SPEAR_EBADF, SPEAR_EINVAL, SPEAR_ENOSPC, SPEAR_ENOTCONN, SPEAR_EPIPE,
 };
 use dashmap::DashMap;
 use std::collections::HashSet;
@@ -607,10 +607,7 @@ mod tests {
     fn test_parse_ssf_v1_header_rejects_bad_magic() {
         let mut frame = ssf::build_ssf_v1_frame(1, 2, b"{}", b"hello");
         frame[0] = b'X';
-        assert_eq!(
-            ssf::parse_ssf_v1_header(&frame).unwrap_err(),
-            -SPEAR_EINVAL
-        );
+        assert_eq!(ssf::parse_ssf_v1_header(&frame).unwrap_err(), -SPEAR_EINVAL);
     }
 
     #[test]
@@ -618,19 +615,13 @@ mod tests {
         let mut frame = ssf::build_ssf_v1_frame(1, 2, b"{}", b"hello");
         frame[4] = 2;
         frame[5] = 0;
-        assert_eq!(
-            ssf::parse_ssf_v1_header(&frame).unwrap_err(),
-            -SPEAR_EINVAL
-        );
+        assert_eq!(ssf::parse_ssf_v1_header(&frame).unwrap_err(), -SPEAR_EINVAL);
     }
 
     #[test]
     fn test_parse_ssf_v1_header_rejects_short_frame() {
         let frame = vec![0u8; 31];
-        assert_eq!(
-            ssf::parse_ssf_v1_header(&frame).unwrap_err(),
-            -SPEAR_EINVAL
-        );
+        assert_eq!(ssf::parse_ssf_v1_header(&frame).unwrap_err(), -SPEAR_EINVAL);
     }
 
     #[test]
@@ -638,10 +629,7 @@ mod tests {
         let mut frame = ssf::build_ssf_v1_frame(1, 2, b"{}", b"hello");
         frame[6] = 16;
         frame[7] = 0;
-        assert_eq!(
-            ssf::parse_ssf_v1_header(&frame).unwrap_err(),
-            -SPEAR_EINVAL
-        );
+        assert_eq!(ssf::parse_ssf_v1_header(&frame).unwrap_err(), -SPEAR_EINVAL);
     }
 
     #[test]
@@ -649,10 +637,7 @@ mod tests {
         let mut frame = ssf::build_ssf_v1_frame(1, 2, b"{}", b"hello");
         let wrong = 1234u32.to_le_bytes();
         frame[24..28].copy_from_slice(&wrong);
-        assert_eq!(
-            ssf::parse_ssf_v1_header(&frame).unwrap_err(),
-            -SPEAR_EINVAL
-        );
+        assert_eq!(ssf::parse_ssf_v1_header(&frame).unwrap_err(), -SPEAR_EINVAL);
     }
 
     #[test]

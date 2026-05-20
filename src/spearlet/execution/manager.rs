@@ -2135,9 +2135,7 @@ mod tests {
     use super::*;
     use crate::spearlet::execution::instance;
     use crate::spearlet::execution::runtime;
-    use crate::spearlet::execution::runtime::{
-        Runtime, RuntimeCapabilities, RuntimeType,
-    };
+    use crate::spearlet::execution::runtime::{Runtime, RuntimeCapabilities, RuntimeType};
     use async_trait::async_trait;
     use std::collections::HashMap as StdHashMap;
     use tokio::time::sleep;

@@ -206,11 +206,14 @@ pub(crate) async fn resolve_spearlet_ws_url(
     };
     let node_uuid = n.uuid.clone();
     let ip = n.ip_address;
-    if ip.parse::<std::net::IpAddr>()
+    if ip
+        .parse::<std::net::IpAddr>()
         .map(|ip| ip.is_unspecified())
         .unwrap_or(true)
     {
-        return Err(format!("node has invalid ip_address (node_uuid={node_uuid}): {ip}"));
+        return Err(format!(
+            "node has invalid ip_address (node_uuid={node_uuid}): {ip}"
+        ));
     }
     let http_port = if n.http_port > 0 {
         n.http_port as u16

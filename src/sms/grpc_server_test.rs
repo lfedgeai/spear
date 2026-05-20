@@ -179,7 +179,6 @@ async fn test_sms_grpc_server_with_different_storage_backends() {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    
 
     #[tokio::test]
     async fn test_sms_grpc_server_lifecycle() {

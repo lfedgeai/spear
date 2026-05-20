@@ -1,10 +1,12 @@
 use crate::spearlet::execution::ai::ir::{Operation, Payload, RoutingHints, SpeechToTextPayload};
 use crate::spearlet::execution::ai::streaming::{StreamingPlan, StreamingWebsocketPlan};
+use crate::spearlet::execution::host_api::errno::{
+    SPEAR_EAGAIN, SPEAR_EBADF, SPEAR_EINVAL, SPEAR_EIO,
+};
 use crate::spearlet::execution::host_api::DefaultHostApi;
 use crate::spearlet::execution::hostcall::types::{
     FdEntry, FdFlags, FdInner, FdKind, PollEvents, RtAsrConnState, RtAsrSendItem,
 };
-use crate::spearlet::execution::host_api::errno::{SPEAR_EAGAIN, SPEAR_EBADF, SPEAR_EINVAL, SPEAR_EIO};
 use serde_json::json;
 use std::collections::HashMap;
 use std::collections::HashSet;

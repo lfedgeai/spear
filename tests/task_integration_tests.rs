@@ -109,6 +109,10 @@ mod task_test_utils {
             spear_next::proto::sms::backend_registry_service_client::BackendRegistryServiceClient::new(
                 channel.clone(),
             );
+        let admin_llm_config_client =
+            spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::new(
+                channel.clone(),
+            );
         let model_deployment_registry_client = spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::new(channel.clone());
 
         let state = GatewayState {
@@ -121,6 +125,7 @@ mod task_test_utils {
             execution_index_client,
             mcp_registry_client,
             backend_registry_client,
+            admin_llm_config_client,
             model_deployment_registry_client,
             stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
             execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),

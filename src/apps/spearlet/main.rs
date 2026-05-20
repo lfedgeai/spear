@@ -87,9 +87,11 @@ async fn maybe_import_sms_admin_remote_backends(
     }
 
     cfg.llm.backends = by_name.into_values().collect();
-    cfg.llm
-        .backends
-        .sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+    cfg.llm.backends.sort_by(|a, b| {
+        a.name
+            .to_ascii_lowercase()
+            .cmp(&b.name.to_ascii_lowercase())
+    });
 
     tracing::info!(
         remote_backends = imported,
