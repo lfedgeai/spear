@@ -24,6 +24,7 @@ KUBECONFIG_FILE="${KUBECONFIG_FILE:-$ROOT_DIR/.tmp/kubeconfig-kind-${CLUSTER_NAM
 NAMESPACE="${NAMESPACE:-spear}"
 RELEASE_NAME="${RELEASE_NAME:-spear}"
 
+SPEAR_IMAGE_REPO="${SPEAR_IMAGE_REPO:-}"
 SMS_IMAGE_REPO="${SMS_IMAGE_REPO:-spear-sms}"
 SPEARLET_IMAGE_REPO="${SPEARLET_IMAGE_REPO:-spear-spearlet}"
 IMAGE_TAG="${IMAGE_TAG:-local}"
@@ -86,18 +87,36 @@ if [[ "${NO_CACHE}" == "1" ]]; then
   DOCKER_BUILD_FLAGS+=(--no-cache)
 fi
 
-docker build "${DOCKER_BUILD_FLAGS[@]}" -f deploy/docker/sms/Dockerfile --build-arg "DEBIAN_SUITE=${DEBIAN_SUITE}" -t "${SMS_IMAGE_REPO}:${IMAGE_TAG}" .
-if [[ "${SPEARLET_WITH_NODE}" == "1" ]]; then
-  SPEARLET_TARGET="runtime_with_node"
-  if [[ "${SPEARLET_WITH_LLAMA_SERVER}" == "1" ]]; then
-    SPEARLET_TARGET="runtime_with_node_and_llama"
+if [[ -n "${SPEAR_IMAGE_REPO}" ]]; then
+  SMS_IMAGE_REPO="${SPEAR_IMAGE_REPO}"
+  SPEARLET_IMAGE_REPO="${SPEAR_IMAGE_REPO}"
+
+  if [[ "${SPEARLET_WITH_NODE}" == "1" ]]; then
+    SPEAR_TARGET="runtime_with_node"
+    if [[ "${SPEARLET_WITH_LLAMA_SERVER}" == "1" ]]; then
+      SPEAR_TARGET="runtime_with_node_and_llama"
+    fi
+    docker build "${DOCKER_BUILD_FLAGS[@]}" -f deploy/docker/spear/Dockerfile \
+      --build-arg "DEBIAN_SUITE=${DEBIAN_SUITE}" \
+      --target "${SPEAR_TARGET}" \
+      -t "${SPEAR_IMAGE_REPO}:${IMAGE_TAG}" .
+  else
+    docker build "${DOCKER_BUILD_FLAGS[@]}" -f deploy/docker/spear/Dockerfile --build-arg "DEBIAN_SUITE=${DEBIAN_SUITE}" -t "${SPEAR_IMAGE_REPO}:${IMAGE_TAG}" .
   fi
-  docker build "${DOCKER_BUILD_FLAGS[@]}" -f deploy/docker/spearlet/Dockerfile \
-    --build-arg "DEBIAN_SUITE=${DEBIAN_SUITE}" \
-    --target "${SPEARLET_TARGET}" \
-    -t "${SPEARLET_IMAGE_REPO}:${IMAGE_TAG}" .
 else
-  docker build "${DOCKER_BUILD_FLAGS[@]}" -f deploy/docker/spearlet/Dockerfile --build-arg "DEBIAN_SUITE=${DEBIAN_SUITE}" -t "${SPEARLET_IMAGE_REPO}:${IMAGE_TAG}" .
+  docker build "${DOCKER_BUILD_FLAGS[@]}" -f deploy/docker/sms/Dockerfile --build-arg "DEBIAN_SUITE=${DEBIAN_SUITE}" -t "${SMS_IMAGE_REPO}:${IMAGE_TAG}" .
+  if [[ "${SPEARLET_WITH_NODE}" == "1" ]]; then
+    SPEARLET_TARGET="runtime_with_node"
+    if [[ "${SPEARLET_WITH_LLAMA_SERVER}" == "1" ]]; then
+      SPEARLET_TARGET="runtime_with_node_and_llama"
+    fi
+    docker build "${DOCKER_BUILD_FLAGS[@]}" -f deploy/docker/spearlet/Dockerfile \
+      --build-arg "DEBIAN_SUITE=${DEBIAN_SUITE}" \
+      --target "${SPEARLET_TARGET}" \
+      -t "${SPEARLET_IMAGE_REPO}:${IMAGE_TAG}" .
+  else
+    docker build "${DOCKER_BUILD_FLAGS[@]}" -f deploy/docker/spearlet/Dockerfile --build-arg "DEBIAN_SUITE=${DEBIAN_SUITE}" -t "${SPEARLET_IMAGE_REPO}:${IMAGE_TAG}" .
+  fi
 fi
 
 KIND_IMAGES=(

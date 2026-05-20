@@ -166,6 +166,7 @@ fn build_backend_info_list(cfg: &SpearletConfig) -> Vec<BackendInfo> {
             provider: infer_provider(&b.kind),
             model: b.model.clone().unwrap_or_default(),
             hosting: resolve_hosting(b),
+            credential_ref: b.credential_ref.clone().unwrap_or_default(),
         });
     }
 

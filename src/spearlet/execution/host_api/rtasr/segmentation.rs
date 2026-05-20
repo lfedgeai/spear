@@ -1,8 +1,8 @@
+use crate::spearlet::execution::host_api::errno::EINVAL;
 use crate::spearlet::execution::hostcall::types::{
     RtAsrClientCommitConfig, RtAsrClientCommitMode, RtAsrSegmentationConfig,
     RtAsrSegmentationStrategy, RtAsrSendItem, RtAsrState, RtAsrVadConfig,
 };
-use crate::spearlet::execution::host_api::errno::EINVAL;
 
 pub(super) fn parse_segmentation_config(
     v: &serde_json::Value,
@@ -258,6 +258,15 @@ pub(super) fn apply_turn_detection_to_client_events(
         let Some(session) = obj.get_mut("session").and_then(|x| x.as_object_mut()) else {
             continue;
         };
-        session.insert("turn_detection".to_string(), turn_detection.clone());
+        let mut applied = false;
+        if let Some(audio) = session.get_mut("audio").and_then(|x| x.as_object_mut()) {
+            if let Some(input) = audio.get_mut("input").and_then(|x| x.as_object_mut()) {
+                input.insert("turn_detection".to_string(), turn_detection.clone());
+                applied = true;
+            }
+        }
+        if !applied {
+            session.insert("turn_detection".to_string(), turn_detection.clone());
+        }
     }
 }

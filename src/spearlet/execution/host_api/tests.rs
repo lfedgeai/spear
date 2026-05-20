@@ -978,7 +978,12 @@ async fn test_rtasr_websocket_autoflush_bytes_sends_commit() {
     );
     let turn = first
         .get("session")
-        .and_then(|x| x.get("turn_detection"))
+        .and_then(|x| {
+            x.get("audio")
+                .and_then(|a| a.get("input"))
+                .and_then(|i| i.get("turn_detection"))
+                .or_else(|| x.get("turn_detection"))
+        })
         .cloned()
         .unwrap_or(serde_json::Value::Null);
     assert_eq!(
@@ -1209,7 +1214,10 @@ async fn test_user_stream_outbound_write_eagain_and_epollout() {
         .any(|(rfd, ev)| *rfd == fd && ((*ev as u32) & PollEvents::OUT.bits()) != 0));
 
     assert_eq!(api.user_stream_write(fd, &frame_small), 0);
-    assert_eq!(api.user_stream_write(fd, &frame_small), -super::errno::EAGAIN);
+    assert_eq!(
+        api.user_stream_write(fd, &frame_small),
+        -super::errno::EAGAIN
+    );
 
     let ready2 = api.spear_ep_wait_ready(epfd, 0).unwrap();
     assert!(!ready2

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import CreateLocalBackendDialog from '@/features/ai-models/CreateLocalBackendDialog'
+import CreateRemoteBackendDialog from '@/features/ai-models/CreateRemoteBackendDialog'
 import LocalDeploymentsPanel from '@/features/ai-models/LocalDeploymentsPanel'
 
 function StatusBadge({ status }: { status: 'available' | 'unavailable' }) {
@@ -24,6 +25,7 @@ export default function AiModelsPage({ hosting }: { hosting: 'local' | 'remote' 
   const [q, setQ] = useState('')
   const [status, setStatus] = useState<'available' | 'unavailable' | ''>('')
   const [createOpen, setCreateOpen] = useState(false)
+  const [createRemoteOpen, setCreateRemoteOpen] = useState(false)
   const focusDeploymentId = useMemo(
     () => searchParams.get('deployment_id') || '',
     [searchParams],
@@ -69,7 +71,12 @@ export default function AiModelsPage({ hosting }: { hosting: 'local' | 'remote' 
               <Plus className="h-4 w-4" />
               Create
             </Button>
-          ) : null}
+          ) : (
+            <Button variant="secondary" onClick={() => setCreateRemoteOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Create
+            </Button>
+          )}
           <Button
             variant="secondary"
             onClick={() => {
@@ -271,6 +278,16 @@ export default function AiModelsPage({ hosting }: { hosting: 'local' | 'remote' 
             const sp = new URLSearchParams(searchParams.toString())
             sp.set('deployment_id', info.deployment_id)
             setSearchParams(sp, { replace: true })
+          }}
+        />
+      ) : null}
+
+      {hosting === 'remote' ? (
+        <CreateRemoteBackendDialog
+          open={createRemoteOpen}
+          onOpenChange={setCreateRemoteOpen}
+          onCreated={async () => {
+            await query.refetch()
           }}
         />
       ) : null}

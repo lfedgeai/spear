@@ -572,6 +572,10 @@ mod integration_tests {
                 crate::proto::sms::backend_registry_service_client::BackendRegistryServiceClient::new(
                     channel.clone(),
                 ),
+            admin_llm_config_client:
+                crate::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::new(
+                    channel.clone(),
+                ),
             model_deployment_registry_client:
                 crate::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::new(
                     channel.clone(),

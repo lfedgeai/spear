@@ -28,6 +28,8 @@ message BackendInfo {
   string provider = 11;
   string model = 12;
   BackendHosting hosting = 13;
+  // Credential reference name (no secret value) / 凭据引用名称（不包含密钥明文）
+  string credential_ref = 14;
 }
 
 message NodeBackendSnapshot {

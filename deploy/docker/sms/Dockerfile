@@ -3,6 +3,8 @@
 ARG RUST_VERSION=1.91
 ARG DEBIAN_SUITE=trixie
 ARG NODE_IMAGE=node:20-bookworm-slim
+ARG RUST_IMAGE=rust:${RUST_VERSION}-bookworm
+ARG DEBIAN_IMAGE=debian:${DEBIAN_SUITE}-slim
 
 FROM ${NODE_IMAGE} AS web_builder
 WORKDIR /work
@@ -16,7 +18,7 @@ RUN cd /work/web-console \
   && (if [ -f package-lock.json ]; then npm ci --silent; else npm install --silent; fi) \
   && npm run build
 
-FROM rust:${RUST_VERSION}-bookworm AS builder
+FROM ${RUST_IMAGE} AS builder
 
 WORKDIR /work
 
@@ -43,7 +45,7 @@ RUN mkdir -p /usr/local/cargo \
   fi
 
 RUN apt-get update -o Acquire::Retries=3 \
-  && apt-get install -y --no-install-recommends clang libclang-dev \
+  && apt-get install -y --no-install-recommends ca-certificates clang libclang-dev \
   && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./
@@ -59,7 +61,7 @@ COPY --from=web_builder /work/assets/console assets/console
 
 RUN cargo build --release --locked --bin sms
 
-FROM debian:${DEBIAN_SUITE}-slim AS runtime
+FROM ${DEBIAN_IMAGE} AS runtime
 
 RUN apt-get update -o Acquire::Retries=3 \
   && apt-get install -y --no-install-recommends ca-certificates libssl3 \
@@ -86,6 +88,9 @@ COPY --from=builder /work/target/release/build/wasmedge-sys-*/out/standalone/Was
 COPY deploy/docker/entrypoints/sms.sh /entrypoint.sh
 
 ENV LD_LIBRARY_PATH=/usr/local/lib
+
+RUN mkdir -p /var/lib/sms /var/lib/sms/files /var/lib/sms/execution_logs /var/log/sms \
+  && chown -R 10001:10001 /var/lib/sms /var/log/sms
 
 RUN chmod +x /entrypoint.sh
 

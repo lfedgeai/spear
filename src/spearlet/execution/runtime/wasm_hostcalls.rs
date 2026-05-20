@@ -1,7 +1,7 @@
-use crate::spearlet::execution::host_api::{DefaultHostApi, SpearHostApi};
 use crate::spearlet::execution::host_api::errno::{
     SPEAR_EBADF, SPEAR_EFAULT, SPEAR_EINVAL, SPEAR_EIO, SPEAR_ENOSPC, SPEAR_OK,
 };
+use crate::spearlet::execution::host_api::{DefaultHostApi, SpearHostApi};
 use crate::spearlet::execution::runtime::{ResourcePoolConfig, RuntimeConfig};
 use crate::spearlet::execution::ExecutionError;
 use crate::spearlet::execution::RuntimeType;

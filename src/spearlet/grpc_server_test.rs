@@ -272,7 +272,6 @@ async fn test_grpc_server_concurrent_creation() {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    
 
     #[tokio::test]
     async fn test_grpc_server_lifecycle() {

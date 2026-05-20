@@ -1,4 +1,5 @@
 use crate::proto::sms::{
+    admin_llm_config_service_client::AdminLlmConfigServiceClient,
     backend_registry_service_client::BackendRegistryServiceClient,
     execution_index_service_client::ExecutionIndexServiceClient,
     execution_registry_service_client::ExecutionRegistryServiceClient,
@@ -33,6 +34,7 @@ async fn make_router_with_limit(limit: usize) -> Router {
         execution_index_client: ExecutionIndexServiceClient::new(channel.clone()),
         mcp_registry_client: McpRegistryServiceClient::new(channel.clone()),
         backend_registry_client: BackendRegistryServiceClient::new(channel.clone()),
+        admin_llm_config_client: AdminLlmConfigServiceClient::new(channel.clone()),
         model_deployment_registry_client: ModelDeploymentRegistryServiceClient::new(
             channel.clone(),
         ),

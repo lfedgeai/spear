@@ -2,8 +2,10 @@ mod readiness;
 mod source_device;
 mod source_stub;
 
+use crate::spearlet::execution::host_api::errno::{
+    SPEAR_EAGAIN, SPEAR_EBADF, SPEAR_EINVAL, SPEAR_EIO,
+};
 use crate::spearlet::execution::host_api::DefaultHostApi;
-use crate::spearlet::execution::host_api::errno::{SPEAR_EAGAIN, SPEAR_EBADF, SPEAR_EINVAL, SPEAR_EIO};
 use crate::spearlet::execution::hostcall::types::{
     FdEntry, FdFlags, FdInner, FdKind, MicConfig, MicState, PollEvents,
 };

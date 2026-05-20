@@ -25,8 +25,64 @@ English README: [README.md](./README.md)
 ### 前置依赖
 
 - Rust toolchain（建议使用最新 stable）
+- Docker（macOS/Windows 使用 Docker Desktop，Linux 使用 Docker Engine）
+- Docker Compose v2（`docker compose`）
 
 说明：本项目使用 `protoc-bin-vendored`，通常无需手动安装 `protoc`。
+
+### 使用 Docker Compose 本地运行（SMS + SPEARlet）
+
+这是推荐的跨平台本地部署方式（无需 Kubernetes）。会启动：
+
+- SMS（gRPC + HTTP 网关 + 可选 Web Admin）
+- SPEARlet（节点 Agent/Runtime），通过 Compose 网络连接 SMS
+
+使用仓库自带 Compose 文件：
+
+- `deploy/docker/compose.local.yaml`
+
+启动：
+
+```bash
+docker compose -f deploy/docker/compose.local.yaml up -d --build
+```
+
+常用地址（默认宿主机端口）：
+
+- SMS health：`http://127.0.0.1:18080/health`
+- SMS Swagger：`http://127.0.0.1:18080/swagger-ui/`
+- SPEAR Console（由 SMS 托管）：`http://127.0.0.1:18080/console`
+- SMS Web Admin：`http://127.0.0.1:18082/`
+- SPEARlet health：`http://127.0.0.1:18081/health`
+
+停止：
+
+```bash
+docker compose -f deploy/docker/compose.local.yaml down
+```
+
+清理本地数据（volumes）：
+
+```bash
+docker compose -f deploy/docker/compose.local.yaml down -v
+```
+
+常见构建/网络问题：
+
+- 如果 Docker Hub 无法访问，可通过环境变量覆盖基础镜像（示例使用镜像站）：
+
+```bash
+export NODE_IMAGE=docker.m.daocloud.io/library/node:20-bookworm-slim
+export RUST_IMAGE=docker.m.daocloud.io/library/rust:1.91-bookworm
+export DEBIAN_IMAGE=docker.m.daocloud.io/library/debian:trixie-slim
+docker compose -f deploy/docker/compose.local.yaml up -d --build
+```
+
+- 如果你要使用 Local AI Models（llama.cpp），SPEARlet 需要包含 `llama-server`。Compose 默认会使用包含 `llama-server` 的构建 target，也可以显式覆盖：
+
+```bash
+SPEARLET_BUILD_TARGET=runtime_with_node_and_llama docker compose -f deploy/docker/compose.local.yaml up -d --build spearlet
+```
 
 ### 构建
 

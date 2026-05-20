@@ -9,6 +9,7 @@ use tracing::{error, info};
 
 use super::gateway::{create_gateway_router, GatewayState};
 use crate::proto::sms::{
+    admin_llm_config_service_client::AdminLlmConfigServiceClient,
     backend_registry_service_client::BackendRegistryServiceClient,
     execution_index_service_client::ExecutionIndexServiceClient,
     execution_registry_service_client::ExecutionRegistryServiceClient,
@@ -88,6 +89,7 @@ impl HttpGateway {
         let execution_index_client = ExecutionIndexServiceClient::new(channel.clone());
         let mcp_registry_client = McpRegistryServiceClient::new(channel.clone());
         let backend_registry_client = BackendRegistryServiceClient::new(channel.clone());
+        let admin_llm_config_client = AdminLlmConfigServiceClient::new(channel.clone());
         let model_deployment_registry_client =
             ModelDeploymentRegistryServiceClient::new(channel.clone());
 
@@ -101,6 +103,7 @@ impl HttpGateway {
             execution_index_client,
             mcp_registry_client,
             backend_registry_client,
+            admin_llm_config_client,
             model_deployment_registry_client,
             stream_sessions: super::gateway::StreamSessionStore::new(),
             execution_stream_pool: super::gateway::ExecutionStreamPool::new(),

@@ -1,6 +1,6 @@
+use crate::spearlet::execution::host_api::errno::{EBADF, EINVAL};
 use crate::spearlet::execution::hostcall::types::{FdEntry, FdFlags, FdInner, FdKind, PollEvents};
 use dashmap::DashMap;
-use crate::spearlet::execution::host_api::errno::{EBADF, EINVAL};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicI32, Ordering};

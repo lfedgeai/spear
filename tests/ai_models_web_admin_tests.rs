@@ -75,6 +75,10 @@ async fn create_admin_test_server(
             channel.clone(),
         ),
         backend_registry_client: BackendRegistryServiceClient::new(channel.clone()),
+        admin_llm_config_client:
+            spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::new(
+                channel.clone(),
+            ),
         model_deployment_registry_client: ModelDeploymentRegistryServiceClient::new(channel.clone()),
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -123,6 +127,7 @@ async fn test_admin_ai_models_list_filters_hosting() {
                         provider: "ollama".to_string(),
                         model: "llama3".to_string(),
                         hosting: BackendHosting::NodeLocal as i32,
+                        credential_ref: String::new(),
                     },
                     BackendInfo {
                         name: "remote-openai".to_string(),
@@ -138,6 +143,7 @@ async fn test_admin_ai_models_list_filters_hosting() {
                         provider: "openai".to_string(),
                         model: "gpt-4o".to_string(),
                         hosting: BackendHosting::Remote as i32,
+                        credential_ref: String::new(),
                     },
                 ],
             }),
@@ -185,6 +191,7 @@ async fn test_admin_ai_model_detail_respects_hosting_query() {
                     provider: "openai".to_string(),
                     model: "gpt-4o".to_string(),
                     hosting: BackendHosting::NodeLocal as i32,
+                    credential_ref: String::new(),
                 }],
             }),
         }))
@@ -210,6 +217,7 @@ async fn test_admin_ai_model_detail_respects_hosting_query() {
                     provider: "openai".to_string(),
                     model: "gpt-4o".to_string(),
                     hosting: BackendHosting::Remote as i32,
+                    credential_ref: String::new(),
                 }],
             }),
         }))

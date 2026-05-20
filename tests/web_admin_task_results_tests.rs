@@ -72,6 +72,10 @@ async fn test_admin_tasks_include_result_fields() {
             spear_next::proto::sms::backend_registry_service_client::BackendRegistryServiceClient::new(
                 channel.clone(),
             ),
+        admin_llm_config_client:
+            spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::new(
+                channel.clone(),
+            ),
         model_deployment_registry_client:
             spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::new(
                 channel.clone(),

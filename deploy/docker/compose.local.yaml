@@ -1,0 +1,83 @@
+name: spear-local
+
+services:
+  sms:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/sms/Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:20-bookworm-slim}
+
+
+
+        
+        RUST_IMAGE: ${RUST_IMAGE:-rust:1.91-bookworm}
+        DEBIAN_IMAGE: ${DEBIAN_IMAGE:-debian:trixie-slim}
+        USE_CARGO_MIRROR: ${USE_CARGO_MIRROR:-1}
+    image: spear-sms:local
+    restart: unless-stopped
+    command:
+      - sms
+      - --grpc-addr
+      - 0.0.0.0:50051
+      - --http-addr
+      - 0.0.0.0:8080
+      - --enable-console
+      - --enable-web-admin
+      - --web-admin-addr
+      - 0.0.0.0:8081
+      - --db-type
+      - sled
+      - --db-path
+      - /var/lib/sms/sms.db
+      - --files-dir
+      - /var/lib/sms/files
+      - --execution-logs-dir
+      - /var/lib/sms/execution_logs
+    environment:
+      SMS_LOG_LEVEL: ${SMS_LOG_LEVEL:-info}
+      SMS_LOG_FORMAT: ${SMS_LOG_FORMAT:-json}
+    ports:
+      - ${SMS_GRPC_PORT:-50051}:50051
+      - ${SMS_HTTP_PORT:-18080}:8080
+      - ${SMS_WEB_ADMIN_PORT:-18082}:8081
+    volumes:
+      - sms-data:/var/lib/sms
+
+  spearlet:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/spearlet/Dockerfile
+      target: ${SPEARLET_BUILD_TARGET:-runtime_with_node_and_llama}
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:20-bookworm-slim}
+        RUST_IMAGE: ${RUST_IMAGE:-rust:1.91-bookworm}
+        DEBIAN_IMAGE: ${DEBIAN_IMAGE:-debian:trixie-slim}
+        USE_CARGO_MIRROR: ${USE_CARGO_MIRROR:-1}
+    image: spear-spearlet:local
+    restart: unless-stopped
+    depends_on:
+      - sms
+    command:
+      - spearlet
+      - --sms-grpc-addr
+      - sms:50051
+      - --sms-http-addr
+      - sms:8080
+      - --node-name
+      - ${SPEARLET_NODE_NAME:-spearlet-local}
+    environment:
+      SPEARLET_LOG_LEVEL: ${SPEARLET_LOG_LEVEL:-info}
+      SPEARLET_LOG_FORMAT: ${SPEARLET_LOG_FORMAT:-json}
+      SPEARLET_ADVERTISE_IP: ${SPEARLET_ADVERTISE_IP:-spearlet}
+      SPEARLET_LOCAL_MODELS_DIR: ${SPEARLET_LOCAL_MODELS_DIR:-/var/lib/spearlet/local_models}
+      SPEARLET_STORAGE_DATA_DIR: ${SPEARLET_STORAGE_DATA_DIR:-/var/lib/spearlet/storage}
+    ports:
+      - ${SPEARLET_GRPC_PORT:-50052}:50052
+      - ${SPEARLET_HTTP_PORT:-18081}:8081
+    volumes:
+      - spearlet-data:/var/lib/spearlet
+
+volumes:
+  sms-data:
+  spearlet-data:

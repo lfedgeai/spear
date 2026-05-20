@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tonic::transport::Channel;
 
 use crate::proto::sms::{
+    admin_llm_config_service_client::AdminLlmConfigServiceClient,
     backend_registry_service_client::BackendRegistryServiceClient,
     execution_index_service_client::ExecutionIndexServiceClient,
     execution_registry_service_client::ExecutionRegistryServiceClient,
@@ -38,6 +39,7 @@ async fn create_mock_gateway_state() -> GatewayState {
         execution_index_client: ExecutionIndexServiceClient::new(channel.clone()),
         mcp_registry_client: McpRegistryServiceClient::new(channel.clone()),
         backend_registry_client: BackendRegistryServiceClient::new(channel.clone()),
+        admin_llm_config_client: AdminLlmConfigServiceClient::new(channel.clone()),
         model_deployment_registry_client: ModelDeploymentRegistryServiceClient::new(
             channel.clone(),
         ),
@@ -169,6 +171,7 @@ async fn test_gateway_state_with_different_endpoints() {
         let execution_index_client = ExecutionIndexServiceClient::new(channel.clone());
         let mcp_registry_client = McpRegistryServiceClient::new(channel.clone());
         let backend_registry_client = BackendRegistryServiceClient::new(channel.clone());
+        let admin_llm_config_client = AdminLlmConfigServiceClient::new(channel.clone());
         let model_deployment_registry_client =
             ModelDeploymentRegistryServiceClient::new(channel.clone());
 
@@ -182,6 +185,7 @@ async fn test_gateway_state_with_different_endpoints() {
             execution_index_client,
             mcp_registry_client,
             backend_registry_client,
+            admin_llm_config_client,
             model_deployment_registry_client,
             stream_sessions: crate::sms::gateway::StreamSessionStore::new(),
             execution_stream_pool: crate::sms::gateway::ExecutionStreamPool::new(),
@@ -213,7 +217,6 @@ async fn test_gateway_router_service_conversion() {
 #[tokio::test]
 async fn test_concurrent_gateway_creation() {
     // Test concurrent gateway creation / 测试并发网关创建
-    
 
     let mut handles = vec![];
 

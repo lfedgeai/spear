@@ -21,6 +21,7 @@ debian_suite = "trixie"
 
 [images]
 tag = "local"
+unified_repo = ""
 sms_repo = "spear-sms"
 spearlet_repo = "spear-spearlet"
 
@@ -119,6 +120,8 @@ pub struct BuildConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImagesConfig {
     pub tag: String,
+    #[serde(default)]
+    pub unified_repo: String,
     pub sms_repo: String,
     pub spearlet_repo: String,
 }

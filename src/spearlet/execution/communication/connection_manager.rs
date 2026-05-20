@@ -995,7 +995,6 @@ impl ConnectionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[tokio::test]
     async fn test_connection_manager_creation() {

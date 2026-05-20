@@ -16,7 +16,9 @@ use crate::sms::services::{
     task_service::TaskService as TaskServiceImpl,
 };
 use crate::sms::unified_events::UnifiedEventBus;
-use crate::storage::kv::{create_kv_store_from_config, get_kv_store_factory, KvStoreConfig};
+use crate::storage::kv::{
+    create_kv_store_from_config, get_kv_store_factory, serialization, KvStore, KvStoreConfig,
+};
 use anyhow::Context;
 use dashmap::DashMap;
 use futures::stream::unfold;
@@ -28,6 +30,7 @@ use crate::sms::registry_watch::RegistryWatchHub;
 
 // Import proto types / 导入proto类型
 use crate::proto::sms::{
+    admin_llm_config_service_server::AdminLlmConfigService as AdminLlmConfigServiceTrait,
     backend_registry_service_server::BackendRegistryService as BackendRegistryServiceTrait,
     events_service_server::EventsService as EventsServiceTrait,
     execution_index_service_server::ExecutionIndexService as ExecutionIndexServiceTrait,
@@ -48,6 +51,8 @@ use crate::proto::sms::{
     DeleteModelDeploymentResponse,
     DeleteNodeRequest,
     DeleteNodeResponse,
+    DeleteRemoteBackendRequest,
+    DeleteRemoteBackendResponse,
     EventEnvelope,
     EventOp,
     Execution,
@@ -81,6 +86,8 @@ use crate::proto::sms::{
     ListNodeResourcesResponse,
     ListNodesRequest,
     ListNodesResponse,
+    ListRemoteBackendsRequest,
+    ListRemoteBackendsResponse,
     ListTaskInstancesRequest,
     ListTaskInstancesResponse,
     ListTasksRequest,
@@ -101,6 +108,7 @@ use crate::proto::sms::{
     // Task service messages / 任务服务消息
     RegisterTaskRequest,
     RegisterTaskResponse,
+    RemoteBackendConfig,
     ReportExecutionResponse,
     ReportInstanceResponse,
     ReportInvocationOutcomeRequest,
@@ -126,6 +134,8 @@ use crate::proto::sms::{
     UpsertMcpServerResponse,
     UpsertModelDeploymentRequest,
     UpsertModelDeploymentResponse,
+    UpsertRemoteBackendRequest,
+    UpsertRemoteBackendResponse,
     WatchMcpServersRequest,
     WatchMcpServersResponse,
     WatchModelDeploymentsRequest,
@@ -173,6 +183,154 @@ impl BackendRegistryState {
     }
 }
 
+const ADMIN_REMOTE_BACKENDS_KEY: &str = "admin:llm:remote_backends:v1";
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+struct RemoteBackendConfigRecord {
+    name: String,
+    kind: String,
+    base_url: String,
+    model: String,
+    credential_ref: String,
+    weight: u32,
+    priority: i32,
+    operations: Vec<String>,
+    features: Vec<String>,
+    transports: Vec<String>,
+    provider: String,
+}
+
+impl From<RemoteBackendConfig> for RemoteBackendConfigRecord {
+    fn from(v: RemoteBackendConfig) -> Self {
+        Self {
+            name: v.name,
+            kind: v.kind,
+            base_url: v.base_url,
+            model: v.model,
+            credential_ref: v.credential_ref,
+            weight: v.weight,
+            priority: v.priority,
+            operations: v.operations,
+            features: v.features,
+            transports: v.transports,
+            provider: v.provider,
+        }
+    }
+}
+
+impl From<RemoteBackendConfigRecord> for RemoteBackendConfig {
+    fn from(v: RemoteBackendConfigRecord) -> Self {
+        Self {
+            name: v.name,
+            kind: v.kind,
+            base_url: v.base_url,
+            model: v.model,
+            credential_ref: v.credential_ref,
+            weight: v.weight,
+            priority: v.priority,
+            operations: v.operations,
+            features: v.features,
+            transports: v.transports,
+            provider: v.provider,
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+struct RemoteBackendConfigSnapshot {
+    revision: u64,
+    backends: Vec<RemoteBackendConfigRecord>,
+}
+
+#[derive(Debug)]
+struct AdminLlmConfigState {
+    kv: Arc<dyn KvStore>,
+    snapshot: RwLock<RemoteBackendConfigSnapshot>,
+}
+
+impl AdminLlmConfigState {
+    async fn new(kv: Arc<dyn KvStore>) -> Self {
+        let snapshot = match kv.get(&ADMIN_REMOTE_BACKENDS_KEY.to_string()).await {
+            Ok(Some(bytes)) => serialization::deserialize::<RemoteBackendConfigSnapshot>(&bytes)
+                .unwrap_or_default(),
+            _ => RemoteBackendConfigSnapshot::default(),
+        };
+        Self {
+            kv,
+            snapshot: RwLock::new(snapshot),
+        }
+    }
+
+    async fn list(&self) -> RemoteBackendConfigSnapshot {
+        self.snapshot.read().await.clone()
+    }
+
+    async fn upsert(&self, backend: RemoteBackendConfig) -> Result<u64, Status> {
+        if backend.name.trim().is_empty() {
+            return Err(Status::invalid_argument("missing name"));
+        }
+        if backend.kind.trim().is_empty() {
+            return Err(Status::invalid_argument("missing kind"));
+        }
+        if backend.base_url.trim().is_empty() {
+            return Err(Status::invalid_argument("missing base_url"));
+        }
+        if backend.operations.is_empty() {
+            return Err(Status::invalid_argument("missing operations"));
+        }
+
+        let backend: RemoteBackendConfigRecord = backend.into();
+        let mut snap = self.snapshot.write().await;
+        let mut replaced = false;
+        for b in snap.backends.iter_mut() {
+            if b.name == backend.name {
+                *b = backend.clone();
+                replaced = true;
+                break;
+            }
+        }
+        if !replaced {
+            snap.backends.push(backend);
+        }
+        snap.backends.sort_by(|a, b| {
+            a.name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase())
+        });
+        snap.revision = snap.revision.saturating_add(1);
+
+        let bytes =
+            serialization::serialize(&*snap).map_err(|e| Status::internal(e.to_string()))?;
+        self.kv
+            .put(&ADMIN_REMOTE_BACKENDS_KEY.to_string(), &bytes)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(snap.revision)
+    }
+
+    async fn delete(&self, name: &str) -> Result<(u64, bool), Status> {
+        let n = name.trim();
+        if n.is_empty() {
+            return Err(Status::invalid_argument("missing name"));
+        }
+        let mut snap = self.snapshot.write().await;
+        let before = snap.backends.len();
+        snap.backends.retain(|b| b.name != n);
+        let deleted = snap.backends.len() != before;
+        if deleted {
+            snap.revision = snap.revision.saturating_add(1);
+            let bytes =
+                serialization::serialize(&*snap).map_err(|e| Status::internal(e.to_string()))?;
+            self.kv
+                .put(&ADMIN_REMOTE_BACKENDS_KEY.to_string(), &bytes)
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?;
+        }
+        Ok((snap.revision, deleted))
+    }
+}
+
 impl McpRegistryState {
     fn new(event_buffer_size: usize, broadcast_buffer_size: usize) -> Self {
         Self {
@@ -216,6 +374,7 @@ pub struct SmsServiceImpl {
     mcp_registry: Arc<McpRegistryState>,
     backend_registry: Arc<BackendRegistryState>,
     model_deployment_registry: Arc<ModelDeploymentRegistryState>,
+    admin_llm_config: Arc<AdminLlmConfigState>,
     router_filter_engine: Arc<RouterFilterEngine>,
 }
 
@@ -496,6 +655,30 @@ impl SmsServiceImpl {
         let instance_execution_index =
             Arc::new(InstanceExecutionIndex::new(kv, 256, 1000, stale_after_ms));
 
+        let admin_kv_cfg = {
+            let backend = if supported.contains(&config.database.db_type) {
+                config.database.db_type.clone()
+            } else {
+                "memory".to_string()
+            };
+            let mut params = std::collections::HashMap::new();
+            if backend != "memory" {
+                params.insert("path".to_string(), config.database.path.clone());
+            }
+            KvStoreConfig { backend, params }
+        };
+        let admin_kv_box = match create_kv_store_from_config(&admin_kv_cfg).await {
+            Ok(v) => v,
+            Err(_) => create_kv_store_from_config(&KvStoreConfig {
+                backend: "memory".to_string(),
+                params: std::collections::HashMap::new(),
+            })
+            .await
+            .expect("Failed to create admin KV store"),
+        };
+        let admin_kv: Arc<dyn crate::storage::kv::KvStore> = Arc::from(admin_kv_box);
+        let admin_llm_config = Arc::new(AdminLlmConfigState::new(admin_kv).await);
+
         {
             let idx = instance_execution_index.clone();
             let bus = unified_events.clone();
@@ -562,6 +745,7 @@ impl SmsServiceImpl {
             mcp_registry: Arc::new(McpRegistryState::new(1024, 1024)),
             backend_registry: Arc::new(BackendRegistryState::new()),
             model_deployment_registry: Arc::new(ModelDeploymentRegistryState::new(1024, 1024)),
+            admin_llm_config,
             router_filter_engine: Arc::new(RouterFilterEngine::Builtin(
                 BuiltinRouterFilterEngine::default(),
             )),
@@ -1123,6 +1307,49 @@ impl BackendRegistryServiceTrait for SmsServiceImpl {
         Ok(Response::new(ListNodeBackendSnapshotsResponse {
             snapshots,
             total_count,
+        }))
+    }
+}
+
+#[tonic::async_trait]
+impl AdminLlmConfigServiceTrait for SmsServiceImpl {
+    async fn list_remote_backends(
+        &self,
+        _request: Request<ListRemoteBackendsRequest>,
+    ) -> Result<Response<ListRemoteBackendsResponse>, Status> {
+        let snap = self.admin_llm_config.list().await;
+        let backends = snap
+            .backends
+            .into_iter()
+            .map(RemoteBackendConfig::from)
+            .collect();
+        Ok(Response::new(ListRemoteBackendsResponse {
+            revision: snap.revision,
+            backends,
+        }))
+    }
+
+    async fn upsert_remote_backend(
+        &self,
+        request: Request<UpsertRemoteBackendRequest>,
+    ) -> Result<Response<UpsertRemoteBackendResponse>, Status> {
+        let backend = request
+            .into_inner()
+            .backend
+            .ok_or_else(|| Status::invalid_argument("backend is required"))?;
+        let revision = self.admin_llm_config.upsert(backend).await?;
+        Ok(Response::new(UpsertRemoteBackendResponse { revision }))
+    }
+
+    async fn delete_remote_backend(
+        &self,
+        request: Request<DeleteRemoteBackendRequest>,
+    ) -> Result<Response<DeleteRemoteBackendResponse>, Status> {
+        let name = request.into_inner().name;
+        let (revision, deleted) = self.admin_llm_config.delete(&name).await?;
+        Ok(Response::new(DeleteRemoteBackendResponse {
+            revision,
+            deleted,
         }))
     }
 }

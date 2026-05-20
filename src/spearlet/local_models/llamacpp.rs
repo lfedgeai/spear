@@ -197,6 +197,7 @@ impl LlamaCppSupervisor {
             provider: "llamacpp".to_string(),
             model: model.to_string(),
             hosting: BackendHosting::NodeLocal as i32,
+            credential_ref: String::new(),
         };
 
         let mut inner = self.inner.lock().await;

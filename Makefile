@@ -36,7 +36,7 @@ YELLOW := \033[1;33m
 BLUE := \033[0;34m
 NC := \033[0m # No Color
 
-.PHONY: all build build-release test test-ui test-mic-device test-sled test-rocksdb test-all-features test-ui clean clean-coverage coverage coverage-quick coverage-llvm coverage-html coverage-lcov coverage-no-fail coverage-open install-deps format format-check lint check doc help bench audit outdated ci dev info e2e e2e-docker e2e-linux e2e-kind mac-build mac-build-release web-admin-build web-admin-lint web-admin-test web-console-build web-console-lint web-console-test samples
+.PHONY: all build build-release test test-ui test-mic-device test-sled test-rocksdb test-all-features test-ui clean clean-coverage coverage coverage-quick coverage-llvm coverage-html coverage-lcov coverage-no-fail coverage-open install-deps format format-check lint check doc help bench audit outdated ci dev info e2e e2e-docker e2e-linux e2e-kind mac-build mac-build-release web-admin-build web-admin-lint web-admin-test web-console-build web-console-lint web-console-test samples image-spear
 .DEFAULT_GOAL := build
 
 # Default target / 默认目标
@@ -60,6 +60,7 @@ help:
 	@echo "  lint            - Run linter / 运行代码检查"
 	@echo "  check           - Run cargo check / 运行cargo检查"
 	@echo "  doc             - Generate documentation / 生成文档"
+	@echo "  image-spear      - Build unified SPEAR Docker image / 构建统一SPEAR Docker镜像"
 	@echo "  install-deps    - Install development dependencies / 安装开发依赖"
 	@echo "  help            - Show this help message / 显示此帮助信息"
 	@echo "  e2e             - Run all E2E tests / 运行所有端到端测试"
@@ -77,6 +78,7 @@ help:
 	@echo "  make test NOCAPTURE=0          # Hide test output / 隐藏测试输出"
 	@echo "  make coverage-quick           # Quick coverage analysis / 快速覆盖率分析"
 	@echo "  make FEATURES=sled build      # Build with sled feature / 使用sled特性构建"
+	@echo "  make image-spear IMAGE_REPO=spear IMAGE_TAG=local # Build unified image / 构建统一镜像"
 	@echo ""
 
 # Install development dependencies / 安装开发依赖
@@ -448,6 +450,35 @@ samples:
 		fi; \
 	fi
 	@echo -e "$(GREEN)✅ Samples build completed / 示例构建完成$(NC)"
+
+
+# Docker image options / Docker镜像选项
+IMAGE_REPO ?= spear
+IMAGE_TAG ?= local
+SPEAR_IMAGE_TARGET ?=
+USE_CARGO_MIRROR ?= 1
+CARGO_MIRROR_REGISTRY ?= sparse+https://rsproxy.cn/index/
+DEBIAN_SUITE ?= trixie
+
+# Build unified SPEAR image (sms + spearlet) / 构建统一SPEAR镜像（sms + spearlet）
+image-spear:
+	@echo -e "$(BLUE)🐳 Building unified SPEAR image... / 构建统一SPEAR镜像...$(NC)"
+	@if ! command -v docker >/dev/null 2>&1; then \
+		echo -e "$(RED)❌ docker not found. Install Docker first. / 未找到docker，请先安装Docker$(NC)"; \
+		exit 1; \
+	fi
+	@TARGET_ARGS=""; \
+	if [ -n "$(SPEAR_IMAGE_TARGET)" ]; then \
+		TARGET_ARGS="--target $(SPEAR_IMAGE_TARGET)"; \
+	fi; \
+	docker build $$TARGET_ARGS \
+		-f deploy/docker/spear/Dockerfile \
+		--build-arg "DEBIAN_SUITE=$(DEBIAN_SUITE)" \
+		--build-arg "USE_CARGO_MIRROR=$(USE_CARGO_MIRROR)" \
+		--build-arg "CARGO_MIRROR_REGISTRY=$(CARGO_MIRROR_REGISTRY)" \
+		-t "$(IMAGE_REPO):$(IMAGE_TAG)" \
+		.
+	@echo -e "$(GREEN)✅ Unified SPEAR image built: $(IMAGE_REPO):$(IMAGE_TAG) / 统一SPEAR镜像构建完成$(NC)"
 
 
 # Security audit / 安全审计

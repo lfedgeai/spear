@@ -1,15 +1,26 @@
-# SPEARlet container image / SPEARlet 容器镜像
+# SPEAR unified container image / SPEAR 统一容器镜像
 
 ARG RUST_VERSION=1.91
 ARG DEBIAN_SUITE=trixie
 ARG LLAMA_CPP_REF=master
 ARG CMAKE_VERSION=4.2.3
 ARG NODE_IMAGE=node:20-bookworm-slim
-ARG RUST_IMAGE=rust:${RUST_VERSION}-bookworm
-ARG DEBIAN_IMAGE=debian:${DEBIAN_SUITE}-slim
+
 FROM ${NODE_IMAGE} AS node_runtime
 
-FROM ${RUST_IMAGE} AS llama_builder
+FROM ${NODE_IMAGE} AS web_builder
+WORKDIR /work
+COPY web-admin/ web-admin/
+COPY web-console/ web-console/
+COPY assets/ assets/
+RUN cd /work/web-admin \
+  && (if [ -f package-lock.json ]; then npm ci --silent; else npm install --silent; fi) \
+  && npm run build
+RUN cd /work/web-console \
+  && (if [ -f package-lock.json ]; then npm ci --silent; else npm install --silent; fi) \
+  && npm run build
+
+FROM rust:${RUST_VERSION}-bookworm AS llama_builder
 ARG LLAMA_CPP_REF
 ARG CMAKE_VERSION
 WORKDIR /work
@@ -33,8 +44,8 @@ RUN set -e; \
   git clone --depth 1 --branch "${LLAMA_CPP_REF}" https://github.com/ggml-org/llama.cpp . \
   && cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF $extra \
   && cmake --build build --config Release -j "$(nproc)" -t llama-server
-FROM ${RUST_IMAGE} AS builder
 
+FROM rust:${RUST_VERSION}-bookworm AS builder
 
 WORKDIR /work
 
@@ -61,7 +72,7 @@ RUN mkdir -p /usr/local/cargo \
   fi
 
 RUN apt-get update -o Acquire::Retries=3 \
-  && apt-get install -y --no-install-recommends ca-certificates clang libclang-dev \
+  && apt-get install -y --no-install-recommends clang libclang-dev \
   && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./
@@ -72,28 +83,27 @@ COPY proto/ proto/
 COPY assets/ assets/
 COPY src/ src/
 
-RUN cargo build --release --locked --bin spearlet
+COPY --from=web_builder /work/assets/admin assets/admin
+COPY --from=web_builder /work/assets/console assets/console
 
-FROM ${DEBIAN_IMAGE} AS runtime
+RUN cargo build --release --locked --bin sms --bin spearlet
+
+FROM debian:${DEBIAN_SUITE}-slim AS runtime
 
 RUN apt-get update -o Acquire::Retries=3 \
   && apt-get install -y --no-install-recommends ca-certificates libssl3 libstdc++6 libgomp1 \
   && rm -rf /var/lib/apt/lists/*
 
+COPY --from=builder /work/target/release/sms /usr/local/bin/sms
 COPY --from=builder /work/target/release/spearlet /usr/local/bin/spearlet
 COPY --from=builder /work/target/release/build/wasmedge-sys-*/out/standalone/WasmEdge-*/lib64/ /usr/local/lib/
-COPY deploy/docker/entrypoints/spearlet.sh /entrypoint.sh
+COPY deploy/docker/entrypoints/spear.sh /entrypoint.sh
 
 ENV LD_LIBRARY_PATH=/usr/local/lib
-
-RUN mkdir -p /var/lib/spearlet /var/log/spearlet /var/lib/spear /var/lib/spear/local_models \
-  && chown -R 10001:10001 /var/lib/spearlet /var/log/spearlet /var/lib/spear
 
 RUN chmod +x /entrypoint.sh
 
 USER 10001:10001
-
-EXPOSE 50052 8081
 
 ENTRYPOINT ["/entrypoint.sh"]
 

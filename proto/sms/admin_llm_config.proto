@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package sms;
+
+// Remote backend configuration managed by SMS Web Admin.
+// SMS Web Admin 管理的远端 backend 配置。
+//
+// Security / 安全：
+// - Never store plaintext secrets here; use credential_ref only.
+// - 不存储密钥明文；仅通过 credential_ref 引用节点环境变量中的密钥。
+message RemoteBackendConfig {
+  // Unique backend name / backend 唯一名称
+  string name = 1;
+  // Backend kind (e.g. openai_chat_completion) / backend 类型（例如 openai_chat_completion）
+  string kind = 2;
+  // Base URL (e.g. https://api.openai.com/v1) / Base URL（例如 https://api.openai.com/v1）
+  string base_url = 3;
+  // Fixed model name (optional; empty means dynamic) / 固定模型名（可选；空表示动态）
+  string model = 4;
+  // Credential reference name (maps to env via spearlet.llm.credentials) / 凭据引用名（通过 spearlet.llm.credentials 映射到 env）
+  string credential_ref = 5;
+  // Weight / 权重
+  uint32 weight = 6;
+  // Priority / 优先级
+  int32 priority = 7;
+  // Supported operations (e.g. chat_completions) / 支持的操作（例如 chat_completions）
+  repeated string operations = 8;
+  // Features / 特性
+  repeated string features = 9;
+  // Transports (e.g. http, websocket) / 传输方式（例如 http, websocket）
+  repeated string transports = 10;
+  // Provider label for UI (optional) / UI 展示的 provider（可选）
+  string provider = 11;
+}
+
+message ListRemoteBackendsRequest {}
+
+message ListRemoteBackendsResponse {
+  uint64 revision = 1;
+  repeated RemoteBackendConfig backends = 2;
+}
+
+message UpsertRemoteBackendRequest { RemoteBackendConfig backend = 1; }
+
+message UpsertRemoteBackendResponse { uint64 revision = 1; }
+
+message DeleteRemoteBackendRequest { string name = 1; }
+
+message DeleteRemoteBackendResponse {
+  uint64 revision = 1;
+  bool deleted = 2;
+}
+
+service AdminLlmConfigService {
+  rpc ListRemoteBackends(ListRemoteBackendsRequest) returns (ListRemoteBackendsResponse);
+  rpc UpsertRemoteBackend(UpsertRemoteBackendRequest) returns (UpsertRemoteBackendResponse);
+  rpc DeleteRemoteBackend(DeleteRemoteBackendRequest) returns (DeleteRemoteBackendResponse);
+}

@@ -25,8 +25,64 @@ Chinese README: [README.zh.md](./README.zh.md)
 ### Prerequisites
 
 - Rust toolchain (latest stable recommended)
+- Docker (Docker Desktop on macOS/Windows, or Docker Engine on Linux)
+- Docker Compose v2 (`docker compose`)
 
 This repo uses `protoc-bin-vendored`, so you typically don’t need to install `protoc` manually.
+
+### Run locally with Docker Compose (SMS + SPEARlet)
+
+This is the recommended cross-platform local setup (no Kubernetes required). It runs:
+
+- SMS (gRPC + HTTP gateway + optional Web Admin)
+- SPEARlet (agent/runtime) connecting to SMS via the Compose network
+
+Use the provided Compose file:
+
+- `deploy/docker/compose.local.yaml`
+
+Start:
+
+```bash
+docker compose -f deploy/docker/compose.local.yaml up -d --build
+```
+
+Useful endpoints (default host ports):
+
+- SMS health: `http://127.0.0.1:18080/health`
+- SMS Swagger: `http://127.0.0.1:18080/swagger-ui/`
+- SPEAR Console (served by SMS): `http://127.0.0.1:18080/console`
+- SMS Web Admin: `http://127.0.0.1:18082/`
+- SPEARlet health: `http://127.0.0.1:18081/health`
+
+Stop:
+
+```bash
+docker compose -f deploy/docker/compose.local.yaml down
+```
+
+Remove local data (volumes):
+
+```bash
+docker compose -f deploy/docker/compose.local.yaml down -v
+```
+
+Common build/network notes:
+
+- If Docker Hub is not reachable, override base images via environment variables (example mirrors):
+
+```bash
+export NODE_IMAGE=docker.m.daocloud.io/library/node:20-bookworm-slim
+export RUST_IMAGE=docker.m.daocloud.io/library/rust:1.91-bookworm
+export DEBIAN_IMAGE=docker.m.daocloud.io/library/debian:trixie-slim
+docker compose -f deploy/docker/compose.local.yaml up -d --build
+```
+
+- If you use Local AI Models (llama.cpp), SPEARlet needs `llama-server`. The Compose file defaults to a build target that includes it. You can override:
+
+```bash
+SPEARLET_BUILD_TARGET=runtime_with_node_and_llama docker compose -f deploy/docker/compose.local.yaml up -d --build spearlet
+```
 
 ### Build
 
