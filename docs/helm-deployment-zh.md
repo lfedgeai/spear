@@ -16,7 +16,30 @@
 
 ## 构建镜像
 
-生产环境推荐拆分为两个镜像：
+### 方案 A：单一统一镜像
+
+构建一个同时包含 `sms` 与 `spearlet` 二进制的统一镜像：
+
+```bash
+docker build -f deploy/docker/spear/Dockerfile -t <REGISTRY>/spear:<TAG> .
+```
+
+可选：为 SPEARlet 相关场景构建包含 Node（以及 llama-server）的镜像：
+
+```bash
+docker build -f deploy/docker/spear/Dockerfile --target runtime_with_node -t <REGISTRY>/spear:<TAG> .
+docker build -f deploy/docker/spear/Dockerfile --target runtime_with_node_and_llama -t <REGISTRY>/spear:<TAG> .
+```
+
+推送镜像：
+
+```bash
+docker push <REGISTRY>/spear:<TAG>
+```
+
+### 方案 B：拆分镜像
+
+拆分为两个镜像（当你希望镜像更小、依赖范围更收敛时更合适）：
 
 ```bash
 docker build -f deploy/docker/sms/Dockerfile -t <REGISTRY>/spear-sms:<TAG> .
@@ -29,6 +52,7 @@ Cargo registry 说明：
 - 如果你在中国大陆以外、或者网络访问 crates.io 很稳定，可以关掉镜像源：
 
 ```bash
+docker build -f deploy/docker/spear/Dockerfile -t <REGISTRY>/spear:<TAG> --build-arg USE_CARGO_MIRROR=0 .
 docker build -f deploy/docker/sms/Dockerfile -t <REGISTRY>/spear-sms:<TAG> --build-arg USE_CARGO_MIRROR=0 .
 docker build -f deploy/docker/spearlet/Dockerfile -t <REGISTRY>/spear-spearlet:<TAG> --build-arg USE_CARGO_MIRROR=0 .
 ```
@@ -36,6 +60,7 @@ docker build -f deploy/docker/spearlet/Dockerfile -t <REGISTRY>/spear-spearlet:<
 推送镜像：
 
 ```bash
+docker push <REGISTRY>/spear:<TAG>
 docker push <REGISTRY>/spear-sms:<TAG>
 docker push <REGISTRY>/spear-spearlet:<TAG>
 ```
@@ -50,6 +75,14 @@ Chart 路径：
 
 ```bash
 helm upgrade --install spear deploy/helm/spear \
+  --set global.image.repository=<REGISTRY>/spear \
+  --set global.image.tag=<TAG>
+```
+
+或者（拆分镜像）：
+
+```bash
+helm upgrade --install spear deploy/helm/spear \
   --set sms.image.repository=<REGISTRY>/spear-sms \
   --set sms.image.tag=<TAG> \
   --set spearlet.image.repository=<REGISTRY>/spear-spearlet \
@@ -59,6 +92,22 @@ helm upgrade --install spear deploy/helm/spear \
 ## Kind 本地快速验证
 
 如果你想用 kind 在本地验证 chart，可以不推送镜像到仓库，直接加载本机镜像到 kind 节点。
+
+```bash
+kind create cluster --name spear
+
+docker build -f deploy/docker/spear/Dockerfile -t spear:local .
+kind load docker-image --name spear spear:local
+
+helm upgrade --install spear deploy/helm/spear -n spear --create-namespace \
+  --set global.image.repository=spear \
+  --set global.image.tag=local
+
+kubectl -n spear get pods -o wide
+kubectl -n spear wait --for=condition=Ready pod -l app.kubernetes.io/instance=spear --timeout=300s
+```
+
+拆分镜像：
 
 ```bash
 kind create cluster --name spear

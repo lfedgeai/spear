@@ -8,6 +8,7 @@ use tower_http::cors::CorsLayer;
 
 use super::routes::create_routes;
 use crate::proto::sms::{
+    admin_llm_config_service_client::AdminLlmConfigServiceClient,
     backend_registry_service_client::BackendRegistryServiceClient,
     execution_index_service_client::ExecutionIndexServiceClient,
     execution_registry_service_client::ExecutionRegistryServiceClient,
@@ -322,6 +323,7 @@ pub struct GatewayState {
     pub execution_index_client: ExecutionIndexServiceClient<tonic::transport::Channel>,
     pub mcp_registry_client: McpRegistryServiceClient<tonic::transport::Channel>,
     pub backend_registry_client: BackendRegistryServiceClient<tonic::transport::Channel>,
+    pub admin_llm_config_client: AdminLlmConfigServiceClient<tonic::transport::Channel>,
     pub model_deployment_registry_client:
         ModelDeploymentRegistryServiceClient<tonic::transport::Channel>,
     /// Stream sessions for WS proxy / WS 代理的流会话

@@ -692,6 +692,14 @@ fn build_images_menu() -> MenuScreen {
                 }),
             },
             MenuItem {
+                label: "Unified repo / 统一repo（可选）".to_string(),
+                value: "".to_string(),
+                kind: ItemKind::EditString(AccessorString {
+                    get: Arc::new(|c| c.images.unified_repo.clone()),
+                    set: Arc::new(|c, v| c.images.unified_repo = v),
+                }),
+            },
+            MenuItem {
                 label: "SMS repo".to_string(),
                 value: "".to_string(),
                 kind: ItemKind::EditString(AccessorString {

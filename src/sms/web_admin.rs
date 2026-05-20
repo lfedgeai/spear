@@ -22,6 +22,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::proto::sms::{
+    admin_llm_config_service_client::AdminLlmConfigServiceClient,
     backend_registry_service_client::BackendRegistryServiceClient,
     mcp_registry_service_client::McpRegistryServiceClient,
     model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient,
@@ -113,6 +114,7 @@ impl WebAdminServer {
             );
         let mcp_registry_client = McpRegistryServiceClient::new(channel.clone());
         let backend_registry_client = BackendRegistryServiceClient::new(channel.clone());
+        let admin_llm_config_client = AdminLlmConfigServiceClient::new(channel.clone());
         let model_deployment_registry_client =
             ModelDeploymentRegistryServiceClient::new(channel.clone());
         let state = GatewayState {
@@ -125,6 +127,7 @@ impl WebAdminServer {
             execution_index_client,
             mcp_registry_client,
             backend_registry_client,
+            admin_llm_config_client,
             model_deployment_registry_client,
             stream_sessions: crate::sms::gateway::StreamSessionStore::new(),
             execution_stream_pool: crate::sms::gateway::ExecutionStreamPool::new(),
@@ -184,6 +187,21 @@ struct McpHttpBody {
     url: String,
     headers: Option<std::collections::HashMap<String, String>>,
     auth_ref: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct UpsertRemoteBackendBody {
+    name: String,
+    kind: String,
+    base_url: String,
+    model: Option<String>,
+    credential_ref: Option<String>,
+    weight: Option<u32>,
+    priority: Option<i32>,
+    operations: Vec<String>,
+    features: Option<Vec<String>>,
+    transports: Option<Vec<String>>,
+    provider: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -862,6 +880,96 @@ async fn delete_node_model_deployment(
         Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
     };
     Json(json!({"success": true, "revision": resp.revision}))
+}
+
+async fn list_remote_backends_admin(state: GatewayState) -> Json<serde_json::Value> {
+    let mut client = state.admin_llm_config_client.clone();
+    match client
+        .list_remote_backends(crate::proto::sms::ListRemoteBackendsRequest {})
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            let backends = inner
+                .backends
+                .into_iter()
+                .map(|b| {
+                    json!({
+                        "name": b.name,
+                        "kind": b.kind,
+                        "base_url": b.base_url,
+                        "model": if b.model.is_empty() { None::<String> } else { Some(b.model) },
+                        "credential_ref": if b.credential_ref.is_empty() { None::<String> } else { Some(b.credential_ref) },
+                        "weight": b.weight,
+                        "priority": b.priority,
+                        "operations": b.operations,
+                        "features": b.features,
+                        "transports": b.transports,
+                        "provider": if b.provider.is_empty() { None::<String> } else { Some(b.provider) },
+                    })
+                })
+                .collect::<Vec<_>>();
+            Json(json!({"success": true, "revision": inner.revision, "backends": backends}))
+        }
+        Err(e) => Json(json!({"success": false, "message": e.to_string()})),
+    }
+}
+
+async fn upsert_remote_backend_admin(
+    state: GatewayState,
+    body: Json<UpsertRemoteBackendBody>,
+) -> Json<serde_json::Value> {
+    let b = body.0;
+    if b.name.trim().is_empty() || b.kind.trim().is_empty() || b.base_url.trim().is_empty() {
+        return Json(json!({"success": false, "message": "name/kind/base_url are required"}));
+    }
+    if b.operations.is_empty() {
+        return Json(json!({"success": false, "message": "operations are required"}));
+    }
+
+    let mut client = state.admin_llm_config_client.clone();
+    let resp = match client
+        .upsert_remote_backend(crate::proto::sms::UpsertRemoteBackendRequest {
+            backend: Some(crate::proto::sms::RemoteBackendConfig {
+                name: b.name,
+                kind: b.kind,
+                base_url: b.base_url,
+                model: b.model.unwrap_or_default(),
+                credential_ref: b.credential_ref.unwrap_or_default(),
+                weight: b.weight.unwrap_or(100),
+                priority: b.priority.unwrap_or(0),
+                operations: b.operations,
+                features: b.features.unwrap_or_default(),
+                transports: b.transports.unwrap_or_else(|| vec!["http".to_string()]),
+                provider: b.provider.unwrap_or_default(),
+            }),
+        })
+        .await
+    {
+        Ok(r) => r.into_inner(),
+        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
+    };
+
+    Json(json!({"success": true, "revision": resp.revision}))
+}
+
+async fn delete_remote_backend_admin(
+    state: GatewayState,
+    p: Path<String>,
+) -> Json<serde_json::Value> {
+    let name = p.0;
+    if name.trim().is_empty() {
+        return Json(json!({"success": false, "message": "name is required"}));
+    }
+    let mut client = state.admin_llm_config_client.clone();
+    let resp = match client
+        .delete_remote_backend(crate::proto::sms::DeleteRemoteBackendRequest { name })
+        .await
+    {
+        Ok(r) => r.into_inner(),
+        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
+    };
+    Json(json!({"success": true, "revision": resp.revision, "deleted": resp.deleted}))
 }
 
 async fn list_mcp_servers(state: GatewayState) -> Json<serde_json::Value> {

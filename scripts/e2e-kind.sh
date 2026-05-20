@@ -26,6 +26,7 @@ CLEANUP_ON_FAIL="${CLEANUP_ON_FAIL:-0}"
 NAMESPACE="${NAMESPACE:-spear}"
 RELEASE_NAME="${RELEASE_NAME:-spear}"
 
+SPEAR_IMAGE_REPO="${SPEAR_IMAGE_REPO:-}"
 SMS_IMAGE_REPO="${SMS_IMAGE_REPO:-spear-sms}"
 SPEARLET_IMAGE_REPO="${SPEARLET_IMAGE_REPO:-spear-spearlet}"
 IMAGE_TAG="${IMAGE_TAG:-local}"
@@ -93,8 +94,14 @@ fi
 
 kubectl config use-context "kind-$CLUSTER_NAME"
 
-docker build -f deploy/docker/sms/Dockerfile --build-arg "DEBIAN_SUITE=${DEBIAN_SUITE}" -t "${SMS_IMAGE_REPO}:${IMAGE_TAG}" .
-docker build -f deploy/docker/spearlet/Dockerfile --build-arg "DEBIAN_SUITE=${DEBIAN_SUITE}" -t "${SPEARLET_IMAGE_REPO}:${IMAGE_TAG}" .
+if [[ -n "${SPEAR_IMAGE_REPO}" ]]; then
+  SMS_IMAGE_REPO="${SPEAR_IMAGE_REPO}"
+  SPEARLET_IMAGE_REPO="${SPEAR_IMAGE_REPO}"
+  docker build -f deploy/docker/spear/Dockerfile --build-arg "DEBIAN_SUITE=${DEBIAN_SUITE}" -t "${SPEAR_IMAGE_REPO}:${IMAGE_TAG}" .
+else
+  docker build -f deploy/docker/sms/Dockerfile --build-arg "DEBIAN_SUITE=${DEBIAN_SUITE}" -t "${SMS_IMAGE_REPO}:${IMAGE_TAG}" .
+  docker build -f deploy/docker/spearlet/Dockerfile --build-arg "DEBIAN_SUITE=${DEBIAN_SUITE}" -t "${SPEARLET_IMAGE_REPO}:${IMAGE_TAG}" .
+fi
 
 kind load docker-image --name "$CLUSTER_NAME" \
   "${SMS_IMAGE_REPO}:${IMAGE_TAG}" \

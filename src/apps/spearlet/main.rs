@@ -16,6 +16,87 @@ use tonic::transport::Channel;
 
 use std::sync::Arc;
 
+// Import remote backends managed by SMS Web Admin / 导入由SMS Web Admin管理的远端 backends
+async fn maybe_import_sms_admin_remote_backends(
+    cfg: &mut spear_next::spearlet::config::SpearletConfig,
+    sms_channel: Option<Channel>,
+) {
+    use spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient;
+    use spear_next::proto::sms::ListRemoteBackendsRequest;
+    use std::collections::HashMap;
+
+    let Some(channel) = sms_channel else {
+        return;
+    };
+
+    let mut client = AdminLlmConfigServiceClient::new(channel);
+    let resp = match client
+        .list_remote_backends(ListRemoteBackendsRequest {})
+        .await
+    {
+        Ok(r) => r.into_inner(),
+        Err(e) => {
+            tracing::warn!(error = %e, "List remote backends from SMS failed");
+            return;
+        }
+    };
+
+    if resp.backends.is_empty() {
+        return;
+    }
+
+    let mut by_name: HashMap<String, spear_next::spearlet::config::LlmBackendConfig> = cfg
+        .llm
+        .backends
+        .iter()
+        .cloned()
+        .map(|b| (b.name.clone(), b))
+        .collect();
+
+    let imported = resp.backends.len();
+    for b in resp.backends {
+        if b.name.trim().is_empty() {
+            continue;
+        }
+        let model = if b.model.trim().is_empty() {
+            None
+        } else {
+            Some(b.model)
+        };
+        let credential_ref = if b.credential_ref.trim().is_empty() {
+            None
+        } else {
+            Some(b.credential_ref)
+        };
+        by_name.insert(
+            b.name.clone(),
+            spear_next::spearlet::config::LlmBackendConfig {
+                name: b.name,
+                kind: b.kind,
+                base_url: b.base_url,
+                hosting: Some("remote".to_string()),
+                model,
+                credential_ref,
+                weight: b.weight,
+                priority: b.priority,
+                ops: b.operations,
+                features: b.features,
+                transports: b.transports,
+            },
+        );
+    }
+
+    cfg.llm.backends = by_name.into_values().collect();
+    cfg.llm
+        .backends
+        .sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+
+    tracing::info!(
+        remote_backends = imported,
+        "Imported SMS Web Admin remote backends (restart SPEARlet to pick up later changes)"
+    );
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = CliArgs::parse();
     let log_args = format!("{:?}", args);
@@ -52,6 +133,13 @@ async fn run(
         }
     }
 
+    let sms_channel = if spearlet_cfg.sms_grpc_addr.trim().is_empty() {
+        None
+    } else {
+        Some(sms_channel_lazy(&spearlet_cfg)?)
+    };
+    maybe_import_sms_admin_remote_backends(&mut spearlet_cfg, sms_channel.clone()).await;
+
     let config = Arc::new(spearlet_cfg);
 
     tracing::info!("Starting SPEARlet with args: {}", log_args);
@@ -64,11 +152,7 @@ async fn run(
     tracing::info!("  - Storage backend: {:?}", config.storage.backend);
     tracing::info!("  - Auto register: {}", config.auto_register);
 
-    let sms_channel = if config.sms_grpc_addr.trim().is_empty() {
-        None
-    } else {
-        Some(sms_channel_lazy(&config)?)
-    };
+    let sms_channel = sms_channel;
 
     global_mcp_registry_sync_with_channel(config.clone(), sms_channel.clone());
 

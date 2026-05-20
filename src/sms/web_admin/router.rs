@@ -111,6 +111,29 @@ pub fn create_admin_router(state: GatewayState) -> Router {
             }),
         )
         .route(
+            "/admin/api/llm/remote-backends",
+            get({
+                let state = state.clone();
+                move || super::list_remote_backends_admin(state.clone())
+            }),
+        )
+        .route(
+            "/admin/api/llm/remote-backends",
+            post({
+                let state = state.clone();
+                move |body: Json<super::UpsertRemoteBackendBody>| {
+                    super::upsert_remote_backend_admin(state.clone(), body)
+                }
+            }),
+        )
+        .route(
+            "/admin/api/llm/remote-backends/{name}",
+            delete({
+                let state = state.clone();
+                move |p: Path<String>| super::delete_remote_backend_admin(state.clone(), p)
+            }),
+        )
+        .route(
             "/admin/api/mcp/servers",
             get({
                 let state = state.clone();

@@ -51,11 +51,26 @@ fn env_for_kind(cfg: &Config) -> anyhow::Result<HashMap<String, String>> {
     );
     env.insert("NAMESPACE".to_string(), cfg.k8s.namespace.clone());
     env.insert("RELEASE_NAME".to_string(), cfg.k8s.release_name.clone());
-    env.insert("SMS_IMAGE_REPO".to_string(), cfg.images.sms_repo.clone());
-    env.insert(
-        "SPEARLET_IMAGE_REPO".to_string(),
-        cfg.images.spearlet_repo.clone(),
-    );
+    if cfg.images.unified_repo.trim().is_empty() {
+        env.insert("SMS_IMAGE_REPO".to_string(), cfg.images.sms_repo.clone());
+        env.insert(
+            "SPEARLET_IMAGE_REPO".to_string(),
+            cfg.images.spearlet_repo.clone(),
+        );
+    } else {
+        env.insert(
+            "SPEAR_IMAGE_REPO".to_string(),
+            cfg.images.unified_repo.trim().to_string(),
+        );
+        env.insert(
+            "SMS_IMAGE_REPO".to_string(),
+            cfg.images.unified_repo.trim().to_string(),
+        );
+        env.insert(
+            "SPEARLET_IMAGE_REPO".to_string(),
+            cfg.images.unified_repo.trim().to_string(),
+        );
+    }
     env.insert("IMAGE_TAG".to_string(), cfg.images.tag.clone());
     env.insert(
         "SPEARLET_WITH_NODE".to_string(),
@@ -409,48 +424,82 @@ fn apply_k8s_kind_native(cfg: &Config) -> anyhow::Result<()> {
         flags
     };
 
-    let sms_image = format!("{}:{}", cfg.images.sms_repo, cfg.images.tag);
-    let spearlet_image = format!("{}:{}", cfg.images.spearlet_repo, cfg.images.tag);
+    let unified_repo = cfg.images.unified_repo.trim();
+    let sms_image = if unified_repo.is_empty() {
+        format!("{}:{}", cfg.images.sms_repo, cfg.images.tag)
+    } else {
+        format!("{}:{}", unified_repo, cfg.images.tag)
+    };
+    let spearlet_image = if unified_repo.is_empty() {
+        format!("{}:{}", cfg.images.spearlet_repo, cfg.images.tag)
+    } else {
+        format!("{}:{}", unified_repo, cfg.images.tag)
+    };
 
     if cfg.build.enabled {
         ensure_tool("docker", &["version"])?;
-        apply_result = apply_result.and_then(|_| {
-            let mut cmd = Command::new("docker");
-            cmd.current_dir(&repo_root);
-            cmd.args(["build"]);
-            cmd.args(&build_flags);
-            cmd.args(["-f", "deploy/docker/sms/Dockerfile"]);
-            cmd.args([
-                "--build-arg",
-                &format!("DEBIAN_SUITE={}", cfg.build.debian_suite),
-            ]);
-            cmd.args(["-t", &sms_image]);
-            cmd.arg(".");
-            run_checked(&mut cmd, "docker build sms")
-        });
+        if unified_repo.is_empty() {
+            apply_result = apply_result.and_then(|_| {
+                let mut cmd = Command::new("docker");
+                cmd.current_dir(&repo_root);
+                cmd.args(["build"]);
+                cmd.args(&build_flags);
+                cmd.args(["-f", "deploy/docker/sms/Dockerfile"]);
+                cmd.args([
+                    "--build-arg",
+                    &format!("DEBIAN_SUITE={}", cfg.build.debian_suite),
+                ]);
+                cmd.args(["-t", &sms_image]);
+                cmd.arg(".");
+                run_checked(&mut cmd, "docker build sms")
+            });
 
-        apply_result = apply_result.and_then(|_| {
-            let mut cmd = Command::new("docker");
-            cmd.current_dir(&repo_root);
-            cmd.args(["build"]);
-            cmd.args(&build_flags);
-            cmd.args(["-f", "deploy/docker/spearlet/Dockerfile"]);
-            cmd.args([
-                "--build-arg",
-                &format!("DEBIAN_SUITE={}", cfg.build.debian_suite),
-            ]);
-            if cfg.components.spearlet_with_node {
-                let target = if cfg.components.spearlet_with_llama_server {
-                    "runtime_with_node_and_llama"
-                } else {
-                    "runtime_with_node"
-                };
-                cmd.args(["--target", target]);
-            }
-            cmd.args(["-t", &spearlet_image]);
-            cmd.arg(".");
-            run_checked(&mut cmd, "docker build spearlet")
-        });
+            apply_result = apply_result.and_then(|_| {
+                let mut cmd = Command::new("docker");
+                cmd.current_dir(&repo_root);
+                cmd.args(["build"]);
+                cmd.args(&build_flags);
+                cmd.args(["-f", "deploy/docker/spearlet/Dockerfile"]);
+                cmd.args([
+                    "--build-arg",
+                    &format!("DEBIAN_SUITE={}", cfg.build.debian_suite),
+                ]);
+                if cfg.components.spearlet_with_node {
+                    let target = if cfg.components.spearlet_with_llama_server {
+                        "runtime_with_node_and_llama"
+                    } else {
+                        "runtime_with_node"
+                    };
+                    cmd.args(["--target", target]);
+                }
+                cmd.args(["-t", &spearlet_image]);
+                cmd.arg(".");
+                run_checked(&mut cmd, "docker build spearlet")
+            });
+        } else {
+            apply_result = apply_result.and_then(|_| {
+                let mut cmd = Command::new("docker");
+                cmd.current_dir(&repo_root);
+                cmd.args(["build"]);
+                cmd.args(&build_flags);
+                cmd.args(["-f", "deploy/docker/spear/Dockerfile"]);
+                cmd.args([
+                    "--build-arg",
+                    &format!("DEBIAN_SUITE={}", cfg.build.debian_suite),
+                ]);
+                if cfg.components.spearlet_with_node {
+                    let target = if cfg.components.spearlet_with_llama_server {
+                        "runtime_with_node_and_llama"
+                    } else {
+                        "runtime_with_node"
+                    };
+                    cmd.args(["--target", target]);
+                }
+                cmd.args(["-t", &sms_image]);
+                cmd.arg(".");
+                run_checked(&mut cmd, "docker build spear (unified)")
+            });
+        }
 
         apply_result = apply_result.and_then(|_| {
             let rt = Runtime::new().context("create tokio runtime")?;
@@ -467,7 +516,9 @@ fn apply_k8s_kind_native(cfg: &Config) -> anyhow::Result<()> {
             cmd.env("KUBECONFIG", &kubeconfig_str);
             cmd.args(["load", "docker-image", "--name", cluster_name]);
             cmd.arg(&sms_image);
-            cmd.arg(&spearlet_image);
+            if sms_image != spearlet_image {
+                cmd.arg(&spearlet_image);
+            }
             run_checked(&mut cmd, "kind load docker-image")
         });
     }
@@ -516,13 +567,24 @@ fn apply_k8s_kind_native(cfg: &Config) -> anyhow::Result<()> {
     helm_args.push("--set".to_string());
     helm_args.push(format!("spearlet.config.logging.format={}", format));
     helm_args.push("--set".to_string());
-    helm_args.push(format!("sms.image.repository={}", cfg.images.sms_repo));
+    helm_args.push(format!(
+        "sms.image.repository={}",
+        if unified_repo.is_empty() {
+            cfg.images.sms_repo.as_str()
+        } else {
+            unified_repo
+        }
+    ));
     helm_args.push("--set".to_string());
     helm_args.push(format!("sms.image.tag={}", cfg.images.tag));
     helm_args.push("--set".to_string());
     helm_args.push(format!(
         "spearlet.image.repository={}",
-        cfg.images.spearlet_repo
+        if unified_repo.is_empty() {
+            cfg.images.spearlet_repo.as_str()
+        } else {
+            unified_repo
+        }
     ));
     helm_args.push("--set".to_string());
     helm_args.push(format!("spearlet.image.tag={}", cfg.images.tag));

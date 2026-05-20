@@ -16,7 +16,30 @@ This guide describes how to build SPEAR container images and deploy a SPEAR clus
 
 ## Build images
 
-Build two images (recommended for production):
+### Option A: single unified image
+
+Build one image that contains both `sms` and `spearlet` binaries:
+
+```bash
+docker build -f deploy/docker/spear/Dockerfile -t <REGISTRY>/spear:<TAG> .
+```
+
+Optional: build with Node (and llama-server) included for SPEARlet-related workflows:
+
+```bash
+docker build -f deploy/docker/spear/Dockerfile --target runtime_with_node -t <REGISTRY>/spear:<TAG> .
+docker build -f deploy/docker/spear/Dockerfile --target runtime_with_node_and_llama -t <REGISTRY>/spear:<TAG> .
+```
+
+Push:
+
+```bash
+docker push <REGISTRY>/spear:<TAG>
+```
+
+### Option B: split images
+
+Build two images (useful when you want smaller images and tighter dependency scope):
 
 ```bash
 docker build -f deploy/docker/sms/Dockerfile -t <REGISTRY>/spear-sms:<TAG> .
@@ -29,6 +52,7 @@ Cargo registry note:
 - If you are outside mainland China (or your network can access crates.io reliably), you can disable it:
 
 ```bash
+docker build -f deploy/docker/spear/Dockerfile -t <REGISTRY>/spear:<TAG> --build-arg USE_CARGO_MIRROR=0 .
 docker build -f deploy/docker/sms/Dockerfile -t <REGISTRY>/spear-sms:<TAG> --build-arg USE_CARGO_MIRROR=0 .
 docker build -f deploy/docker/spearlet/Dockerfile -t <REGISTRY>/spear-spearlet:<TAG> --build-arg USE_CARGO_MIRROR=0 .
 ```
@@ -36,6 +60,7 @@ docker build -f deploy/docker/spearlet/Dockerfile -t <REGISTRY>/spear-spearlet:<
 Push them:
 
 ```bash
+docker push <REGISTRY>/spear:<TAG>
 docker push <REGISTRY>/spear-sms:<TAG>
 docker push <REGISTRY>/spear-spearlet:<TAG>
 ```
@@ -50,6 +75,14 @@ Install:
 
 ```bash
 helm upgrade --install spear deploy/helm/spear \
+  --set global.image.repository=<REGISTRY>/spear \
+  --set global.image.tag=<TAG>
+```
+
+Or (split images):
+
+```bash
+helm upgrade --install spear deploy/helm/spear \
   --set sms.image.repository=<REGISTRY>/spear-sms \
   --set sms.image.tag=<TAG> \
   --set spearlet.image.repository=<REGISTRY>/spear-spearlet \
@@ -60,12 +93,29 @@ helm upgrade --install spear deploy/helm/spear \
 
 If you want to validate the chart locally with kind, you can avoid pushing images to a registry.
 
+Unified image:
+
+```bash
+kind create cluster --name spear
+
+docker build -f deploy/docker/spear/Dockerfile -t spear:local .
+kind load docker-image --name spear spear:local
+
+helm upgrade --install spear deploy/helm/spear -n spear --create-namespace \
+  --set global.image.repository=spear \
+  --set global.image.tag=local
+
+kubectl -n spear get pods -o wide
+kubectl -n spear wait --for=condition=Ready pod -l app.kubernetes.io/instance=spear --timeout=300s
+```
+
+Split images:
+
 ```bash
 kind create cluster --name spear
 
 docker build -f deploy/docker/sms/Dockerfile -t spear-sms:local .
 docker build -f deploy/docker/spearlet/Dockerfile -t spear-spearlet:local .
-
 kind load docker-image --name spear spear-sms:local spear-spearlet:local
 
 helm upgrade --install spear deploy/helm/spear -n spear --create-namespace \
