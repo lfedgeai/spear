@@ -1,3 +1,5 @@
+import * as ssf from "spear/ssf";
+
 class ChatCompletionResponse {
   constructor(rawJson) {
     this._rawJson = rawJson;
@@ -17,8 +19,7 @@ class ChatCompletionResponse {
   }
 
   raw() {
-    const enc = new TextEncoder();
-    return enc.encode(this._rawJson);
+    return ssf.encodeUtf8(this._rawJson);
   }
 }
 
@@ -50,11 +51,10 @@ export const Spear = {
       const sid = Number(streamId) | 0;
       const dir = direction == null ? 3 : Number(direction) | 0;
       const fd = __spear_user_stream_open(sid, dir);
+      let seqLo = 1 >>> 0;
+      let seqHi = 0 >>> 0;
       const write = (data) => {
-        const u8 =
-          data instanceof Uint8Array
-            ? data
-            : new TextEncoder().encode(typeof data === "string" ? data : String(data));
+        const u8 = ssf.encodeUtf8(data);
         __spear_user_stream_write(fd, u8_to_bin(u8));
       };
       const read = () => {
@@ -63,13 +63,73 @@ export const Spear = {
         return bin_to_u8(bin);
       };
       const close = () => __spear_user_stream_close(fd);
-      return { fd, read, write, close };
+      const streamIdU32 = sid >>> 0;
+      const nextSeq = () => {
+        const outLo = seqLo;
+        const outHi = seqHi;
+        seqLo = (seqLo + 1) >>> 0;
+        if (seqLo === 0) seqHi = (seqHi + 1) >>> 0;
+        return { seqLo: outLo, seqHi: outHi };
+      };
+      const sendFrame = (msgType, meta, data) => {
+        const seq = nextSeq();
+        const frame = ssf.buildV1Frame({
+          streamId: streamIdU32,
+          msgType,
+          meta: meta instanceof Uint8Array ? meta : new Uint8Array(0),
+          data: data instanceof Uint8Array ? data : ssf.encodeUtf8(data),
+          flags: 0,
+          seqLo: seq.seqLo,
+          seqHi: seq.seqHi,
+        });
+        write(frame);
+      };
+      const sendText = (text) => sendFrame(ssf.MsgType.DATA, new Uint8Array(0), ssf.encodeUtf8(String(text)));
+      const sendData = (data) => sendFrame(ssf.MsgType.DATA, new Uint8Array(0), data);
+      const sendCommit = () => sendFrame(ssf.MsgType.COMMIT, new Uint8Array(0), new Uint8Array(0));
+      const readMessage = () => {
+        const frame = read();
+        if (!frame) return null;
+        const parsed = ssf.parseV1Frame(frame);
+        if (!parsed) return null;
+        if ((parsed.streamId >>> 0) !== streamIdU32) return null;
+        const t = parsed.msgType >>> 0;
+        if (t === (ssf.MsgType.DATA >>> 0)) {
+          const text = ssf.decodeUtf8(parsed.data);
+          return { kind: "data", data: parsed.data, text, meta: parsed.meta };
+        }
+        if (t === (ssf.MsgType.COMMIT >>> 0)) {
+          return { kind: "commit", meta: parsed.meta };
+        }
+        if (t === (ssf.MsgType.CTRL >>> 0)) {
+          return { kind: "ctrl", meta: parsed.meta, data: parsed.data };
+        }
+        return { kind: "frame", msgType: parsed.msgType >>> 0, meta: parsed.meta, data: parsed.data };
+      };
+      return {
+        fd,
+        streamId: streamIdU32,
+        read,
+        write,
+        readMessage,
+        sendData,
+        sendCommit,
+        sendText,
+        close,
+      };
     },
     ctlOpen: () => {
       const fd = __spear_user_stream_ctl_open();
       const readEvent = () => __spear_user_stream_ctl_read_event(fd);
       const close = () => __spear_user_stream_close(fd);
       return { fd, readEvent, close };
+    },
+    ssf: {
+      MsgType: ssf.MsgType,
+      buildV1Frame: ssf.buildV1Frame,
+      parseV1Frame: ssf.parseV1Frame,
+      encodeUtf8: ssf.encodeUtf8,
+      decodeUtf8: ssf.decodeUtf8,
     },
   },
   tool: (spec) => {

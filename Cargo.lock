@@ -3433,6 +3433,7 @@ dependencies = [
  "serial_test",
  "sha2",
  "sled",
+ "spear-ssf",
  "tempfile",
  "testcontainers",
  "thiserror 1.0.69",
@@ -3444,7 +3445,6 @@ dependencies = [
  "toml",
  "tonic",
  "tonic-build",
- "tonic-web",
  "tower 0.5.2",
  "tower-http",
  "tracing",
@@ -3455,6 +3455,10 @@ dependencies = [
  "wasmedge-sdk",
  "wasmedge-sys",
 ]
+
+[[package]]
+name = "spear-ssf"
+version = "0.1.0"
 
 [[package]]
 name = "stable_deref_trait"
@@ -3913,26 +3917,6 @@ dependencies = [
  "prost-types",
  "quote",
  "syn 2.0.111",
-]
-
-[[package]]
-name = "tonic-web"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5299dd20801ad736dccb4a5ea0da7376e59cd98f213bf1c3d478cf53f4834b58"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "http 1.4.0",
- "http-body 1.0.1",
- "http-body-util",
- "pin-project",
- "tokio-stream",
- "tonic",
- "tower-http",
- "tower-layer",
- "tower-service",
- "tracing",
 ]
 
 [[package]]

@@ -46,6 +46,11 @@ docker build -f deploy/docker/sms/Dockerfile -t <REGISTRY>/spear-sms:<TAG> .
 docker build -f deploy/docker/spearlet/Dockerfile -t <REGISTRY>/spear-spearlet:<TAG> .
 ```
 
+本地 path 依赖说明：
+
+- `spear-next` 通过本地 `path` 依赖引用了 `spear-ssf`（`sdk/rust/crates/spear-ssf`）。
+- 这些 Dockerfile 在构建阶段会显式拷贝该 SDK crate；如果你新增了更多本地 `path` 依赖，需要同步更新 Dockerfile。
+
 Cargo registry 说明：
 
 - 这些 Dockerfile 默认使用 Cargo 镜像源（`rsproxy.cn`），主要是为了在某些网络环境下提升依赖下载的稳定性。

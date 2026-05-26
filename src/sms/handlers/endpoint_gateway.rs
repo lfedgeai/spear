@@ -30,10 +30,6 @@ use crate::proto::sms::{
 use crate::sms::gateway::GatewayState;
 
 const GATEWAY_ENDPOINT_MAX_LEN: usize = 64;
-const SSF_MSG_TYPE_REQUEST: u16 = 0x01;
-const SSF_MSG_TYPE_RESPONSE: u16 = 0x02;
-const SSF_MSG_TYPE_ERROR: u16 = 0x03;
-const SSF_MSG_TYPE_CANCEL: u16 = 0x04;
 
 const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ACTIVE_STREAMS_PER_CONN: usize = 1024;
@@ -503,7 +499,7 @@ async fn endpoint_ws_proxy_loop(
                             })));
                             break;
                         }
-                        let hdr = match parse_ssf_v1_header(&b) {
+                        let hdr = match spear_ssf::parse_v1_header(&b) {
                             Ok(h) => h,
                             Err(_) => {
                                 let _ = client_out_tx.send(Message::Close(Some(CloseFrame {
@@ -515,7 +511,7 @@ async fn endpoint_ws_proxy_loop(
                         };
 
                         let client_stream_id = hdr.stream_id;
-                        if hdr.msg_type == SSF_MSG_TYPE_CANCEL {
+                        if spear_ssf::is_close(&hdr) {
                             if let Some(exec_id) = client_to_exec.remove(&client_stream_id) {
                                 if let Some(up) = upstreams.get_mut(&exec_id) {
                                     up.on_stream_end();
@@ -707,52 +703,6 @@ fn select_upstream(upstreams: &mut HashMap<String, UpstreamState>) -> Option<Str
         .map(|u| u.execution_id.clone())
 }
 
-#[derive(Clone, Copy)]
-struct SsfV1Header {
-    stream_id: u32,
-    msg_type: u16,
-}
-
-fn parse_ssf_v1_header(frame: &[u8]) -> Result<SsfV1Header, ()> {
-    const SSF_MAGIC: [u8; 4] = *b"SPST";
-    const SSF_VERSION_V1: u16 = 1;
-    const SSF_HEADER_MIN: usize = 32;
-    if frame.len() < SSF_HEADER_MIN {
-        return Err(());
-    }
-    if frame[0..4] != SSF_MAGIC {
-        return Err(());
-    }
-    let version = u16::from_le_bytes([frame[4], frame[5]]);
-    if version != SSF_VERSION_V1 {
-        return Err(());
-    }
-    let header_len = u16::from_le_bytes([frame[6], frame[7]]) as usize;
-    if header_len < SSF_HEADER_MIN || frame.len() < header_len {
-        return Err(());
-    }
-    let stream_id = u32::from_le_bytes([frame[12], frame[13], frame[14], frame[15]]);
-    let meta_len = u32::from_le_bytes([frame[24], frame[25], frame[26], frame[27]]) as usize;
-    let data_len = u32::from_le_bytes([frame[28], frame[29], frame[30], frame[31]]) as usize;
-    let remain = frame.len().saturating_sub(header_len);
-    if meta_len.saturating_add(data_len) != remain {
-        return Err(());
-    }
-    let msg_type = u16::from_le_bytes([frame[8], frame[9]]);
-    Ok(SsfV1Header {
-        stream_id,
-        msg_type,
-    })
-}
-
-fn rewrite_stream_id(frame: &mut [u8], stream_id: u32) {
-    if frame.len() < 16 {
-        return;
-    }
-    let bytes = stream_id.to_le_bytes();
-    frame[12..16].copy_from_slice(&bytes);
-}
-
 fn build_ssf_error_frame(
     stream_id: u32,
     code: &str,
@@ -768,32 +718,14 @@ fn build_ssf_error_frame(
     }))
     .unwrap_or_else(|_| b"{}".to_vec());
     let data: Vec<u8> = Vec::new();
-    prost::bytes::Bytes::from(build_ssf_v1_frame(
+    prost::bytes::Bytes::from(spear_ssf::build_v1_frame(
         stream_id,
-        SSF_MSG_TYPE_ERROR,
+        spear_ssf::MsgType::Error.as_u16(),
+        0,
+        1,
         &meta,
         &data,
     ))
-}
-
-fn build_ssf_v1_frame(stream_id: u32, msg_type: u16, meta: &[u8], data: &[u8]) -> Vec<u8> {
-    const SSF_MAGIC: [u8; 4] = *b"SPST";
-    const SSF_VERSION_V1: u16 = 1;
-    const SSF_HEADER_MIN: usize = 32;
-    let header_len: u16 = SSF_HEADER_MIN as u16;
-    let mut out = Vec::with_capacity(header_len as usize + meta.len() + data.len());
-    out.extend_from_slice(&SSF_MAGIC);
-    out.extend_from_slice(&SSF_VERSION_V1.to_le_bytes());
-    out.extend_from_slice(&header_len.to_le_bytes());
-    out.extend_from_slice(&msg_type.to_le_bytes());
-    out.extend_from_slice(&0u16.to_le_bytes());
-    out.extend_from_slice(&stream_id.to_le_bytes());
-    out.extend_from_slice(&1u64.to_le_bytes());
-    out.extend_from_slice(&(meta.len() as u32).to_le_bytes());
-    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
-    out.extend_from_slice(meta);
-    out.extend_from_slice(data);
-    out
 }
 
 fn normalize_gateway_endpoint(v: &str) -> Result<String, String> {
@@ -867,43 +799,43 @@ mod tests {
     fn ssf_header_parse_and_rewrite_roundtrip() {
         let meta = br#"{"k":"v"}"#;
         let data = b"abc";
-        let mut frame = build_ssf_v1_frame(7, SSF_MSG_TYPE_RESPONSE, meta, data);
-        let hdr = parse_ssf_v1_header(&frame).unwrap();
+        let mut frame = spear_ssf::build_v1_frame(7, 2, 0, 1, meta, data);
+        let hdr = spear_ssf::parse_v1_header(&frame).unwrap();
         assert_eq!(hdr.stream_id, 7);
-        assert_eq!(hdr.msg_type, SSF_MSG_TYPE_RESPONSE);
+        assert_eq!(hdr.msg_type, 2);
 
-        rewrite_stream_id(&mut frame, 42);
-        let hdr2 = parse_ssf_v1_header(&frame).unwrap();
+        spear_ssf::rewrite_stream_id_inplace(&mut frame, 42).unwrap();
+        let hdr2 = spear_ssf::parse_v1_header(&frame).unwrap();
         assert_eq!(hdr2.stream_id, 42);
-        assert_eq!(hdr2.msg_type, SSF_MSG_TYPE_RESPONSE);
+        assert_eq!(hdr2.msg_type, 2);
     }
 
     #[test]
     fn ssf_header_parse_rejects_invalid_frames() {
-        let mut frame = build_ssf_v1_frame(1, SSF_MSG_TYPE_REQUEST, b"{}", b"");
+        let mut frame = spear_ssf::build_v1_frame(1, 1, 0, 1, b"{}", b"");
         frame[0] = b'X';
-        assert!(parse_ssf_v1_header(&frame).is_err());
+        assert!(spear_ssf::parse_v1_header(&frame).is_err());
 
-        let mut frame = build_ssf_v1_frame(1, SSF_MSG_TYPE_REQUEST, b"{}", b"");
+        let mut frame = spear_ssf::build_v1_frame(1, 1, 0, 1, b"{}", b"");
         frame[4] = 2;
         frame[5] = 0;
-        assert!(parse_ssf_v1_header(&frame).is_err());
+        assert!(spear_ssf::parse_v1_header(&frame).is_err());
 
-        let mut frame = build_ssf_v1_frame(1, SSF_MSG_TYPE_REQUEST, b"{}", b"");
+        let mut frame = spear_ssf::build_v1_frame(1, 1, 0, 1, b"{}", b"");
         frame.truncate(10);
-        assert!(parse_ssf_v1_header(&frame).is_err());
+        assert!(spear_ssf::parse_v1_header(&frame).is_err());
 
-        let mut frame = build_ssf_v1_frame(1, SSF_MSG_TYPE_REQUEST, b"{}", b"");
+        let mut frame = spear_ssf::build_v1_frame(1, 1, 0, 1, b"{}", b"");
         frame[28..32].copy_from_slice(&1u32.to_le_bytes());
-        assert!(parse_ssf_v1_header(&frame).is_err());
+        assert!(spear_ssf::parse_v1_header(&frame).is_err());
     }
 
     #[test]
     fn build_ssf_error_frame_contains_structured_error_meta() {
         let frame = build_ssf_error_frame(9, "TASK_ERROR", "boom", true);
-        let hdr = parse_ssf_v1_header(&frame).unwrap();
+        let hdr = spear_ssf::parse_v1_header(&frame).unwrap();
         assert_eq!(hdr.stream_id, 9);
-        assert_eq!(hdr.msg_type, SSF_MSG_TYPE_ERROR);
+        assert_eq!(hdr.msg_type, spear_ssf::MsgType::Error.as_u16());
 
         let v = extract_meta_json(&frame);
         assert_eq!(v["error"]["code"].as_str().unwrap(), "TASK_ERROR");

@@ -6,6 +6,18 @@
 
 This document records the dead code cleanup work performed on the spear-next project, aimed at improving code quality, reducing maintenance burden, and optimizing compilation performance.
 
+## 2026-05 清理（仓库卫生） / 2026-05 Cleanup (Repository Hygiene)
+
+### 变更 / Changes
+- 从 `Cargo.toml` 中移除了未使用的直接依赖 `tonic-web`。
+- 更新 GitHub Release 工作流，移除历史遗留的 Go/Python/FlatBuffers 步骤，并改为上传实际构建产物：
+  - `target/release/spearlet`
+  - `target/release/sms`
+
+### 验证 / Verification
+- `make build`: ✅ 通过
+- `make test`: ✅ 通过
+
 ## 清理内容 / Cleanup Details
 
 ### 1. 未使用的导入清理 / Unused Import Cleanup

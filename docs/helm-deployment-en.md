@@ -46,6 +46,11 @@ docker build -f deploy/docker/sms/Dockerfile -t <REGISTRY>/spear-sms:<TAG> .
 docker build -f deploy/docker/spearlet/Dockerfile -t <REGISTRY>/spear-spearlet:<TAG> .
 ```
 
+Local path dependency note:
+
+- `spear-next` depends on `spear-ssf` via a local `path` dependency (`sdk/rust/crates/spear-ssf`).
+- The Dockerfiles explicitly copy this SDK crate into the build stage. If you add more local `path` dependencies, update the Dockerfiles accordingly.
+
 Cargo registry note:
 
 - The Dockerfiles use a Cargo registry mirror by default (`rsproxy.cn`) to improve reliability in some network environments.

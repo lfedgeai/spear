@@ -9,6 +9,8 @@
 #include <errno.h>
 #include <stdarg.h>
 
+#include "spear_ssf.h"
+
 #define SPEAR_IMPORT(name) __attribute__((import_module("spear"), import_name(name)))
 
 enum {
@@ -125,6 +127,8 @@ enum {
     SPEAR_USER_STREAM_CTL_EVENT_SESSION_CLOSED = 2,
 };
 
+// SSF (Spear Stream Frame) v1 msg_type values.
+// SSF（Spear Stream Frame）v1 的 msg_type 定义。
 typedef struct {
     uint32_t stream_id;
     uint32_t kind;

@@ -1,0 +1,12 @@
+[package]
+name = "user_stream_chat_completion"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "user_stream_chat_completion"
+path = "src/main.rs"
+
+[dependencies]
+boa_engine = "0.19"
+spear-boa = { path = "../../../sdk/rust/crates/spear-boa" }

@@ -1,7 +1,7 @@
 // Spear user stream client (browser).
 // Spear 用户流客户端（浏览器）。
 
-import { decodeSsfV1Frame, encodeSsfV1Frame } from './ssf'
+import { decodeSsfV1Frame, encodeSsfV1Frame, SsfMsgType } from './ssf'
 
 export type StreamSession = {
   execution_id: string
@@ -38,13 +38,23 @@ export class SpearStreamClient {
     }
   }
 
-  async connect(wsUrl: string, options?: { subprotocol?: string }): Promise<void> {
+  async connect(wsUrl: string, options?: { subprotocol?: string; autoOpenStreamId?: number }): Promise<void> {
     this.disconnect()
     const ws = options?.subprotocol ? new WebSocket(wsUrl, options.subprotocol) : new WebSocket(wsUrl)
     ws.binaryType = 'arraybuffer'
     this.ws = ws
 
-    ws.onopen = () => this.callbacks.onOpen?.()
+    ws.onopen = () => {
+      this.callbacks.onOpen?.()
+      const sid = options?.autoOpenStreamId
+      if (typeof sid === 'number' && Number.isFinite(sid) && sid > 0) {
+        try {
+          this.openStream(sid)
+        } catch {
+          // ignore
+        }
+      }
+    }
     ws.onclose = (ev) => this.callbacks.onClose?.(ev)
     ws.onerror = (ev) => this.callbacks.onError?.(ev)
     ws.onmessage = async (ev) => {
@@ -68,16 +78,42 @@ export class SpearStreamClient {
     }
   }
 
+  openStream(streamId: number): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error('ws not connected')
+    const meta = new TextEncoder().encode('{}')
+    const payload = encodeSsfV1Frame({
+      streamId,
+      msgType: SsfMsgType.CTRL,
+      seq: this.seq++,
+      meta,
+      data: new Uint8Array(),
+    })
+    this.ws.send(payload)
+  }
+
   sendText(streamId: number, text: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error('ws not connected')
     const meta = new TextEncoder().encode('{}')
     const data = new TextEncoder().encode(text)
     const payload = encodeSsfV1Frame({
       streamId,
-      msgType: 2,
+      msgType: SsfMsgType.DATA,
       seq: this.seq++,
       meta,
       data,
+    })
+    this.ws.send(payload)
+  }
+
+  sendCommit(streamId: number): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error('ws not connected')
+    const meta = new TextEncoder().encode('{}')
+    const payload = encodeSsfV1Frame({
+      streamId,
+      msgType: SsfMsgType.COMMIT,
+      seq: this.seq++,
+      meta,
+      data: new Uint8Array(),
     })
     this.ws.send(payload)
   }

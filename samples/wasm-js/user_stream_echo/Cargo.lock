@@ -824,15 +824,21 @@ dependencies = [
  "libc",
  "seq-macro",
  "serde_json",
+ "spear-ssf",
  "spear-wasm",
  "thiserror",
 ]
+
+[[package]]
+name = "spear-ssf"
+version = "0.1.0"
 
 [[package]]
 name = "spear-wasm"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "spear-ssf",
  "spear-wasm-sys",
  "thiserror",
 ]

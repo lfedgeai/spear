@@ -154,11 +154,27 @@ Current implementation requires only a valid SSF v1 header (magic/version/header
 
 Recommended v1 conventions:
 
+- `1 = CTRL`:
+  - Control frames (e.g. OPEN/keepalive).
+  - `meta`: JSON UTF-8 (optional).
+  - `data`: usually empty.
 - `2 = DATA`:
-  - `meta`: optional (per-chunk overrides; recommended to keep empty for performance).
+  - Data frames (text/binary payload).
+  - `meta`: JSON UTF-8 (optional).
   - `data`: raw bytes (audio/video/text or any binary).
+- `3 = COMMIT`:
+  - Marks the end of a user input segment (application-level).
+  - `meta`: JSON UTF-8 (optional).
+  - `data`: usually empty.
 
-Other message types (OPEN/COMMIT/CLOSE/ACK/ERROR/etc.) are reserved for future extensions.
+Other message types (CLOSE/ACK/ERROR/PING/PONG/etc.) are reserved for future extensions.
+
+### 4.3.1 SDK constants
+
+- C: `sdk/c/include/spear_ssf.h` provides `SPEAR_SSF_MSG_TYPE_CTRL/DATA/COMMIT`.
+- Rust (guest): `spear_wasm::ssf::SsfMsgType`.
+- JS (web-console): `web-console/src/ssf/index.ts` exports `SsfMsgType` and `encodeSsfV1Frame/decodeSsfV1Frame`.
+- JS (Boa runtime): `import * as ssf from "spear/ssf"` exports `MsgType`.
 
 ### 4.4 Metadata conventions
 

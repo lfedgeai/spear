@@ -31,9 +31,15 @@ WASM-JS 示例通过 `cargo build --release --target wasm32-wasip1` 构建，主
 ## JS 示例列表（Boa JS runner 编译为 WASM）
 
 - `wasm-js/chat_completion`：通过 Boa JS 运行时执行 `entry.mjs`，调用 Chat Completion
-  - 产物：`./build/js/chat_completion.wasm`
+  - 产物：`./build/js/js-chat_completion.wasm`
 - `wasm-js/chat_completion_tool_sum`：通过 Boa JS 运行时执行 `entry.mjs`，进行 tool calling（sum）
-  - 产物：`./build/js/chat_completion_tool_sum.wasm`
+  - 产物：`./build/js/js-chat_completion_tool_sum.wasm`
+- `wasm-js/router_filter_keyword`：Router 关键词过滤示例
+  - 产物：`./build/js/js-router_filter_keyword.wasm`
+- `wasm-js/user_stream_echo`：双向 user stream echo 示例
+  - 产物：`./build/js/js-user_stream_echo.wasm`
+- `wasm-js/user_stream_chat_completion`：交互式用户输入 → Chat Completion → 输出回 user stream
+  - 产物：`./build/js/js-user_stream_chat_completion.wasm`
 
 ## MCP 示例（mcp_fs）
 

@@ -25,7 +25,6 @@ tokio-util = "0.7"
 
 # gRPC framework / gRPC框架
 tonic = "0.12"
-tonic-web = "0.12"
 prost = "0.13"
 prost-types = "0.13"
 
@@ -89,6 +88,7 @@ evmap = { version = "10.0", optional = true }
 
 # System calls / 系统调用
 libc = "0.2"
+spear-ssf = { path = "sdk/rust/crates/spear-ssf" }
 
 # MD5 hashing / MD5哈希
 md5 = "0.7"

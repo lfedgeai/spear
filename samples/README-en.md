@@ -31,9 +31,15 @@ WASM-JS samples are built with `cargo` for `wasm32-wasip1` (primary output: `bui
 ## JS samples (Boa JS runner compiled to WASM)
 
 - `wasm-js/chat_completion`: executes `entry.mjs` via Boa JS runtime and calls Chat Completion
-  - Output: `./build/js/chat_completion.wasm`
+  - Output: `./build/js/js-chat_completion.wasm`
 - `wasm-js/chat_completion_tool_sum`: executes `entry.mjs` via Boa JS runtime for tool calling (sum)
-  - Output: `./build/js/chat_completion_tool_sum.wasm`
+  - Output: `./build/js/js-chat_completion_tool_sum.wasm`
+- `wasm-js/router_filter_keyword`: router keyword filter sample
+  - Output: `./build/js/js-router_filter_keyword.wasm`
+- `wasm-js/user_stream_echo`: bidirectional user stream echo sample
+  - Output: `./build/js/js-user_stream_echo.wasm`
+- `wasm-js/user_stream_chat_completion`: interactive user input → chat completion → output back to user stream
+  - Output: `./build/js/js-user_stream_chat_completion.wasm`
 
 ## MCP sample (mcp_fs)
 
