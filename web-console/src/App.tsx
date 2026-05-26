@@ -38,6 +38,7 @@ export default function App() {
   const [activeId, setActiveId] = useState<string>(() => loadActiveId() ?? '')
 
   const clientMapRef = useRef<Map<string, SpearStreamClient>>(new Map())
+  const autoConnectKeyRef = useRef<Map<string, string>>(new Map())
   const endRef = useRef<HTMLDivElement | null>(null)
 
   const active = useMemo(
@@ -91,6 +92,7 @@ export default function App() {
       client.disconnect()
       clientMapRef.current.delete(conversationId)
     }
+    autoConnectKeyRef.current.delete(conversationId)
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id !== conversationId) return c
@@ -276,7 +278,7 @@ export default function App() {
     })
     clientMapRef.current.set(conversationId, client)
     try {
-      await client.connect(wsUrl, subprotocol ? { subprotocol } : undefined)
+      await client.connect(wsUrl, subprotocol ? { subprotocol, autoOpenStreamId: DEFAULT_STREAM_ID } : { autoOpenStreamId: DEFAULT_STREAM_ID })
     } catch (e) {
       if (clientMapRef.current.get(conversationId) === client) {
         clientMapRef.current.delete(conversationId)
@@ -290,6 +292,31 @@ export default function App() {
       )
     }
   }, [appendAssistantChunk, disconnectConversation])
+
+  useEffect(() => {
+    // Auto-connect when a target is already selected (show stream output immediately).
+    // 若对话已选择 target，则自动建立连接（便于立即看到 stream 输出）。
+    if (!activeId || !active) return
+    if (active.conn_status !== 'disconnected') return
+    if (active.conn_error) return
+    if (clientMapRef.current.get(activeId)) return
+    const target =
+      active.connect_kind === 'endpoint'
+        ? active.gatewayEndpoint.trim()
+          ? ({ kind: 'endpoint', gatewayEndpoint: active.gatewayEndpoint } as const)
+          : null
+        : active.executionId.trim()
+          ? ({ kind: 'execution', executionId: active.executionId } as const)
+          : null
+    if (!target) return
+    const key =
+      target.kind === 'endpoint'
+        ? `endpoint:${target.gatewayEndpoint.trim()}`
+        : `execution:${target.executionId.trim()}`
+    if (autoConnectKeyRef.current.get(activeId) === key) return
+    autoConnectKeyRef.current.set(activeId, key)
+    void connectTo(activeId, target)
+  }, [active, activeId, connectTo])
 
   const send = useCallback(async () => {
     const text = input.trim()
@@ -314,6 +341,7 @@ export default function App() {
       }),
     )
     client.sendText(DEFAULT_STREAM_ID, text)
+    client.sendCommit(DEFAULT_STREAM_ID)
   }, [activeId, input])
 
   return (

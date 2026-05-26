@@ -98,8 +98,6 @@ struct ExecutionWorkItem {
     pub execution_context: ExecutionContext,
     /// Response sender / 响应发送器
     pub response_sender: oneshot::Sender<ExecutionResult<super::ExecutionResponse>>,
-    /// Request timestamp / 请求时间戳
-    pub timestamp: SystemTime,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -349,8 +347,6 @@ impl TaskExecutionManager {
 
         let (response_sender, response_receiver) = oneshot::channel();
 
-        let timestamp = SystemTime::now();
-
         self.executions.insert(
             execution_id.clone(),
             super::ExecutionResponse {
@@ -374,7 +370,6 @@ impl TaskExecutionManager {
             task_id: request.task_id.clone(),
             execution_context,
             response_sender,
-            timestamp,
         };
 
         // Send to execution loop / 发送到执行循环

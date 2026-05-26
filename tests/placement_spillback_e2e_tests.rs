@@ -230,24 +230,6 @@ async fn test_admin_execution_spillback_and_feedback_affects_next_placement() {
         )
         .await
         .unwrap();
-    let backend_registry_client =
-        spear_next::proto::sms::backend_registry_service_client::BackendRegistryServiceClient::connect(
-            sms_url.clone(),
-        )
-        .await
-        .unwrap();
-    let backend_registry_client =
-        spear_next::proto::sms::backend_registry_service_client::BackendRegistryServiceClient::connect(
-            sms_url.clone(),
-        )
-        .await
-        .unwrap();
-    let backend_registry_client =
-        spear_next::proto::sms::backend_registry_service_client::BackendRegistryServiceClient::connect(
-            sms_url.clone(),
-        )
-        .await
-        .unwrap();
 
     let node1_uuid = Uuid::new_v4().to_string();
     let node2_uuid = Uuid::new_v4().to_string();

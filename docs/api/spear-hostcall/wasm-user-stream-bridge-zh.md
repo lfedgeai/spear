@@ -154,9 +154,17 @@ Body：
 
 推荐的 v1 约定：
 
+- `1 = CTRL`：
+  - 控制类帧（例如 OPEN/keepalive）。
+  - `meta`：JSON UTF-8（可选）。
+  - `data`：通常为空。
 - `2 = DATA`：
   - `meta`：可选（每 chunk 覆盖；性能考虑建议常为空）。
   - `data`：raw bytes（音频/视频/文本或任意二进制）。
+- `3 = COMMIT`：
+  - 标记一次用户输入片段的结束（应用层语义）。
+  - `meta`：JSON UTF-8（可选）。
+  - `data`：通常为空。
 
 其他消息类型（OPEN/COMMIT/CLOSE/ACK/ERROR 等）作为后续扩展预留。
 - `4 = CLOSE`：
@@ -167,6 +175,13 @@ Body：
   - `meta`：JSON error 对象；`data`：可选诊断 bytes（需限长）。
 - `7 = PING`，`8 = PONG`：
   - 作为应用层保活补充（WS 自带 ping/pong 之外的可选机制）。
+
+### 4.3.1 SDK 常量
+
+- C：`sdk/c/include/spear_ssf.h` 提供 `SPEAR_SSF_MSG_TYPE_CTRL/DATA/COMMIT`。
+- Rust（guest）：`spear_wasm::ssf::SsfMsgType`。
+- JS（web-console）：`web-console/src/ssf/index.ts` 导出 `SsfMsgType` 以及 `encodeSsfV1Frame/decodeSsfV1Frame`。
+- JS（Boa 运行时）：`import * as ssf from "spear/ssf"` 导出 `MsgType`。
 
 ### 4.4 元信息约定
 

@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use tokio::sync::{mpsc, Semaphore};
 use tonic::transport::{Channel, Endpoint};
@@ -49,13 +49,6 @@ fn to_operation_name(op: &Operation) -> &'static str {
         Operation::TextToSpeech => "text_to_speech",
         Operation::RealtimeVoice => "realtime_voice",
     }
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64
 }
 
 fn requested_model(req: &CanonicalRequestEnvelope) -> Option<&str> {

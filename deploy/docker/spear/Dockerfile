@@ -83,6 +83,9 @@ COPY proto/ proto/
 COPY assets/ assets/
 COPY src/ src/
 
+# Local path dependencies (SDK crates) / 本地 path 依赖（SDK crates）
+COPY sdk/rust/crates/spear-ssf/ sdk/rust/crates/spear-ssf/
+
 COPY --from=web_builder /work/assets/admin assets/admin
 COPY --from=web_builder /work/assets/console assets/console
 

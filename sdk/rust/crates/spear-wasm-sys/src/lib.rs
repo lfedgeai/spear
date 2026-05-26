@@ -68,6 +68,12 @@ pub mod constants {
 
     pub const SPEAR_USER_STREAM_CTL_EVENT_STREAM_CONNECTED: i32 = 1;
     pub const SPEAR_USER_STREAM_CTL_EVENT_SESSION_CLOSED: i32 = 2;
+
+    // SSF (Spear Stream Frame) v1 msg_type values.
+    // SSF（Spear Stream Frame）v1 的 msg_type 定义。
+    pub const SPEAR_SSF_MSG_TYPE_CTRL: i32 = 1;
+    pub const SPEAR_SSF_MSG_TYPE_DATA: i32 = 2;
+    pub const SPEAR_SSF_MSG_TYPE_COMMIT: i32 = 3;
 }
 
 #[cfg(target_arch = "wasm32")]

@@ -108,7 +108,7 @@ async fn test_gateway_config() {
     let config = Arc::new(config);
     let (object_client, invocation_client, execution_client) =
         create_dummy_grpc_clients(config.grpc.addr);
-    let gateway = HttpGateway::new(
+    let _gateway = HttpGateway::new(
         config,
         health_service,
         function_service,
@@ -139,7 +139,7 @@ async fn test_gateway_with_different_storage_sizes() {
         let config = Arc::new(config);
         let (object_client, invocation_client, execution_client) =
             create_dummy_grpc_clients(config.grpc.addr);
-        let gateway = HttpGateway::new(
+        let _gateway = HttpGateway::new(
             config,
             health_service,
             function_service,
@@ -168,7 +168,7 @@ async fn test_gateway_swagger_enabled() {
     let config = Arc::new(config);
     let (object_client, invocation_client, execution_client) =
         create_dummy_grpc_clients(config.grpc.addr);
-    let gateway = HttpGateway::new(
+    let _gateway = HttpGateway::new(
         config,
         health_service,
         function_service,
@@ -196,7 +196,7 @@ async fn test_gateway_swagger_disabled() {
     let config = Arc::new(config);
     let (object_client, invocation_client, execution_client) =
         create_dummy_grpc_clients(config.grpc.addr);
-    let gateway = HttpGateway::new(
+    let _gateway = HttpGateway::new(
         config,
         health_service,
         function_service,
@@ -224,7 +224,7 @@ async fn test_invalid_http_address() {
     let config = Arc::new(config);
     let (object_client, invocation_client, execution_client) =
         create_dummy_grpc_clients(config.grpc.addr);
-    let gateway = HttpGateway::new(
+    let _gateway = HttpGateway::new(
         config,
         health_service,
         function_service,
@@ -272,7 +272,7 @@ async fn test_multiple_gateways() {
         create_dummy_grpc_clients(config1.grpc.addr);
     let (object_client2, invocation_client2, execution_client2) =
         create_dummy_grpc_clients(config2.grpc.addr);
-    let gateway1 = HttpGateway::new(
+    let _gateway1 = HttpGateway::new(
         config1,
         health_service1,
         function_service1,
@@ -280,7 +280,7 @@ async fn test_multiple_gateways() {
         invocation_client1,
         execution_client1,
     );
-    let gateway2 = HttpGateway::new(
+    let _gateway2 = HttpGateway::new(
         config2,
         health_service2,
         function_service2,
@@ -857,7 +857,7 @@ mod integration_tests {
         // Create gateway / 创建网关
         let (object_client, invocation_client, execution_client) =
             create_dummy_grpc_clients(config.grpc.addr);
-        let gateway = HttpGateway::new(
+        let _gateway = HttpGateway::new(
             config.clone(),
             health_service.clone(),
             function_service,
@@ -945,7 +945,7 @@ mod integration_tests {
             let config = Arc::new(config);
             let (object_client, invocation_client, execution_client) =
                 create_dummy_grpc_clients(config.grpc.addr);
-            let gateway = HttpGateway::new(
+            let _gateway = HttpGateway::new(
                 config,
                 health_service,
                 function_service,

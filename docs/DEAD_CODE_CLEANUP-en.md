@@ -4,6 +4,24 @@
 
 This document records the dead code cleanup work performed on the spear-next project, aimed at improving code quality, reducing maintenance burden, and optimizing compilation performance.
 
+## 2026-05 Cleanup (Repository Hygiene)
+
+### Changes
+- Removed unused direct dependency `tonic-web` from `Cargo.toml`.
+- Updated GitHub release workflow to remove obsolete Go/Python/FlatBuffers steps and to upload the actual build outputs:
+  - `target/release/spearlet`
+  - `target/release/sms`
+- Removed unused placement decision tracking state (kept `decision_id` as a lightweight correlation token).
+- Removed an unused duplicate `resolve_spearlet_ws_url` implementation from the endpoint gateway.
+- Cleaned MCP registry sync cursor handling to avoid redundant initialization.
+- Reduced errno exports to the minimal set actually used by host APIs (and kept test-only aliases behind `cfg(test)`).
+- Removed redundant client initializations and obvious unused variables in tests/examples.
+
+### Verification
+- `cargo check`: ✅ no warnings
+- `make build`: ✅ passed
+- `make test`: ✅ passed
+
 ## Cleanup Details
 
 ### 1. Unused Import Cleanup

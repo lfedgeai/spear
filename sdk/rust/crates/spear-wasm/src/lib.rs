@@ -15,6 +15,8 @@ use thiserror::Error;
 
 pub use spear_wasm_sys::constants;
 
+pub mod ssf;
+
 #[derive(Debug, Clone, Error)]
 #[error("{op}: {code} (errno={errno})")]
 pub struct SpearError {
@@ -192,6 +194,8 @@ impl UserStreamDirection {
         }
     }
 }
+
+pub use ssf::SsfMsgType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UserStreamCtlEvent {

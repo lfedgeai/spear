@@ -5,6 +5,9 @@
 - Source: `samples/wasm-c/chat_completion.c` (Chat Completions sample)
 - Source: `samples/wasm-js/chat_completion/src/main.rs` (Boa JS runner compiled to WASM; runs `entry.mjs` → Chat Completion)
 - Source: `samples/wasm-js/chat_completion_tool_sum/src/main.rs` (Boa JS runner compiled to WASM; runs `entry.mjs` → Tool calling)
+- Source: `samples/wasm-js/router_filter_keyword/src/main.rs` (Boa JS runner compiled to WASM; runs `entry.mjs` → Router keyword filter)
+- Source: `samples/wasm-js/user_stream_echo/src/main.rs` (Boa JS runner compiled to WASM; runs `entry.mjs` → bidirectional user stream echo)
+- Source: `samples/wasm-js/user_stream_chat_completion/src/main.rs` (Boa JS runner compiled to WASM; runs `entry.mjs` → user input over user stream → Chat Completion)
 - Source: `samples/wasm-c/mic_rtasr.c` (realtime mic → realtime ASR)
 - Output: `samples/build/hello.wasm`
 -  - WASM-JS outputs: `samples/build/js/js-*.wasm`
@@ -40,7 +43,7 @@ WASM-JS samples:
 - Built by `cargo build --release --target wasm32-wasip1`
 - Controlled by Makefile vars:
   - `BUILD_JS_SAMPLES=0` to skip WASM-JS samples (compat: `BUILD_RUST_SAMPLES=0`)
-  - `JS_SAMPLES="chat_completion chat_completion_tool_sum"` to select which samples to build (compat: `RUST_SAMPLES=...`)
+  - `JS_SAMPLES="chat_completion chat_completion_tool_sum router_filter_keyword user_stream_echo user_stream_chat_completion"` to select which samples to build (compat: `RUST_SAMPLES=...`)
   - `JS_WASM_PREFIX="js-"` to set the WASM-JS output filename prefix (default `js-`)
 
 ## clang usage

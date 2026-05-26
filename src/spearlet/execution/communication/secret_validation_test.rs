@@ -29,13 +29,13 @@ async fn test_secret_validation_with_execution_manager() {
 
     // Create ConnectionManager with validator / 创建带有验证器的 ConnectionManager
     let connection_config = ConnectionManagerConfig::default();
-    let connection_manager =
+    let _connection_manager =
         ConnectionManager::new_with_validator(connection_config, Some(secret_validator));
 
     let instance_id = "test-instance-123";
 
     // Test valid authentication / 测试有效认证
-    let valid_auth_request = AuthRequest {
+    let _valid_auth_request = AuthRequest {
         instance_id: instance_id.to_string(),
         token: test_secret.to_string(),
         client_version: "1.0.0".to_string(),
@@ -43,16 +43,16 @@ async fn test_secret_validation_with_execution_manager() {
         extra_params: HashMap::new(),
     };
 
-    let valid_message = SpearMessage {
+    let _valid_message = SpearMessage {
         message_type: MessageType::AuthRequest,
         request_id: 1,
         timestamp: SystemTime::now(),
-        payload: serde_json::to_vec(&valid_auth_request).unwrap(),
+        payload: serde_json::to_vec(&_valid_auth_request).unwrap(),
         version: 1,
     };
 
     // Test invalid authentication (wrong secret) / 测试无效认证（错误的 secret）
-    let invalid_auth_request = AuthRequest {
+    let _invalid_auth_request = AuthRequest {
         instance_id: instance_id.to_string(),
         token: "wrong-secret".to_string(),
         client_version: "1.0.0".to_string(),
@@ -60,16 +60,16 @@ async fn test_secret_validation_with_execution_manager() {
         extra_params: HashMap::new(),
     };
 
-    let invalid_message = SpearMessage {
+    let _invalid_message = SpearMessage {
         message_type: MessageType::AuthRequest,
         request_id: 2,
         timestamp: SystemTime::now(),
-        payload: serde_json::to_vec(&invalid_auth_request).unwrap(),
+        payload: serde_json::to_vec(&_invalid_auth_request).unwrap(),
         version: 1,
     };
 
     // Test non-existent instance / 测试不存在的实例
-    let nonexistent_auth_request = AuthRequest {
+    let _nonexistent_auth_request = AuthRequest {
         instance_id: "non-existent-instance".to_string(),
         token: test_secret.to_string(),
         client_version: "1.0.0".to_string(),
@@ -77,11 +77,11 @@ async fn test_secret_validation_with_execution_manager() {
         extra_params: HashMap::new(),
     };
 
-    let nonexistent_message = SpearMessage {
+    let _nonexistent_message = SpearMessage {
         message_type: MessageType::AuthRequest,
         request_id: 3,
         timestamp: SystemTime::now(),
-        payload: serde_json::to_vec(&nonexistent_auth_request).unwrap(),
+        payload: serde_json::to_vec(&_nonexistent_auth_request).unwrap(),
         version: 1,
     };
 
@@ -110,11 +110,11 @@ async fn test_secret_validation_with_fallback_validator() {
 
     // Create ConnectionManager with validator / 创建带有验证器的 ConnectionManager
     let connection_config = ConnectionManagerConfig::default();
-    let connection_manager =
+    let _connection_manager =
         ConnectionManager::new_with_validator(connection_config, Some(secret_validator));
 
     // Test valid authentication / 测试有效认证
-    let valid_auth_request = AuthRequest {
+    let _valid_auth_request = AuthRequest {
         instance_id: "test-instance".to_string(),
         token: "valid-secret-123".to_string(),
         client_version: "1.0.0".to_string(),
@@ -123,7 +123,7 @@ async fn test_secret_validation_with_fallback_validator() {
     };
 
     // Test invalid authentication (short secret) / 测试无效认证（短 secret）
-    let invalid_auth_request = AuthRequest {
+    let _invalid_auth_request = AuthRequest {
         instance_id: "test-instance".to_string(),
         token: "short".to_string(),
         client_version: "1.0.0".to_string(),
@@ -132,7 +132,7 @@ async fn test_secret_validation_with_fallback_validator() {
     };
 
     // Test invalid authentication (empty secret) / 测试无效认证（空 secret）
-    let empty_secret_auth_request = AuthRequest {
+    let _empty_secret_auth_request = AuthRequest {
         instance_id: "test-instance".to_string(),
         token: "".to_string(),
         client_version: "1.0.0".to_string(),
@@ -153,10 +153,10 @@ async fn test_secret_validation_with_fallback_validator() {
 async fn test_secret_validation_without_validator() {
     // Create ConnectionManager without validator / 创建没有验证器的 ConnectionManager
     let connection_config = ConnectionManagerConfig::default();
-    let connection_manager = ConnectionManager::new_with_validator(connection_config, None);
+    let _connection_manager = ConnectionManager::new_with_validator(connection_config, None);
 
     // Test authentication request / 测试认证请求
-    let auth_request = AuthRequest {
+    let _auth_request = AuthRequest {
         instance_id: "test-instance".to_string(),
         token: "any-secret".to_string(),
         client_version: "1.0.0".to_string(),

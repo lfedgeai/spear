@@ -1,0 +1,14 @@
+[package]
+name = "spear-ssf"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "spear_ssf"
+path = "src/lib.rs"
+
+[features]
+default = ["alloc"]
+alloc = []
+std = ["alloc"]
+

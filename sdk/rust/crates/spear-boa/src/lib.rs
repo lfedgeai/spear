@@ -75,6 +75,8 @@ fn with_tool_runtime_mut<R>(f: impl FnOnce(&mut Context, &mut [Option<JsValue>])
 const SPEAR_MODULE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear.mjs"));
 const SPEAR_CHAT_MODULE: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_chat.mjs"));
+const SPEAR_SSF_MODULE: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_ssf.mjs"));
 
 fn json_stringify(ctx: &mut Context, value: JsValue) -> JsResult<String> {
     let json = ctx.global_object().get(js_string!("JSON"), ctx)?;
@@ -212,6 +214,7 @@ impl BuiltinModuleRegistry {
         let sources: HashMap<String, Arc<str>> = HashMap::from([
             ("spear".to_string(), Arc::from(SPEAR_MODULE)),
             ("spear/chat".to_string(), Arc::from(SPEAR_CHAT_MODULE)),
+            ("spear/ssf".to_string(), Arc::from(SPEAR_SSF_MODULE)),
         ]);
         Self {
             sources: Rc::new(RefCell::new(sources)),
@@ -446,6 +449,119 @@ pub fn install_native_bindings(context: &mut Context) {
         Ok(obj.into())
     });
     let _ = context.register_global_builtin_callable(js_string!("__spear_user_stream_ctl_read_event"), 1, ctl_read);
+
+    let ssf_parse_v1 = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let bin = args
+            .get(0)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_string(ctx)?
+            .to_std_string()
+            .map_err(|e| JsNativeError::error().with_message(format!("invalid string: {e}")))?;
+
+        let bytes = bin
+            .encode_utf16()
+            .map(|u| (u & 0xFF) as u8)
+            .collect::<Vec<u8>>();
+
+        let (hdr, meta, data) = match spear_ssf::split_v1(&bytes) {
+            Ok(v) => v,
+            Err(_) => return Ok(JsValue::Null),
+        };
+
+        let meta_u16s = meta.iter().map(|b| *b as u16).collect::<Vec<u16>>();
+        let data_u16s = data.iter().map(|b| *b as u16).collect::<Vec<u16>>();
+        let meta_bin = String::from_utf16_lossy(&meta_u16s);
+        let data_bin = String::from_utf16_lossy(&data_u16s);
+
+        let seq_lo = (hdr.seq & 0xFFFF_FFFF) as u32;
+        let seq_hi = (hdr.seq >> 32) as u32;
+
+        let obj = ObjectInitializer::new(ctx)
+            .property(js_string!("streamId"), hdr.stream_id as i32, Attribute::all())
+            .property(js_string!("msgType"), hdr.msg_type as i32, Attribute::all())
+            .property(js_string!("flags"), hdr.flags as i32, Attribute::all())
+            .property(js_string!("seqLo"), seq_lo as i32, Attribute::all())
+            .property(js_string!("seqHi"), seq_hi as i32, Attribute::all())
+            .property(js_string!("metaBin"), js_string!(meta_bin), Attribute::all())
+            .property(js_string!("dataBin"), js_string!(data_bin), Attribute::all())
+            .build();
+        Ok(obj.into())
+    });
+    let _ = context.register_global_builtin_callable(js_string!("__spear_ssf_parse_v1"), 1, ssf_parse_v1);
+
+    let ssf_build_v1 = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let stream_id = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as u32;
+        let msg_type = args.get(1).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as u16;
+        let flags = args.get(2).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as u16;
+        let seq_lo = args.get(3).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as u32;
+        let seq_hi = args.get(4).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as u32;
+        let seq = ((seq_hi as u64) << 32) | (seq_lo as u64);
+
+        let meta_bin = args
+            .get(5)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_string(ctx)?
+            .to_std_string()
+            .map_err(|e| JsNativeError::error().with_message(format!("invalid string: {e}")))?;
+        let data_bin = args
+            .get(6)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_string(ctx)?
+            .to_std_string()
+            .map_err(|e| JsNativeError::error().with_message(format!("invalid string: {e}")))?;
+
+        let meta = meta_bin
+            .encode_utf16()
+            .map(|u| (u & 0xFF) as u8)
+            .collect::<Vec<u8>>();
+        let data = data_bin
+            .encode_utf16()
+            .map(|u| (u & 0xFF) as u8)
+            .collect::<Vec<u8>>();
+
+        let frame = spear_ssf::build_v1_frame(stream_id, msg_type, flags, seq, &meta, &data);
+        let u16s = frame.into_iter().map(|b| b as u16).collect::<Vec<u16>>();
+        let s = String::from_utf16_lossy(&u16s);
+        Ok(JsValue::from(js_string!(s)))
+    });
+    let _ = context.register_global_builtin_callable(js_string!("__spear_ssf_build_v1"), 7, ssf_build_v1);
+
+    let utf8_encode = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let s = args
+            .get(0)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_string(ctx)?
+            .to_std_string()
+            .map_err(|e| JsNativeError::error().with_message(format!("invalid string: {e}")))?;
+
+        let bytes = s.as_bytes();
+        let u16s = bytes.iter().map(|b| *b as u16).collect::<Vec<u16>>();
+        let bin = String::from_utf16_lossy(&u16s);
+        Ok(JsValue::from(js_string!(bin)))
+    });
+    let _ = context.register_global_builtin_callable(js_string!("__spear_utf8_encode"), 1, utf8_encode);
+
+    let utf8_decode = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let bin = args
+            .get(0)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_string(ctx)?
+            .to_std_string()
+            .map_err(|e| JsNativeError::error().with_message(format!("invalid string: {e}")))?;
+
+        let bytes = bin
+            .encode_utf16()
+            .map(|u| (u & 0xFF) as u8)
+            .collect::<Vec<u8>>();
+        let s = String::from_utf8_lossy(&bytes).to_string();
+        Ok(JsValue::from(js_string!(s)))
+    });
+    let _ = context.register_global_builtin_callable(js_string!("__spear_utf8_decode"), 1, utf8_decode);
 }
 
 fn cchat_completion_impl(options_json: &str) -> Result<String, String> {

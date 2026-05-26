@@ -100,7 +100,6 @@ mod tests {
     #[derive(Clone, Debug)]
     struct TestEvent {
         revision: u64,
-        payload: u64,
     }
 
     #[tokio::test]
@@ -108,12 +107,10 @@ mod tests {
         let hub = RegistryWatchHub::<TestEvent>::new(2, 16);
         hub.push_event(TestEvent {
             revision: 10,
-            payload: 1,
         })
         .await;
         hub.push_event(TestEvent {
             revision: 11,
-            payload: 2,
         })
         .await;
 
@@ -132,7 +129,6 @@ mod tests {
         for i in 0..16u64 {
             hub.push_event(TestEvent {
                 revision: 100 + i,
-                payload: i,
             })
             .await;
         }

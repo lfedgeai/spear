@@ -172,9 +172,7 @@ mod tests {
             extra: Default::default(),
         };
         let plan = adapter.streaming_plan(&req).unwrap();
-        let StreamingPlan::Websocket(p) = plan else {
-            panic!("expected websocket plan");
-        };
+        let StreamingPlan::Websocket(p) = plan;
         assert!(!p
             .websocket
             .headers

@@ -1,5 +1,7 @@
-// SSF v1 helpers (browser).
-// SSF v1 协议辅助函数（浏览器）。
+// SSF v1 frame codec (browser).
+// SSF v1 帧编解码（浏览器）。
+
+import { SSF_HEADER_LEN_V1, SSF_MAGIC, SSF_VERSION_V1 } from './constants'
 
 export type SsfV1Frame = {
   version: number
@@ -12,8 +14,6 @@ export type SsfV1Frame = {
   data: Uint8Array
 }
 
-const SSF_MAGIC = [0x53, 0x50, 0x53, 0x54]
-
 export function encodeSsfV1Frame(params: {
   streamId: number
   msgType: number
@@ -22,7 +22,7 @@ export function encodeSsfV1Frame(params: {
   meta?: Uint8Array
   data?: Uint8Array
 }): Uint8Array {
-  const headerLen = 32
+  const headerLen = SSF_HEADER_LEN_V1
   const meta = params.meta ?? new Uint8Array()
   const data = params.data ?? new Uint8Array()
 
@@ -30,7 +30,7 @@ export function encodeSsfV1Frame(params: {
   const dv = new DataView(out.buffer, out.byteOffset, out.byteLength)
 
   out.set(SSF_MAGIC, 0)
-  dv.setUint16(4, 1, true)
+  dv.setUint16(4, SSF_VERSION_V1, true)
   dv.setUint16(6, headerLen, true)
   dv.setUint16(8, params.msgType, true)
   dv.setUint16(10, params.flags ?? 0, true)
@@ -46,7 +46,7 @@ export function encodeSsfV1Frame(params: {
 
 export function decodeSsfV1Frame(buf: ArrayBuffer | Uint8Array): SsfV1Frame {
   const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
-  if (u8.length < 32) throw new Error('SSF frame too short')
+  if (u8.length < SSF_HEADER_LEN_V1) throw new Error('SSF frame too short')
   if (u8[0] !== SSF_MAGIC[0] || u8[1] !== SSF_MAGIC[1] || u8[2] !== SSF_MAGIC[2] || u8[3] !== SSF_MAGIC[3]) {
     throw new Error('invalid SSF magic')
   }

@@ -8,5 +8,6 @@ path = "src/lib.rs"
 
 [dependencies]
 spear-wasm-sys = { path = "../spear-wasm-sys" }
+spear-ssf = { path = "../spear-ssf" }
 thiserror = "1"
 libc = "0.2"
