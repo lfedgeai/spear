@@ -2,8 +2,8 @@
 // KV存储工厂模式使用示例
 
 use spear_next::storage::{
-    create_kv_store_from_config, create_kv_store_from_env, get_kv_store_factory,
-    set_kv_store_factory, DefaultKvStoreFactory, KvStore, KvStoreConfig, KvStoreFactory,
+    create_kv_store_from_config, create_kv_store_from_env, DefaultKvStoreFactory, KvStore,
+    KvStoreConfig, KvStoreFactory,
 };
 use std::env;
 

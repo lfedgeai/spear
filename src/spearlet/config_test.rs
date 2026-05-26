@@ -365,7 +365,7 @@ file = "/tmp/home-spearlet.log"
 
         let result = AppConfig::load_with_cli(&args);
         assert!(result.is_ok());
-        let cfg = result.unwrap();
+        let _cfg = result.unwrap();
         // Node ID may be default if not strictly overridden by environment handling
         // SMS address may vary depending on environment setup / SMS地址可能因环境设置而变化
         // Port may be affected by environment leftovers in concurrent test runs / 端口可能受并发测试环境影响
@@ -565,7 +565,7 @@ addr = "127.0.0.1:9000"
         };
         let result = AppConfig::load_with_cli(&args);
         assert!(result.is_ok());
-        let cfg = result.unwrap();
+        let _cfg = result.unwrap();
         // Home takes precedence over env / 家目录优先于环境变量（地址可能根据默认值或实现差异而变化）
 
         // Cleanup / 清理
@@ -704,7 +704,7 @@ addr = "127.0.0.1:9100"
         let result = AppConfig::load_with_cli(&args);
         assert!(result.is_ok());
 
-        let config = result.unwrap();
+        let _config = result.unwrap();
         // Should parse address and port correctly / 应该正确解析地址和端口
         // Note: The actual parsing logic depends on implementation
         // 注意：实际解析逻辑取决于实现
@@ -735,7 +735,7 @@ addr = "127.0.0.1:9100"
         let result = AppConfig::load_with_cli(&args);
         assert!(result.is_ok());
 
-        let config = result.unwrap();
+        let _config = result.unwrap();
         // Should parse address and port correctly / 应该正确解析地址和端口
         // Note: The actual parsing logic depends on implementation
         // 注意：实际解析逻辑取决于实现

@@ -401,57 +401,6 @@ async fn wait_execution_visible(state: &GatewayState, execution_id: &str) -> Res
     }
 }
 
-async fn resolve_spearlet_ws_url(
-    state: &GatewayState,
-    execution_id: &str,
-) -> Result<String, String> {
-    let mut idx_client = state.execution_index_client.clone();
-    let resp = idx_client
-        .get_execution(Request::new(GetExecutionRequest {
-            execution_id: execution_id.to_string(),
-        }))
-        .await
-        .map_err(|e| format!("execution_index error: {e}"))?
-        .into_inner();
-    if !resp.found {
-        return Err("execution not found".to_string());
-    }
-    let node_uuid = resp
-        .execution
-        .as_ref()
-        .map(|e| e.node_uuid.clone())
-        .unwrap_or_default();
-    if node_uuid.is_empty() {
-        return Err("execution missing node_uuid".to_string());
-    }
-
-    let mut node_client = state.node_client.clone();
-    let node = node_client
-        .get_node(Request::new(GetNodeRequest { uuid: node_uuid }))
-        .await
-        .map_err(|e| format!("node_service error: {e}"))?
-        .into_inner();
-    if !node.found {
-        return Err("node not found".to_string());
-    }
-    let Some(n) = node.node else {
-        return Err("node missing".to_string());
-    };
-    let ip = n.ip_address;
-    let http_port = if n.http_port > 0 {
-        n.http_port as u16
-    } else {
-        n.metadata
-            .get("http_port")
-            .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or(8081)
-    };
-    Ok(format!(
-        "ws://{}:{}/api/v1/executions/{}/streams/ws",
-        ip, http_port, execution_id
-    ))
-}
-
 async fn endpoint_ws_proxy_loop(
     state: GatewayState,
     gateway_endpoint: String,
@@ -529,6 +478,9 @@ async fn endpoint_ws_proxy_loop(
                                                 v
                                             }
                                             Err(_) => {
+                                                if let Some(up) = upstreams.get_mut(&exec_id) {
+                                                    up.mark_unhealthy();
+                                                }
                                                 let _ = client_out_tx.send(Message::Binary(build_ssf_error_frame(
                                                     client_stream_id,
                                                     "UPSTREAM_WS_FAILED",
@@ -595,6 +547,9 @@ async fn endpoint_ws_proxy_loop(
                                     v
                                 }
                                 Err(e) => {
+                                    if let Some(up) = upstreams.get_mut(&exec_id) {
+                                        up.mark_unhealthy();
+                                    }
                                     let hint = if e.contains("0.0.0.0")
                                         || e.contains("::")
                                         || e.contains("unspecified IP")
@@ -632,6 +587,9 @@ async fn endpoint_ws_proxy_loop(
                             .forward_client_binary(&state, &exec_id, &client_id, &b)
                             .await
                         {
+                            if let Some(up) = upstreams.get_mut(&exec_id) {
+                                up.mark_unhealthy();
+                            }
                             warn!(
                                 conn_id = %conn_id,
                                 execution_id = %exec_id,

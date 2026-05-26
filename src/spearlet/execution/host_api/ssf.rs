@@ -1,10 +1,11 @@
-use crate::spearlet::execution::host_api::errno::EINVAL;
+use crate::spearlet::execution::host_api::errno::SPEAR_EINVAL;
 
 pub(crate) fn parse_ssf_v1_header(frame: &[u8]) -> Result<(u32, u16), i32> {
-    let hdr = spear_ssf::parse_v1_header(frame).map_err(|_| -EINVAL)?;
+    let hdr = spear_ssf::parse_v1_header(frame).map_err(|_| -SPEAR_EINVAL)?;
     Ok((hdr.stream_id, hdr.msg_type))
 }
 
+#[cfg(test)]
 pub(crate) fn build_ssf_v1_frame(
     stream_id: u32,
     msg_type: u16,

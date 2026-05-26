@@ -79,8 +79,6 @@ pub struct FunctionServiceStats {
 
 /// Function service implementation / 函数服务实现
 pub struct FunctionServiceImpl {
-    /// Service start time / 服务启动时间
-    start_time: SystemTime,
     /// Task execution manager / 任务执行管理器
     execution_manager: Arc<TaskExecutionManager>,
     /// Instance pool / 实例池
@@ -134,7 +132,6 @@ impl FunctionServiceImpl {
         }));
 
         Ok(Self {
-            start_time: SystemTime::now(),
             execution_manager,
             instance_pool,
             stats,
@@ -147,11 +144,6 @@ impl FunctionServiceImpl {
 
     /// Generate execution ID / 生成执行ID
     fn generate_execution_id(&self) -> String {
-        Uuid::new_v4().to_string()
-    }
-
-    /// Generate task ID / 生成任务ID
-    fn generate_task_id(&self) -> String {
         Uuid::new_v4().to_string()
     }
 

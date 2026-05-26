@@ -1,5 +1,6 @@
 use spear_next::spearlet::config::{AppConfig, SpearletConfig};
 
+#[allow(dead_code)]
 pub struct ResolvedBackend {
     pub name: String,
     pub base_url: String,
@@ -52,10 +53,12 @@ fn resolve_backend(op: &str, transport: &str, kinds: &[&str]) -> Option<Resolved
     })
 }
 
+#[allow(dead_code)]
 pub fn resolve_live_chat_backend() -> Option<ResolvedBackend> {
     resolve_backend("chat_completions", "http", &["openai_chat_completion"])
 }
 
+#[allow(dead_code)]
 pub fn resolve_realtime_asr_backend() -> Option<ResolvedBackend> {
     resolve_backend("speech_to_text", "websocket", &["openai_realtime_ws"])
 }

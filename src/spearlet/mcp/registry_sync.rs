@@ -168,7 +168,7 @@ async fn sync_loop(
     cancel: CancellationToken,
 ) {
     let mut backoff_ms = config.sms_connect_retry_ms.max(200);
-    let mut watch_cursor_revision: Option<u64> = None;
+    let mut watch_cursor_revision: u64;
     let mut poll = interval(Duration::from_secs(60));
 
     let Some(channel) = sms_channel else {
@@ -184,7 +184,7 @@ async fn sync_loop(
 
         match refresh_once(&config, &mut client, &cache).await {
             Ok(r) => {
-                watch_cursor_revision = Some(r);
+                watch_cursor_revision = r;
                 debug!(watch_cursor_revision, "MCP registry snapshot refreshed");
                 backoff_ms = config.sms_connect_retry_ms.max(200);
             }
@@ -205,7 +205,7 @@ async fn sync_loop(
         let mut watch_stream = match tokio::time::timeout(
             per_attempt,
             client.watch_mcp_servers(WatchMcpServersRequest {
-                since_revision: watch_cursor_revision.unwrap_or(0),
+                since_revision: watch_cursor_revision,
             }),
         )
         .await
@@ -226,16 +226,16 @@ async fn sync_loop(
                 _ = cancel.cancelled() => return,
                 _ = poll.tick() => {
                     if let Ok(r) = refresh_once(&config, &mut client, &cache).await {
-                        watch_cursor_revision = Some(r);
+                        watch_cursor_revision = r;
                     }
                 }
                 msg = watch_stream.message() => {
                     match msg {
                         Ok(Some(resp)) => {
                             if let Some(event) = resp.event {
-                                if event.revision > watch_cursor_revision.unwrap_or(0) {
+                                if event.revision > watch_cursor_revision {
                                     if let Ok(r) = refresh_once(&config, &mut client, &cache).await {
-                                        watch_cursor_revision = Some(r);
+                                        watch_cursor_revision = r;
                                     }
                                 }
                             }

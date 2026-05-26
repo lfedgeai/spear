@@ -88,7 +88,7 @@ async fn test_sms_grpc_server_invalid_address() {
 
     // Use a valid but potentially problematic port / 使用有效但可能有问题的端口
     let addr = create_test_addr(65535); // Max valid port / 最大有效端口
-    let server = GrpcServer::new(addr, sms_service);
+    let _server = GrpcServer::new(addr, sms_service);
 
     // Server creation should succeed / 服务器创建应该成功
     // Note: We don't actually start the server to avoid port conflicts
@@ -159,7 +159,7 @@ async fn test_sms_grpc_server_with_different_storage_backends() {
     };
 
     let memory_service = SmsServiceImpl::with_storage_config(&memory_config).await;
-    let memory_server = GrpcServer::new(create_test_addr(50090), memory_service);
+    let _memory_server = GrpcServer::new(create_test_addr(50090), memory_service);
 
     // Test with rocksdb backend / 测试rocksdb后端
     let rocksdb_config = StorageConfig {
@@ -171,7 +171,7 @@ async fn test_sms_grpc_server_with_different_storage_backends() {
     };
 
     let rocksdb_service = SmsServiceImpl::with_storage_config(&rocksdb_config).await;
-    let rocksdb_server = GrpcServer::new(create_test_addr(50091), rocksdb_service);
+    let _rocksdb_server = GrpcServer::new(create_test_addr(50091), rocksdb_service);
 
     // Both servers should be created successfully / 两个服务器都应该成功创建
 }

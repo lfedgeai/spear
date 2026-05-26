@@ -201,8 +201,7 @@ impl ExecutionUserStreamHub {
             let Some(entry) = table.get(fd) else {
                 continue;
             };
-            let mut notify = false;
-            {
+            let notify = {
                 let mut e = match entry.lock() {
                     Ok(v) => v,
                     Err(_) => continue,
@@ -216,8 +215,8 @@ impl ExecutionUserStreamHub {
                         .push_back(encode_ctl_event(stream_id, CTL_EVENT_STREAM_CONNECTED));
                 }
                 e.poll_mask = compute_user_stream_ctl_poll_mask(&e);
-                notify = e.poll_mask.bits() != old.bits();
-            }
+                e.poll_mask.bits() != old.bits()
+            };
             if notify {
                 table.notify_watchers(fd);
             }
@@ -234,8 +233,7 @@ impl ExecutionUserStreamHub {
             let Some(entry) = table.get(fd) else {
                 continue;
             };
-            let mut notify = false;
-            {
+            let notify = {
                 let mut e = match entry.lock() {
                     Ok(v) => v,
                     Err(_) => continue,
@@ -249,8 +247,8 @@ impl ExecutionUserStreamHub {
                         .push_back(encode_ctl_event(0, CTL_EVENT_SESSION_CLOSED));
                 }
                 e.poll_mask = compute_user_stream_ctl_poll_mask(&e);
-                notify = e.poll_mask.bits() != old.bits();
-            }
+                e.poll_mask.bits() != old.bits()
+            };
             if notify {
                 table.notify_watchers(fd);
             }

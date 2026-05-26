@@ -1,39 +1,19 @@
-pub const SPEAR_EPERM: i32 = 1;
-pub const SPEAR_ENOENT: i32 = 2;
+pub const SPEAR_OK: i32 = 0;
+
 pub const SPEAR_EIO: i32 = 5;
 pub const SPEAR_EBADF: i32 = 9;
 pub const SPEAR_EAGAIN: i32 = 11;
-pub const SPEAR_ENOMEM: i32 = 12;
-pub const SPEAR_EFAULT: i32 = 14;
 pub const SPEAR_EACCES: i32 = 13;
+pub const SPEAR_EFAULT: i32 = 14;
 pub const SPEAR_EINVAL: i32 = 22;
 pub const SPEAR_ENOSPC: i32 = 28;
 pub const SPEAR_EPIPE: i32 = 32;
-pub const SPEAR_ENOSYS: i32 = 38;
-pub const SPEAR_ECONNRESET: i32 = 104;
 pub const SPEAR_ENOTCONN: i32 = 107;
-pub const SPEAR_ETIMEDOUT: i32 = 110;
 
-pub const EPERM: i32 = SPEAR_EPERM;
-pub const ENOENT: i32 = SPEAR_ENOENT;
 pub const EIO: i32 = SPEAR_EIO;
 pub const EBADF: i32 = SPEAR_EBADF;
-pub const EAGAIN: i32 = SPEAR_EAGAIN;
-pub const ENOMEM: i32 = SPEAR_ENOMEM;
-pub const EFAULT: i32 = SPEAR_EFAULT;
 pub const EACCES: i32 = SPEAR_EACCES;
 pub const EINVAL: i32 = SPEAR_EINVAL;
-pub const ENOSPC: i32 = SPEAR_ENOSPC;
-pub const EPIPE: i32 = SPEAR_EPIPE;
-pub const ENOSYS: i32 = SPEAR_ENOSYS;
-pub const ECONNRESET: i32 = SPEAR_ECONNRESET;
-pub const ENOTCONN: i32 = SPEAR_ENOTCONN;
-pub const ETIMEDOUT: i32 = SPEAR_ETIMEDOUT;
 
-pub const SPEAR_OK: i32 = 0;
-
-pub const SPEAR_ERR_INVALID_FD: i32 = -SPEAR_EBADF;
-pub const SPEAR_ERR_INVALID_PTR: i32 = -SPEAR_EFAULT;
-pub const SPEAR_ERR_BUFFER_TOO_SMALL: i32 = -SPEAR_ENOSPC;
-pub const SPEAR_ERR_INVALID_CMD: i32 = -SPEAR_EINVAL;
-pub const SPEAR_ERR_INTERNAL: i32 = -SPEAR_EIO;
+#[cfg(test)]
+pub const EAGAIN: i32 = SPEAR_EAGAIN;

@@ -2262,16 +2262,6 @@ impl ExecutionIndexServiceTrait for SmsServiceImpl {
     }
 }
 
-#[derive(Debug)]
-struct PlacementDecisionRecord {
-    // Decision tracking for debugging/observability.
-    // 用于调试与可观测性的决策记录。
-    request_id: String,
-    task_id: String,
-    candidates: Vec<String>,
-    created_at: i64,
-}
-
 #[derive(Debug, Clone)]
 struct NodePenalty {
     // Consecutive retryable failures to drive exponential backoff.
@@ -2287,51 +2277,15 @@ struct NodePenalty {
 
 #[derive(Debug)]
 struct PlacementState {
-    decisions: DashMap<String, PlacementDecisionRecord>,
     node_penalties: DashMap<String, NodePenalty>,
-    decision_ops: AtomicU64,
     penalty_ops: AtomicU64,
 }
 
 impl PlacementState {
     fn new() -> Self {
         Self {
-            decisions: DashMap::new(),
             node_penalties: DashMap::new(),
-            decision_ops: AtomicU64::new(0),
             penalty_ops: AtomicU64::new(0),
-        }
-    }
-
-    fn maybe_prune_decisions(&self, now: i64) {
-        const MAX_DECISIONS: usize = 10_000;
-        const DECISION_TTL_SECS: i64 = 600;
-
-        let op = self.decision_ops.fetch_add(1, Ordering::Relaxed);
-        if op % 256 != 0 && self.decisions.len() <= MAX_DECISIONS {
-            return;
-        }
-
-        let mut to_remove: Vec<String> = Vec::new();
-        for item in self.decisions.iter() {
-            if now - item.value().created_at > DECISION_TTL_SECS {
-                to_remove.push(item.key().clone());
-            }
-        }
-        for k in to_remove {
-            self.decisions.remove(&k);
-        }
-
-        let extra = self.decisions.len().saturating_sub(MAX_DECISIONS);
-        if extra == 0 {
-            return;
-        }
-        let mut victims: Vec<String> = Vec::with_capacity(extra);
-        for item in self.decisions.iter().take(extra) {
-            victims.push(item.key().clone());
-        }
-        for k in victims {
-            self.decisions.remove(&k);
         }
     }
 
@@ -2380,12 +2334,6 @@ impl PlacementState {
                 }
             })
             .unwrap_or(0.0)
-    }
-
-    fn record_decision(&self, decision_id: String, record: PlacementDecisionRecord) {
-        self.decisions.insert(decision_id, record);
-        let now = chrono::Utc::now().timestamp();
-        self.maybe_prune_decisions(now);
     }
 
     fn apply_outcome(&self, node_uuid: String, outcome_class: InvocationOutcomeClass) {
@@ -2597,18 +2545,6 @@ impl PlacementServiceTrait for SmsServiceImpl {
         candidates.truncate(max_candidates as usize);
 
         let decision_id = Uuid::new_v4().to_string();
-        self.placement_state.record_decision(
-            decision_id.clone(),
-            PlacementDecisionRecord {
-                request_id: req.request_id.clone(),
-                task_id: req.task_id.clone(),
-                candidates: candidates
-                    .iter()
-                    .map(|(c, _)| c.node_uuid.clone())
-                    .collect(),
-                created_at: now,
-            },
-        );
 
         let resp = PlaceInvocationResponse {
             decision_id,
