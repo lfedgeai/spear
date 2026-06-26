@@ -2,6 +2,7 @@
 // 基于 userStream 的交互式对话：读取用户输入，调用 Chat Completion，并将模型输出写回用户。
 
 import { Spear } from "spear";
+import * as ssf from "spear/ssf";
 
 function formatHelp(currentModel) {
   const m = currentModel ? String(currentModel) : "(default)";
@@ -43,6 +44,8 @@ export default async function main() {
   const ctl = Spear.userStream.ctlOpen();
 
   let stream = null;
+  let streamOpened = false;
+  let greeted = false;
   let pending = "";
   let model = null;
   let loop = 0;
@@ -58,7 +61,8 @@ export default async function main() {
 
         if (evt.kind === 1 && stream == null && typeof evt.streamId === "number") {
           stream = Spear.userStream.open(evt.streamId, Spear.userStream.Direction.BIDIRECTIONAL);
-          tryWrite(stream, formatHelp(model));
+            streamOpened = false;
+            greeted = false;
         } else if (evt.kind === 2) {
           break;
         }
@@ -69,9 +73,34 @@ export default async function main() {
         if (msg) {
           didWork = true;
 
-          if (msg.kind === "data") {
+          if (msg.kind === "ctrl") {
+            const c = ssf.parseCtrlMetaV1(msg.meta);
+            if (c && c.kind === "open" && c.modality === "text") {
+              streamOpened = true;
+              if (!greeted) {
+                greeted = true;
+                tryWrite(stream, formatHelp(model));
+              }
+            }
+          } else if (msg.kind === "data") {
+            if (!streamOpened) {
+              tryWrite(stream, "protocol error: missing CTRL(open)\n");
+              return "protocol_error";
+            }
+            if (!ssf.parseDataMetaV1(msg.meta)) {
+              tryWrite(stream, "protocol error: invalid DATA meta\n");
+              return "protocol_error";
+            }
             if (msg.text) pending += msg.text;
           } else if (msg.kind === "commit") {
+            if (!streamOpened) {
+              tryWrite(stream, "protocol error: missing CTRL(open)\n");
+              return "protocol_error";
+            }
+            if (!ssf.parseDataMetaV1(msg.meta)) {
+              tryWrite(stream, "protocol error: invalid COMMIT meta\n");
+              return "protocol_error";
+            }
             const inputText = pending;
             pending = "";
 

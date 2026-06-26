@@ -1,4 +1,5 @@
 pub mod backends;
+pub mod engine_holder;
 pub mod ir;
 pub mod media_ref;
 pub mod normalize;
@@ -13,6 +14,7 @@ use crate::spearlet::execution::ai::ir::{
 };
 use crate::spearlet::execution::ai::router::Router;
 use crate::spearlet::execution::ai::streaming::StreamingInvocation;
+use crate::spearlet::execution::ai::router::debug::RouterDebugSnapshot;
 
 #[derive(Clone)]
 pub struct AiEngine {
@@ -38,11 +40,6 @@ fn has_missing_model(req: &CanonicalRequestEnvelope) -> bool {
             .map(|s| s.trim().is_empty())
             .unwrap_or(true),
         Payload::TextToSpeech(p) => p
-            .model
-            .as_deref()
-            .map(|s| s.trim().is_empty())
-            .unwrap_or(true),
-        Payload::RealtimeVoice(p) => p
             .model
             .as_deref()
             .map(|s| s.trim().is_empty())
@@ -86,11 +83,6 @@ fn with_default_model(
                 p.model = Some(m.to_string());
             }
         }
-        Payload::RealtimeVoice(p) => {
-            if p.model.as_deref().map(|s| s.trim()).unwrap_or("") != m {
-                p.model = Some(m.to_string());
-            }
-        }
     }
     Some(out)
 }
@@ -108,6 +100,10 @@ impl AiEngine {
         }
     }
 
+    pub fn debug_snapshot(&self) -> RouterDebugSnapshot {
+        crate::spearlet::execution::ai::router::debug::snapshot(self.router.as_ref())
+    }
+
     pub fn invoke(
         &self,
         req: &CanonicalRequestEnvelope,
@@ -120,7 +116,14 @@ impl AiEngine {
                 operation: e.message,
             }
         })?;
-        let req2 = with_default_model(req, inst.model.as_deref());
+        let req2 = with_default_model(
+            req,
+            if inst.spec.model.trim().is_empty() {
+                None
+            } else {
+                Some(inst.spec.model.as_str())
+            },
+        );
         let req_used = req2.as_ref().unwrap_or(req);
         inst.adapter.invoke(req_used).map_err(|e| {
             crate::spearlet::execution::ExecutionError::RuntimeError { message: e.message }
@@ -140,7 +143,14 @@ impl AiEngine {
             }
         })?;
 
-        let req2 = with_default_model(req, inst.model.as_deref());
+        let req2 = with_default_model(
+            req,
+            if inst.spec.model.trim().is_empty() {
+                None
+            } else {
+                Some(inst.spec.model.as_str())
+            },
+        );
         let req_used = req2.as_ref().unwrap_or(req);
         let plan = inst.adapter.streaming_plan(req_used).map_err(|e| {
             crate::spearlet::execution::ExecutionError::NotSupported {
@@ -148,7 +158,7 @@ impl AiEngine {
             }
         })?;
         Ok(StreamingInvocation {
-            backend: inst.name.clone(),
+            backend: inst.spec.name.clone(),
             plan,
         })
     }
@@ -173,13 +183,23 @@ mod tests {
     #[test]
     fn test_invoke_fills_default_model_from_backend_instance() {
         let inst = BackendInstance {
-            name: "stub".to_string(),
-            kind: "stub".to_string(),
-            base_url: String::new(),
+            spec: crate::proto::sms::BackendSpec {
+                name: "stub".to_string(),
+                kind: "stub".to_string(),
+                operations: vec!["chat_completions".to_string()],
+                features: vec![],
+                transports: vec!["in_process".to_string()],
+                weight: 100,
+                priority: 0,
+                base_url: String::new(),
+                provider: "internal".to_string(),
+                model: "default-model".to_string(),
+                hosting: crate::proto::sms::BackendHosting::NodeLocal as i32,
+                credential_ref: String::new(),
+                origin: crate::proto::sms::BackendOrigin::StaticConfig as i32,
+                deployment_id: String::new(),
+            },
             hosting: Hosting::Local,
-            model: Some("default-model".to_string()),
-            weight: 100,
-            priority: 0,
             capabilities: Capabilities {
                 ops: vec![Operation::ChatCompletions],
                 features: vec![],

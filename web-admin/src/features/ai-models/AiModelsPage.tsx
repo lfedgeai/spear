@@ -283,6 +283,23 @@ export default function AiModelsPage({ hosting }: { hosting: 'local' | 'remote' 
       ) : null}
 
       {hosting === 'remote' ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Credential References</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="text-sm text-[hsl(var(--muted-foreground))]">
+              Manage reusable secrets in the dedicated Credentials page, then select them from
+              remote backend forms.
+            </div>
+            <Button variant="secondary" onClick={() => navigate('/ai-models/credentials')}>
+              Open Credentials
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {hosting === 'remote' ? (
         <CreateRemoteBackendDialog
           open={createRemoteOpen}
           onOpenChange={setCreateRemoteOpen}

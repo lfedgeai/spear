@@ -15,7 +15,10 @@ pub(super) fn expand_template(
             if let Some(end) = s[i + 2..].find('}') {
                 let key = &s[i + 2..i + 2 + end];
                 let repl = if let Some(rest) = key.strip_prefix("env:") {
-                    env.get(rest).cloned().unwrap_or_default()
+                    env.get(rest)
+                        .cloned()
+                        .or_else(|| std::env::var(rest).ok())
+                        .unwrap_or_default()
                 } else {
                     vars.get(key).cloned().unwrap_or_default()
                 };

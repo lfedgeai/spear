@@ -55,12 +55,12 @@ export const Spear = {
       let seqHi = 0 >>> 0;
       const write = (data) => {
         const u8 = ssf.encodeUtf8(data);
-        __spear_user_stream_write(fd, u8_to_bin(u8));
+        __spear_user_stream_write(fd, u8);
       };
       const read = () => {
-        const bin = __spear_user_stream_read(fd);
-        if (bin == null) return null;
-        return bin_to_u8(bin);
+        const u8 = __spear_user_stream_read(fd);
+        if (u8 == null) return null;
+        return u8;
       };
       const close = () => __spear_user_stream_close(fd);
       const streamIdU32 = sid >>> 0;
@@ -84,9 +84,18 @@ export const Spear = {
         });
         write(frame);
       };
-      const sendText = (text) => sendFrame(ssf.MsgType.DATA, new Uint8Array(0), ssf.encodeUtf8(String(text)));
-      const sendData = (data) => sendFrame(ssf.MsgType.DATA, new Uint8Array(0), data);
-      const sendCommit = () => sendFrame(ssf.MsgType.COMMIT, new Uint8Array(0), new Uint8Array(0));
+      const normalizeMeta = (meta) => (meta instanceof Uint8Array ? meta : new Uint8Array(0));
+      const sendText = (text, meta) =>
+        sendFrame(ssf.MsgType.DATA, normalizeMeta(meta), ssf.encodeUtf8(String(text)));
+      const sendData = (data, meta) => sendFrame(ssf.MsgType.DATA, normalizeMeta(meta), data);
+      const sendCommit = (meta) =>
+        sendFrame(ssf.MsgType.COMMIT, normalizeMeta(meta), new Uint8Array(0));
+      const sendCtrl = (meta, data) =>
+        sendFrame(
+          ssf.MsgType.CTRL,
+          normalizeMeta(meta),
+          data instanceof Uint8Array ? data : new Uint8Array(0),
+        );
       const readMessage = () => {
         const frame = read();
         if (!frame) return null;
@@ -94,24 +103,33 @@ export const Spear = {
         if (!parsed) return null;
         if ((parsed.streamId >>> 0) !== streamIdU32) return null;
         const t = parsed.msgType >>> 0;
+        let message;
         if (t === (ssf.MsgType.DATA >>> 0)) {
-          const text = ssf.decodeUtf8(parsed.data);
-          return { kind: "data", data: parsed.data, text, meta: parsed.meta };
+          message = {
+            kind: "data",
+            data: parsed.data,
+            meta: parsed.meta,
+            get text() {
+              return ssf.decodeUtf8(parsed.data);
+            },
+          };
+        } else if (t === (ssf.MsgType.COMMIT >>> 0)) {
+          message = { kind: "commit", meta: parsed.meta };
+        } else if (t === (ssf.MsgType.CTRL >>> 0)) {
+          message = { kind: "ctrl", meta: parsed.meta, data: parsed.data };
+        } else {
+          message = { kind: "frame", msgType: parsed.msgType >>> 0, meta: parsed.meta, data: parsed.data };
         }
-        if (t === (ssf.MsgType.COMMIT >>> 0)) {
-          return { kind: "commit", meta: parsed.meta };
-        }
-        if (t === (ssf.MsgType.CTRL >>> 0)) {
-          return { kind: "ctrl", meta: parsed.meta, data: parsed.data };
-        }
-        return { kind: "frame", msgType: parsed.msgType >>> 0, meta: parsed.meta, data: parsed.data };
+        return message;
       };
       return {
         fd,
         streamId: streamIdU32,
         read,
         write,
+        sendFrame,
         readMessage,
+        sendCtrl,
         sendData,
         sendCommit,
         sendText,
@@ -159,15 +177,3 @@ export const Spear = {
     return __spear_tool_register(fnJson, wrapper);
   },
 };
-
-function u8_to_bin(u8) {
-  let s = "";
-  for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i] & 255);
-  return s;
-}
-
-function bin_to_u8(bin) {
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 255;
-  return out;
-}

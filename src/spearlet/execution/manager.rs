@@ -1567,6 +1567,14 @@ impl TaskExecutionManager {
             return Ok(());
         };
 
+        info!(
+            execution_id = %ev.execution_id,
+            status = ?ev.execution_status,
+            duration_ms = ev.duration_ms,
+            error_message = %ev.error_message.clone().unwrap_or_default(),
+            "async execution completed; closing user stream channels"
+        );
+
         crate::spearlet::execution::host_api::user_stream::map_ws_close_to_channels(
             &ev.execution_id,
         );

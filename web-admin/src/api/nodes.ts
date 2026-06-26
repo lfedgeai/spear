@@ -1,5 +1,5 @@
 import { fetchJson } from '@/api/client'
-import type { NodeDetail, NodeSummary } from '@/api/types'
+import type { NodeCredentialSyncDetail, NodeDetail, NodeSummary } from '@/api/types'
 
 export type ListNodesParams = {
   /** Query string for fuzzy search / 模糊搜索关键词 */
@@ -33,4 +33,14 @@ export async function listNodes(params: ListNodesParams) {
  */
 export function getNodeDetail(uuid: string) {
   return fetchJson<NodeDetail>(`/admin/api/nodes/${encodeURIComponent(uuid)}`)
+}
+
+/**
+ * Get credential sync detail for one node.
+ * 获取单个节点的 credential 同步状态。
+ */
+export function getNodeCredentialSync(uuid: string) {
+  return fetchJson<NodeCredentialSyncDetail>(
+    `/admin/api/nodes/${encodeURIComponent(uuid)}/ai/credentials`,
+  )
 }

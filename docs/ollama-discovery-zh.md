@@ -4,7 +4,7 @@
 
 ## 背景
 
-SPEARlet 的后端路由与执行使用 `spearlet.llm.backends`。为了让本地 Ollama 的模型可以像其它后端一样参与路由与观测，引入了 Ollama discovery：在 SPEARlet 启动时，从 Ollama API 拉取模型列表，并生成对应的 backend 条目。
+SPEARlet 的后端路由与执行使用 `spearlet.ai.backends`。为了让本地 Ollama 的模型可以像其它后端一样参与路由与观测，引入了 Ollama discovery：在 SPEARlet 启动时，从 Ollama API 拉取模型列表，并生成对应的 backend 条目。
 
 ## 行为概述
 
@@ -14,7 +14,7 @@ SPEARlet 的后端路由与执行使用 `spearlet.llm.backends`。为了让本�
 
 ## 配置
 
-配置段位于：`[spearlet.llm.discovery.ollama]`。
+配置段位于：`[spearlet.ai.discovery.ollama]`。
 
 关键字段：
 
@@ -32,7 +32,7 @@ SPEARlet 的后端路由与执行使用 `spearlet.llm.backends`。为了让本�
 示例：
 
 ```toml
-[spearlet.llm.discovery.ollama]
+[spearlet.ai.discovery.ollama]
 enabled = true
 scope = "installed"
 base_url = "http://127.0.0.1:11434"

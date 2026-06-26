@@ -265,98 +265,113 @@ impl AppConfig {
         }
 
         let mut touch_router_filter_stream = false;
-        if std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_ENABLED").is_ok()
-            || std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_ADDR").is_ok()
-            || std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_DECISION_TIMEOUT_MS").is_ok()
-            || std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_FAIL_OPEN").is_ok()
-            || std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_MAX_CANDIDATES_SENT").is_ok()
-            || std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_MAX_DEBUG_KV").is_ok()
-            || std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_MAX_INFLIGHT_TOTAL").is_ok()
-            || std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_PER_AGENT_MAX_INFLIGHT")
+        if std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_ENABLED").is_ok()
+            || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_ADDR").is_ok()
+            || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_DECISION_TIMEOUT_MS").is_ok()
+            || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_FAIL_OPEN").is_ok()
+            || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_CANDIDATES_SENT").is_ok()
+            || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_DEBUG_KV").is_ok()
+            || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_INFLIGHT_TOTAL").is_ok()
+            || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_PER_AGENT_MAX_INFLIGHT")
                 .is_ok()
-            || std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_ENABLED").is_ok()
-            || std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_MAX_BYTES")
+            || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_ENABLED").is_ok()
+            || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_MAX_BYTES")
                 .is_ok()
         {
             touch_router_filter_stream = true;
         }
-        if touch_router_filter_stream && config.spearlet.llm.router_grpc_filter_stream.is_none() {
-            config.spearlet.llm.router_grpc_filter_stream =
+        if touch_router_filter_stream && config.spearlet.ai.router_grpc_filter_stream.is_none() {
+            config.spearlet.ai.router_grpc_filter_stream =
                 Some(RouterGrpcFilterStreamConfig::default());
         }
-        if let Ok(v) = std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_ENABLED") {
+        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_ENABLED") {
             if let Ok(b) = v.parse::<bool>() {
-                if let Some(cfg) = config.spearlet.llm.router_grpc_filter_stream.as_mut() {
+                if let Some(cfg) = config.spearlet.ai.router_grpc_filter_stream.as_mut() {
                     cfg.enabled = b;
                 }
             }
         }
-        if let Ok(v) = std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_ADDR") {
+        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_ADDR") {
             if !v.is_empty() {
-                if let Some(cfg) = config.spearlet.llm.router_grpc_filter_stream.as_mut() {
+                if let Some(cfg) = config.spearlet.ai.router_grpc_filter_stream.as_mut() {
                     cfg.addr = v;
                 }
             }
         }
-        if let Ok(v) = std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_DECISION_TIMEOUT_MS") {
+        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_DECISION_TIMEOUT_MS") {
             if let Ok(n) = v.parse::<u64>() {
-                if let Some(cfg) = config.spearlet.llm.router_grpc_filter_stream.as_mut() {
+                if let Some(cfg) = config.spearlet.ai.router_grpc_filter_stream.as_mut() {
                     cfg.decision_timeout_ms = n;
                 }
             }
         }
-        if let Ok(v) = std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_FAIL_OPEN") {
+        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_FAIL_OPEN") {
             if let Ok(b) = v.parse::<bool>() {
-                if let Some(cfg) = config.spearlet.llm.router_grpc_filter_stream.as_mut() {
+                if let Some(cfg) = config.spearlet.ai.router_grpc_filter_stream.as_mut() {
                     cfg.fail_open = b;
                 }
             }
         }
-        if let Ok(v) = std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_MAX_CANDIDATES_SENT") {
+        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_CANDIDATES_SENT") {
             if let Ok(n) = v.parse::<usize>() {
-                if let Some(cfg) = config.spearlet.llm.router_grpc_filter_stream.as_mut() {
+                if let Some(cfg) = config.spearlet.ai.router_grpc_filter_stream.as_mut() {
                     cfg.max_candidates_sent = n;
                 }
             }
         }
-        if let Ok(v) = std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_MAX_DEBUG_KV") {
+        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_DEBUG_KV") {
             if let Ok(n) = v.parse::<usize>() {
-                if let Some(cfg) = config.spearlet.llm.router_grpc_filter_stream.as_mut() {
+                if let Some(cfg) = config.spearlet.ai.router_grpc_filter_stream.as_mut() {
                     cfg.max_debug_kv = n;
                 }
             }
         }
-        if let Ok(v) = std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_MAX_INFLIGHT_TOTAL") {
+        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_INFLIGHT_TOTAL") {
             if let Ok(n) = v.parse::<usize>() {
-                if let Some(cfg) = config.spearlet.llm.router_grpc_filter_stream.as_mut() {
+                if let Some(cfg) = config.spearlet.ai.router_grpc_filter_stream.as_mut() {
                     cfg.max_inflight_total = n;
                 }
             }
         }
-        if let Ok(v) =
-            std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_PER_AGENT_MAX_INFLIGHT")
-        {
+        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_PER_AGENT_MAX_INFLIGHT") {
             if let Ok(n) = v.parse::<usize>() {
-                if let Some(cfg) = config.spearlet.llm.router_grpc_filter_stream.as_mut() {
+                if let Some(cfg) = config.spearlet.ai.router_grpc_filter_stream.as_mut() {
                     cfg.per_agent_max_inflight = n;
                 }
             }
         }
-        if let Ok(v) = std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_ENABLED")
-        {
+        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_ENABLED") {
             if let Ok(b) = v.parse::<bool>() {
-                if let Some(cfg) = config.spearlet.llm.router_grpc_filter_stream.as_mut() {
+                if let Some(cfg) = config.spearlet.ai.router_grpc_filter_stream.as_mut() {
                     cfg.content_fetch_enabled = b;
                 }
             }
         }
-        if let Ok(v) =
-            std::env::var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_MAX_BYTES")
-        {
+        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_MAX_BYTES") {
             if let Ok(n) = v.parse::<usize>() {
-                if let Some(cfg) = config.spearlet.llm.router_grpc_filter_stream.as_mut() {
+                if let Some(cfg) = config.spearlet.ai.router_grpc_filter_stream.as_mut() {
                     cfg.content_fetch_max_bytes = n;
                 }
+            }
+        }
+        if let Ok(v) = std::env::var("SPEARLET_AI_ENABLE_STUB_BACKEND") {
+            if let Ok(b) = v.parse::<bool>() {
+                config.spearlet.ai.enable_stub_backend = b;
+            }
+        }
+        if let Ok(v) = std::env::var("SPEARLET_AI_REMOTE_BACKEND_SYNC_ENABLED") {
+            if let Ok(b) = v.parse::<bool>() {
+                config.spearlet.ai.remote_backend_sync.enabled = b;
+            }
+        }
+        if let Ok(v) = std::env::var("SPEARLET_AI_REMOTE_BACKEND_SYNC_POLL_INTERVAL_MS") {
+            if let Ok(n) = v.parse::<u64>() {
+                config.spearlet.ai.remote_backend_sync.poll_interval_ms = n;
+            }
+        }
+        if let Ok(v) = std::env::var("SPEARLET_AI_REMOTE_BACKEND_SYNC_MERGE_POLICY") {
+            if !v.trim().is_empty() {
+                config.spearlet.ai.remote_backend_sync.merge_policy = v;
             }
         }
 
@@ -476,12 +491,12 @@ impl AppConfig {
 fn validate_spearlet_config(
     cfg: &SpearletConfig,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    for b in cfg.llm.backends.iter() {
+    for b in cfg.ai.backends.iter() {
         let hosting = b.hosting.as_deref().map(|s| s.trim()).unwrap_or("");
         if hosting.is_empty() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                format!("llm backend hosting is required: {}", b.name),
+                format!("ai backend hosting is required: {}", b.name),
             )
             .into());
         }
@@ -490,7 +505,7 @@ fn validate_spearlet_config(
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!(
-                    "invalid llm backend hosting (expected local|remote): {}",
+                    "invalid ai backend hosting (expected local|remote): {}",
                     b.name
                 ),
             )
@@ -531,7 +546,7 @@ pub struct SpearletConfig {
     pub sms_connect_retry_ms: u64,
     /// Total reconnect timeout after disconnection / 断线后的总重连超时（毫秒）
     pub reconnect_total_timeout_ms: u64,
-    pub llm: LlmConfig,
+    pub ai: AiConfig,
 }
 
 impl SpearletConfig {
@@ -551,13 +566,39 @@ impl SpearletConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
-pub struct LlmConfig {
+pub struct AiConfig {
     pub default_policy: Option<String>,
-    pub credentials: Vec<LlmCredentialConfig>,
-    pub backends: Vec<LlmBackendConfig>,
-    pub discovery: LlmDiscoveryConfig,
+    pub enable_stub_backend: bool,
+    /// SMS remote backend sync configuration / SMS 远端 backend 同步配置
+    pub remote_backend_sync: RemoteBackendSyncConfig,
+    pub credentials: Vec<AiCredentialConfig>,
+    pub backends: Vec<AiBackendConfig>,
+    pub discovery: AiDiscoveryConfig,
     /// Router gRPC filter stream configuration / Router gRPC 过滤 stream 配置
     pub router_grpc_filter_stream: Option<RouterGrpcFilterStreamConfig>,
+}
+
+/// Remote backend sync configuration / 远端 backend 同步配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RemoteBackendSyncConfig {
+    /// Enable syncing remote backends from SMS / 是否启用从 SMS 同步远端 backend
+    pub enabled: bool,
+    /// Poll interval in ms / 轮询间隔（毫秒）
+    pub poll_interval_ms: u64,
+    /// Merge policy when local and SMS backends have the same name
+    /// / 当本地与 SMS 同名 backend 冲突时的合并策略
+    pub merge_policy: String,
+}
+
+impl Default for RemoteBackendSyncConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            poll_interval_ms: 15_000,
+            merge_policy: "sms_wins_by_name".to_string(),
+        }
+    }
 }
 
 /// Router gRPC filter stream configuration / Router gRPC 过滤 stream 配置
@@ -607,17 +648,18 @@ impl Default for RouterGrpcFilterStreamConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct LlmDiscoveryConfig {
+pub struct AiDiscoveryConfig {
     pub ollama: OllamaDiscoveryConfig,
 }
 
-impl Default for LlmDiscoveryConfig {
+impl Default for AiDiscoveryConfig {
     fn default() -> Self {
         Self {
             ollama: OllamaDiscoveryConfig::default(),
         }
     }
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -663,13 +705,13 @@ impl Default for OllamaDiscoveryConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct LlmCredentialConfig {
+pub struct AiCredentialConfig {
     pub name: String,
     pub kind: String,
     pub api_key_env: String,
 }
 
-impl Default for LlmCredentialConfig {
+impl Default for AiCredentialConfig {
     fn default() -> Self {
         Self {
             name: String::new(),
@@ -679,15 +721,19 @@ impl Default for LlmCredentialConfig {
     }
 }
 
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct LlmBackendConfig {
+pub struct AiBackendConfig {
     pub name: String,
     pub kind: String,
     pub base_url: String,
     pub hosting: Option<String>,
     pub model: Option<String>,
     pub credential_ref: Option<String>,
+    pub provider: Option<String>,
+    pub origin: Option<String>,
+    pub deployment_id: Option<String>,
     pub weight: u32,
     pub priority: i32,
     pub ops: Vec<String>,
@@ -695,7 +741,7 @@ pub struct LlmBackendConfig {
     pub transports: Vec<String>,
 }
 
-impl Default for LlmBackendConfig {
+impl Default for AiBackendConfig {
     fn default() -> Self {
         Self {
             name: String::new(),
@@ -704,6 +750,9 @@ impl Default for LlmBackendConfig {
             hosting: None,
             model: None,
             credential_ref: None,
+            provider: None,
+            origin: None,
+            deployment_id: None,
             weight: 100,
             priority: 0,
             ops: Vec::new(),
@@ -712,6 +761,7 @@ impl Default for LlmBackendConfig {
         }
     }
 }
+
 
 // gRPC server configuration / gRPC服务器配置
 // gRPC uses base ServerConfig / gRPC使用基础ServerConfig
@@ -775,7 +825,7 @@ impl Default for SpearletConfig {
             sms_connect_timeout_ms: 15000,
             sms_connect_retry_ms: 500,
             reconnect_total_timeout_ms: 300_000,
-            llm: LlmConfig::default(),
+            ai: AiConfig::default(),
         }
     }
 }

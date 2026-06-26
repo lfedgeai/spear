@@ -103,6 +103,16 @@ message ListInstanceExecutionsResponse {
   string next_page_token = 2;
 }
 
+message GetInstanceRequest {
+  string instance_id = 1;
+}
+
+message GetInstanceResponse {
+  bool found = 1;
+  bool active = 2;
+  Instance instance = 3;
+}
+
 message GetExecutionRequest {
   string execution_id = 1;
 }
@@ -123,6 +133,6 @@ service ExecutionRegistryService {
 service ExecutionIndexService {
   rpc ListTaskInstances(ListTaskInstancesRequest) returns (ListTaskInstancesResponse);
   rpc ListInstanceExecutions(ListInstanceExecutionsRequest) returns (ListInstanceExecutionsResponse);
+  rpc GetInstance(GetInstanceRequest) returns (GetInstanceResponse);
   rpc GetExecution(GetExecutionRequest) returns (GetExecutionResponse);
 }
-

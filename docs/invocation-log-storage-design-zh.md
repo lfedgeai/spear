@@ -290,7 +290,7 @@ cursor 建议：
 
 ### Phase 1：修正异步路径的日志生命周期（不再过早 finalize）
 
-- [TaskExecutionManager::execute_existing_task_invocation](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/manager.rs#L658-L882)
+- [TaskExecutionManager::execute_existing_task_invocation](../src/spearlet/execution/manager.rs#L658-L882)
   - 当 `runtime_response.execution_status == Running`（异步提交成功）：
     - 不调用 `append_wasm_logs_to_sms`
     - 不写 `execution_completed`
@@ -299,11 +299,11 @@ cursor 建议：
 
 ### Phase 2：为异步执行补齐 completion signal（完成后再 flush/finalize）
 
-- [WasmWorkerRequest](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/runtime/wasm.rs)
+- [WasmWorkerRequest](../src/spearlet/execution/runtime/wasm.rs)
   - 扩展 `Invoke` payload：携带 `execution_id`，并增加一个完成回传通道（tokio mpsc/oneshot）。
-- [WasmRuntime::execute](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/runtime/wasm.rs#L790-L927)
+- [WasmRuntime::execute](../src/spearlet/execution/runtime/wasm.rs#L790-L927)
   - no_wait 分支发送 `Invoke(execution_id, ...)` 给 worker，并注册 completion handler。
-- [TaskExecutionManager](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/manager.rs)
+- [TaskExecutionManager](../src/spearlet/execution/manager.rs)
   - 新增一个后台 listener（或复用现有 work loop）消费 completion events：
     - `append_wasm_logs_to_sms(execution_id, ...)`
     - `append_execution_logs_to_sms(... execution_completed/failed ...)`
@@ -312,11 +312,11 @@ cursor 建议：
 
 ### Phase 3：WASM hostcall 日志按 execution_id 归属（避免串扰，支持并发/重试）
 
-- [DefaultHostApi::wasm_log_write](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/host_api/core.rs#L151-L213)
+- [DefaultHostApi::wasm_log_write](../src/spearlet/execution/host_api/core.rs#L151-L213)
   - 引入“当前 execution_id”的上下文（由 worker 在 invoke 开始/结束设置/清理），写入 log entry 时带上 `execution_id`。
-- [get_wasm_logs / clear_wasm_logs](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/host_api/core.rs#L99-L126)
+- [get_wasm_logs / clear_wasm_logs](../src/spearlet/execution/host_api/core.rs#L99-L126)
   - 增加 `get_wasm_logs_by_execution(execution_id, cursor, limit)`，供 flush 使用。
-- [append_wasm_logs_to_sms](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/manager.rs#L952-L1000)
+- [append_wasm_logs_to_sms](../src/spearlet/execution/manager.rs#L952-L1000)
   - 从“按 instance_id 全量读取”改为“按 execution_id 增量读取 + cursor”。
 
 ### Phase 4：follow 模式体验增强（可选）

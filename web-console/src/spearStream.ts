@@ -10,6 +10,11 @@ export type StreamSession = {
   expires_in_ms: number
 }
 
+export type AutoOpenStream = {
+  streamId: number
+  meta: unknown
+}
+
 export type SpearStreamClientCallbacks = {
   onOpen?: () => void
   onClose?: (ev: CloseEvent) => void
@@ -38,7 +43,7 @@ export class SpearStreamClient {
     }
   }
 
-  async connect(wsUrl: string, options?: { subprotocol?: string; autoOpenStreamId?: number }): Promise<void> {
+  async connect(wsUrl: string, options?: { subprotocol?: string; autoOpenStreams?: AutoOpenStream[] }): Promise<void> {
     this.disconnect()
     const ws = options?.subprotocol ? new WebSocket(wsUrl, options.subprotocol) : new WebSocket(wsUrl)
     ws.binaryType = 'arraybuffer'
@@ -46,10 +51,11 @@ export class SpearStreamClient {
 
     ws.onopen = () => {
       this.callbacks.onOpen?.()
-      const sid = options?.autoOpenStreamId
-      if (typeof sid === 'number' && Number.isFinite(sid) && sid > 0) {
+      const streams = options?.autoOpenStreams ?? []
+      for (const s of streams) {
+        if (!s || typeof s.streamId !== 'number' || !Number.isFinite(s.streamId) || s.streamId <= 0) continue
         try {
-          this.openStream(sid)
+          this.openStream(s.streamId, s.meta)
         } catch {
           // ignore
         }
@@ -78,9 +84,9 @@ export class SpearStreamClient {
     }
   }
 
-  openStream(streamId: number): void {
+  openStream(streamId: number, metaObj: unknown): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error('ws not connected')
-    const meta = new TextEncoder().encode('{}')
+    const meta = encodeMeta(metaObj)
     const payload = encodeSsfV1Frame({
       streamId,
       msgType: SsfMsgType.CTRL,
@@ -91,10 +97,10 @@ export class SpearStreamClient {
     this.ws.send(payload)
   }
 
-  sendText(streamId: number, text: string): void {
+  sendText(streamId: number, text: string, metaObj: unknown): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error('ws not connected')
-    const meta = new TextEncoder().encode('{}')
     const data = new TextEncoder().encode(text)
+    const meta = encodeMeta(metaObj)
     const payload = encodeSsfV1Frame({
       streamId,
       msgType: SsfMsgType.DATA,
@@ -105,9 +111,22 @@ export class SpearStreamClient {
     this.ws.send(payload)
   }
 
-  sendCommit(streamId: number): void {
+  sendBinary(streamId: number, data: Uint8Array, metaObj: unknown): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error('ws not connected')
-    const meta = new TextEncoder().encode('{}')
+    const meta = encodeMeta(metaObj)
+    const payload = encodeSsfV1Frame({
+      streamId,
+      msgType: SsfMsgType.DATA,
+      seq: this.seq++,
+      meta,
+      data,
+    })
+    this.ws.send(payload)
+  }
+
+  sendCommit(streamId: number, metaObj: unknown): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error('ws not connected')
+    const meta = encodeMeta(metaObj)
     const payload = encodeSsfV1Frame({
       streamId,
       msgType: SsfMsgType.COMMIT,
@@ -140,4 +159,15 @@ async function toUint8Array(data: unknown): Promise<Uint8Array> {
   if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer())
   if (typeof data === 'string') return new TextEncoder().encode(data)
   return new Uint8Array()
+}
+
+function encodeMeta(metaObj: unknown): Uint8Array {
+  if (metaObj instanceof Uint8Array) return metaObj
+  const meta = metaObj ?? {}
+  try {
+    const json = JSON.stringify(meta)
+    return new TextEncoder().encode(json)
+  } catch {
+    return new TextEncoder().encode('{}')
+  }
 }

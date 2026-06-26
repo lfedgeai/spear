@@ -3,14 +3,23 @@
 ## Layout
 - Source: `samples/wasm-c/hello.c`
 - Source: `samples/wasm-c/chat_completion.c` (Chat Completions sample)
+- Source: `samples/wasm-c/user_stream_echo.c` (bidirectional user stream echo)
+- Source: `samples/wasm-c/user_stream_voice_chat.c` (Console press-and-hold: voice → transcription → chat sample)
+- Source: `samples/wasm-c/user_stream_live_caption.c` (Console voice uplink → RTASR incremental transcript sample)
 - Source: `samples/wasm-js/chat_completion/src/main.rs` (Boa JS runner compiled to WASM; runs `entry.mjs` → Chat Completion)
 - Source: `samples/wasm-js/chat_completion_tool_sum/src/main.rs` (Boa JS runner compiled to WASM; runs `entry.mjs` → Tool calling)
 - Source: `samples/wasm-js/router_filter_keyword/src/main.rs` (Boa JS runner compiled to WASM; runs `entry.mjs` → Router keyword filter)
 - Source: `samples/wasm-js/user_stream_echo/src/main.rs` (Boa JS runner compiled to WASM; runs `entry.mjs` → bidirectional user stream echo)
 - Source: `samples/wasm-js/user_stream_chat_completion/src/main.rs` (Boa JS runner compiled to WASM; runs `entry.mjs` → user input over user stream → Chat Completion)
+- Source: `samples/wasm-js/user_stream_live_caption/src/main.rs` (Boa JS runner compiled to WASM; runs `entry.mjs` → voice uplink → RTASR live captions)
+- Source: `samples/wasm-js/user_stream_voice_chat/src/main.rs` (Boa JS runner compiled to WASM; runs `entry.mjs` → voice uplink → RTASR transcript → Chat Completion)
+- Source: `samples/wasm-rust/user_stream_live_caption/src/main.rs` (Rust guest SDK compiled to WASM; runs a modular epoll-driven live-caption state machine)
+- Source: `samples/wasm-rust/user_stream_voice_chat/src/main.rs` (Rust guest SDK compiled to WASM; runs a modular epoll-driven voice-chat state machine)
+- Shared SDK helper crate: `sdk/rust/crates/spear-wasm-helper/src/lib.rs` (reusable Rust-first sample helpers for user-stream state, SSF parsing, RTASR event parsing, and the base RTASR session skeleton)
 - Source: `samples/wasm-c/mic_rtasr.c` (realtime mic → realtime ASR)
 - Output: `samples/build/hello.wasm`
--  - WASM-JS outputs: `samples/build/js/js-*.wasm`
+  - WASM-JS outputs: `samples/build/js/js-*.wasm`
+  - WASM-Rust outputs: `samples/build/rust/*.wasm`
 
 ## mic_rtasr prerequisites
 
@@ -42,9 +51,16 @@ How to run: after building `samples/build/mic_rtasr.wasm`, upload it as a WASM e
 WASM-JS samples:
 - Built by `cargo build --release --target wasm32-wasip1`
 - Controlled by Makefile vars:
-  - `BUILD_JS_SAMPLES=0` to skip WASM-JS samples (compat: `BUILD_RUST_SAMPLES=0`)
-  - `JS_SAMPLES="chat_completion chat_completion_tool_sum router_filter_keyword user_stream_echo user_stream_chat_completion"` to select which samples to build (compat: `RUST_SAMPLES=...`)
+  - `BUILD_JS_SAMPLES=0` to skip WASM-JS samples
+  - `JS_SAMPLES="chat_completion chat_completion_tool_sum router_filter_keyword user_stream_echo user_stream_chat_completion user_stream_live_caption user_stream_voice_chat"` to select which samples to build
   - `JS_WASM_PREFIX="js-"` to set the WASM-JS output filename prefix (default `js-`)
+
+WASM-Rust samples:
+- Built by `cargo build --release --target wasm32-wasip1`
+- Controlled by Makefile vars:
+  - `BUILD_RUST_SAMPLES=0` to skip WASM-Rust samples
+  - `RUST_SAMPLES="user_stream_live_caption user_stream_voice_chat"` to select which Rust-first samples to build
+  - `SAMPLES_RUST_DIR="samples/wasm-rust"` to point to the Rust-first sample root
 
 ## clang usage
 - Environment: `WASI_SYSROOT=/opt/wasi-sdk/share/wasi-sysroot` (adjust as needed)
@@ -52,7 +68,16 @@ WASM-JS samples:
 - Without SDK or sysroot, command fails; install `zig` or set `WASI_SYSROOT`
 
 ## Important changes
-- `make samples` builds both WASM-C and WASM-JS samples and writes artifacts under `samples/build/`
+- `make samples` builds WASM-C, WASM-JS, and WASM-Rust samples and writes artifacts under `samples/build/`
+
+## Voice user-stream behavior
+- `stream_id=1` is the text stream for transcript output, committed text input, and model replies.
+- `stream_id=2` is the voice uplink stream; the runtime expects CTRL(OPEN) before DATA/COMMIT.
+- Press-and-hold flows send `utterance_begin`, stream PCM16LE DATA, and send voice COMMIT on release.
+- The live-caption and voice-chat samples accept both `input_audio_transcription.*` and `conversation.item.input_audio_transcription.*` RTASR event names.
+- Current Console defaults are `16000Hz`, mono, `chunkMs=300`; the JS live-caption sample uses `server_vad` with `silence_ms=600` and also aggregates about `240ms` of PCM before each `rtasr.writeAudio()` call.
+- The Rust live-caption sample mirrors the same protocol behavior, but uses Rust SDK `epoll` wrappers and typed modules instead of the Boa JS runner.
+- The Rust voice-chat sample mirrors the JS voice-chat behavior: wait for voice COMMIT, finish RTASR transcription, then invoke downstream Chat Completion and write the response back to `stream_id=1`.
 
 ## Runtime integration
 - The generated `hello.wasm` can be uploaded via SMS file service and referenced in task registration `executable.uri`

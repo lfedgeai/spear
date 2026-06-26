@@ -19,7 +19,6 @@ This folder contains implementation-oriented documents (closer to “how to land
 - rtasr_fd implementation notes:
   - [realtime-asr-implementation-en.md](./realtime-asr-implementation-en.md)
   - [realtime-asr-implementation-zh.md](./realtime-asr-implementation-zh.md)
-- LLM credentials implementation:
+- AI credentials implementation:
   - [llm-credentials-implementation-en.md](./llm-credentials-implementation-en.md)
   - [llm-credentials-implementation-zh.md](./llm-credentials-implementation-zh.md)
-

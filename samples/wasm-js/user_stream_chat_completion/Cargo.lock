@@ -882,6 +882,8 @@ name = "spear-wasm"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "serde",
+ "serde_json",
  "spear-ssf",
  "spear-wasm-sys",
  "thiserror",

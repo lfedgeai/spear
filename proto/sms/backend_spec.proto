@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package sms;
+
+enum BackendHosting {
+  BACKEND_HOSTING_UNSPECIFIED = 0;
+  BACKEND_HOSTING_REMOTE = 1;
+  BACKEND_HOSTING_NODE_LOCAL = 2;
+}
+
+enum BackendOrigin {
+  BACKEND_ORIGIN_UNSPECIFIED = 0;
+  BACKEND_ORIGIN_STATIC_CONFIG = 1;
+  BACKEND_ORIGIN_SMS = 2;
+  BACKEND_ORIGIN_LOCAL_CONTROLLER = 3;
+}
+
+message BackendSpec {
+  string name = 1;
+  string kind = 2;
+  repeated string operations = 3;
+  repeated string features = 4;
+  repeated string transports = 5;
+  uint32 weight = 6;
+  int32 priority = 7;
+  string base_url = 8;
+  string provider = 9;
+  string model = 10;
+  BackendHosting hosting = 11;
+  string credential_ref = 12;
+  BackendOrigin origin = 13;
+  string deployment_id = 14;
+}
+

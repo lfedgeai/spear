@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "sms/backend_spec.proto";
+
 package sms;
 
 enum ModelDeploymentPhase {
@@ -17,6 +19,7 @@ message ModelDeploymentSpec {
   string provider = 2;
   string model = 3;
   map<string, string> params = 4;
+  BackendSpec backend = 5;
 }
 
 message ModelDeploymentStatus {

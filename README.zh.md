@@ -148,16 +148,16 @@ make mac-build
 
 ### 密钥/凭证
 
-不要把密钥写入配置文件。使用 `spearlet.llm.credentials[].api_key_env` 引用环境变量，并在 backend 上通过 `credential_ref` 进行绑定。
+不要把密钥写入配置文件。使用 `spearlet.ai.credentials[].api_key_env` 引用环境变量，并在 backend 上通过 `credential_ref` 进行绑定。
 
-LLM backend 注意事项：
+AI backend 注意事项：
 
-- `[[spearlet.llm.backends]] hosting` 为必填，只允许 `local` 或 `remote`。
+- `[[spearlet.ai.backends]] hosting` 为必填，只允许 `local` 或 `remote`。
 - `credential_ref` 为可选：配置后要求对应 env 存在（否则 backend 会被过滤）；不配置则视为“无需鉴权”（适用于自建代理等场景）。
 
 ### Ollama 模型导入
 
-SPEARlet 支持在启动时从本机 Ollama 导入模型并生成对应的 LLM backend。
+SPEARlet 支持在启动时从本机 Ollama 导入模型并生成对应的 AI backend。
 
 - 文档：`docs/ollama-discovery-zh.md`
 
@@ -195,11 +195,17 @@ Web Admin 提供 Nodes/Tasks/Files/AI Models 等页面。
 make samples
 ```
 
-产物输出到 `samples/build/`（C）与 `samples/build/js/`（WASM-JS；兼容：`samples/build/rust/`）。
+产物输出到 `samples/build/`（WASM-C）、`samples/build/js/`（WASM-JS）以及 `samples/build/rust/`（WASM-Rust）。
 
 文档：
 
 - `docs/samples-build-guide-zh.md`
+- `samples/README-zh.md`
+- `samples/wasm-js/README-zh.md`
+- `samples/wasm-rust/README-zh.md`
+- `sdk/rust/crates/spear-boa/README.zh.md`
+- `sdk/rust/crates/spear-wasm-helper/README.zh.md`
+- `docs/spear-console-voice-input-design-zh.md`
 
 ## 开发
 

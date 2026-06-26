@@ -2,13 +2,15 @@
 
 Realtime voice/streaming differs from standard HTTP requests: it requires dedicated transport (WebSocket/gRPC), session lifecycle, and event-driven incremental outputs.
 
+Note: the current runtime does not implement `realtime_voice`; the only shipped realtime capability today is `speech_to_text`. The following content is kept as historical design / future planning reference.
+
 ## 1. Why it needs a separate model
 
 The legacy Go realtime ASR uses a WebSocket session and appends audio buffers; delta events are forwarded back to the task (`legacy/spearlet/stream/rt_asr.go:46-140`). This cannot be represented as a single request/response.
 
 Therefore model realtime explicitly as:
 
-- `Operation::realtime_voice`
+- planned `Operation::realtime_voice`
 - `Feature::supports_bidi_stream`
 - `Transport::websocket|grpc`
 
@@ -33,7 +35,7 @@ Outputs should be an event stream:
 
 Routing must require:
 
-- the backend instance supports `realtime_voice`
+- if reintroduced, the backend instance must support `realtime_voice`
 - transport supports `websocket|grpc`
 - session concurrency and duration constraints (`max_session_seconds`)
 

@@ -1,7 +1,7 @@
 //! Function service implementation for spearlet
 //! spearlet的函数服务实现
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -23,46 +23,6 @@ use crate::spearlet::execution::{
     TaskExecutionManager, TaskExecutionManagerConfig, DEFAULT_ENTRY_FUNCTION_NAME,
 };
 use crate::spearlet::SpearletConfig;
-
-fn collect_llm_global_environment(cfg: &SpearletConfig) -> HashMap<String, String> {
-    let mut cred_env: HashMap<String, String> = HashMap::new();
-    for c in cfg.llm.credentials.iter() {
-        if c.kind.as_str() != "env" {
-            continue;
-        }
-        if c.name.trim().is_empty() {
-            continue;
-        }
-        if c.api_key_env.trim().is_empty() {
-            continue;
-        }
-        cred_env.insert(c.name.clone(), c.api_key_env.clone());
-    }
-
-    let mut required: HashSet<String> = HashSet::new();
-    for b in cfg.llm.backends.iter() {
-        let Some(r) = b.credential_ref.as_deref().map(|s| s.trim()) else {
-            continue;
-        };
-        if r.is_empty() {
-            continue;
-        }
-        let Some(env) = cred_env.get(r) else {
-            continue;
-        };
-        required.insert(env.clone());
-    }
-
-    let mut out: HashMap<String, String> = HashMap::new();
-    for env_name in required.into_iter() {
-        if let Ok(v) = std::env::var(&env_name) {
-            if !v.is_empty() {
-                out.insert(env_name, v);
-            }
-        }
-    }
-    out
-}
 
 /// Function service statistics / 函数服务统计信息
 #[derive(Debug, Clone)]
@@ -94,7 +54,7 @@ impl FunctionServiceImpl {
         sms_channel: Option<Channel>,
     ) -> Result<Self, ExecutionError> {
         let mut rm = RuntimeManager::new();
-        let global_environment = collect_llm_global_environment(&config);
+        let global_environment = crate::spearlet::ai::collect_ai_global_environment(&config);
         let default_configs: Vec<RuntimeConfig> = RuntimeFactory::available_runtimes()
             .into_iter()
             .map(|rt| RuntimeConfig {

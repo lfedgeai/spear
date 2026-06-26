@@ -69,14 +69,28 @@ Add `sdk/rust/` and organize it as multiple crates (workspace style) to keep con
   - `Fd` RAII wrappers (explicit close)
   - epoll payload decoding (`Vec<(fd, events)>`)
 - Kept independent of Boa/JS so it can also serve “Rust-on-WASM” users.
+- For downstream chat, the public wrapper is `ChatRequestContext`, which models a single-turn request context rather than a persistent conversation session.
 
-3) `spear-boa`
+3) `spear-wasm-helper`
+- Higher-level Rust helpers built on top of `spear-wasm`
+- Suitable for Rust-first WASM apps and samples that need:
+  - reusable `user stream` state handling
+  - shared SSF / stream-protocol parsing
+  - shared RTASR transcript event parsing
+  - a base RTASR session skeleton
+- Keeps product-specific state machines out of the low-level SDK layer.
+
+4) `spear-boa`
 - Boa integration:
   - inject builtin/virtual modules: `spear`, `spear/chat`, `spear/audio`, `spear/poll`, `spear/errors`, ...
   - map `spear-wasm` to JS-friendly APIs (Promise, options objects)
   - maintain tool handler registry (JS tool handler table)
+- Also exposes lightweight JS helper modules for reusable JS-first guest logic, such as:
+  - `spear/time_format`
+  - `spear/rtasr_event`
+  - `spear/stream_gate`
 
-4) Samples (`samples/wasm-js/*`) (JS-first; built as WASI executables via a Boa JS runner)
+5) Samples (`samples/wasm-js/*`) (JS-first; built as WASI executables via a Boa JS runner)
 - A small runner binary that:
   - loads user JS (embedded or via WASI allowed dirs)
   - creates Boa `Context`

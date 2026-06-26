@@ -10,7 +10,6 @@ pub enum Operation {
     ImageGeneration,
     SpeechToText,
     TextToSpeech,
-    RealtimeVoice,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,7 +76,6 @@ impl CanonicalRequestEnvelope {
                 | (Operation::ImageGeneration, Payload::ImageGeneration(_))
                 | (Operation::SpeechToText, Payload::SpeechToText(_))
                 | (Operation::TextToSpeech, Payload::TextToSpeech(_))
-                | (Operation::RealtimeVoice, Payload::RealtimeVoice(_))
         );
         if !ok {
             return Err(CanonicalError {
@@ -159,11 +157,6 @@ pub struct TextToSpeechPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RealtimeVoicePayload {
-    pub model: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Payload {
     ChatCompletions(ChatCompletionsPayload),
@@ -171,7 +164,6 @@ pub enum Payload {
     ImageGeneration(ImageGenerationPayload),
     SpeechToText(SpeechToTextPayload),
     TextToSpeech(TextToSpeechPayload),
-    RealtimeVoice(RealtimeVoicePayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

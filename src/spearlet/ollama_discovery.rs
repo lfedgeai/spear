@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use reqwest::Url;
 use serde::Deserialize;
 
-use crate::spearlet::config::{LlmBackendConfig, SpearletConfig};
+use crate::spearlet::config::{AiBackendConfig, SpearletConfig};
 use crate::spearlet::execution::ai::backends::KIND_OLLAMA_CHAT;
 
 #[derive(Debug, Deserialize)]
@@ -19,11 +19,11 @@ struct OllamaPsModel {
 }
 
 pub async fn maybe_import_ollama_serving_models(cfg: &mut SpearletConfig) -> Result<usize> {
-    if !cfg.llm.discovery.ollama.enabled {
+    if !cfg.ai.discovery.ollama.enabled {
         return Ok(0);
     }
 
-    let discovery = cfg.llm.discovery.ollama.clone();
+    let discovery = cfg.ai.discovery.ollama.clone();
     let base_url = Url::parse(&discovery.base_url)
         .map_err(|e| anyhow!("invalid ollama base_url: {}: {}", discovery.base_url, e))?;
 
@@ -50,7 +50,8 @@ pub async fn maybe_import_ollama_serving_models(cfg: &mut SpearletConfig) -> Res
         return Ok(0);
     }
 
-    let existing_names: HashSet<String> = cfg.llm.backends.iter().map(|b| b.name.clone()).collect();
+    let existing_names: HashSet<String> =
+        cfg.ai.backends.iter().map(|b| b.name.clone()).collect();
     let mut imported = 0usize;
 
     for model in model_names {
@@ -61,19 +62,22 @@ pub async fn maybe_import_ollama_serving_models(cfg: &mut SpearletConfig) -> Res
         );
         if existing_names.contains(&derived) {
             if discovery.name_conflict.as_str() == "overwrite" {
-                cfg.llm.backends.retain(|b| b.name != derived);
+                cfg.ai.backends.retain(|b| b.name != derived);
             } else {
                 continue;
             }
         }
 
-        cfg.llm.backends.push(LlmBackendConfig {
+        cfg.ai.backends.push(AiBackendConfig {
             name: derived,
             kind: KIND_OLLAMA_CHAT.to_string(),
             base_url: discovery.base_url.clone(),
             hosting: Some("local".to_string()),
             model: Some(model),
             credential_ref: None,
+            provider: Some("ollama".to_string()),
+            origin: Some("local_controller".to_string()),
+            deployment_id: None,
             weight: discovery.default_weight,
             priority: discovery.default_priority,
             ops: discovery.default_ops.clone(),
@@ -214,14 +218,14 @@ mod tests {
         .await;
 
         let mut cfg = SpearletConfig::default();
-        cfg.llm.discovery.ollama.enabled = true;
-        cfg.llm.discovery.ollama.base_url = base_url;
+        cfg.ai.discovery.ollama.enabled = true;
+        cfg.ai.discovery.ollama.base_url = base_url;
 
         let n = maybe_import_ollama_serving_models(&mut cfg).await.unwrap();
         assert_eq!(n, 2);
-        assert!(cfg.llm.backends.iter().any(|b| b.kind == KIND_OLLAMA_CHAT));
+        assert!(cfg.ai.backends.iter().any(|b| b.kind == KIND_OLLAMA_CHAT));
         assert!(cfg
-            .llm
+            .ai
             .backends
             .iter()
             .any(|b| b.model.as_deref() == Some("llama3:latest")));
@@ -241,9 +245,9 @@ mod tests {
         .await;
 
         let mut cfg = SpearletConfig::default();
-        cfg.llm.discovery.ollama.enabled = true;
-        cfg.llm.discovery.ollama.scope = "installed".to_string();
-        cfg.llm.discovery.ollama.base_url = base_url;
+        cfg.ai.discovery.ollama.enabled = true;
+        cfg.ai.discovery.ollama.scope = "installed".to_string();
+        cfg.ai.discovery.ollama.base_url = base_url;
 
         let n = maybe_import_ollama_serving_models(&mut cfg).await.unwrap();
         assert_eq!(n, 2);

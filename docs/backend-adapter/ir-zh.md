@@ -43,7 +43,7 @@ CanonicalRequestEnvelope
   - `preferred_backends: Vec<String>`（可选）
 - `policy: Option<SelectionPolicySpec>`（请求级覆盖，受 host 配置约束）
 - `timeout_ms: Option<u64>`
-- `payload: oneof { ChatCompletionsPayload | EmbeddingsPayload | ImageGenerationPayload | SpeechToTextPayload | TextToSpeechPayload | RealtimeVoicePayload | ... }`
+- `payload: oneof { ChatCompletionsPayload | EmbeddingsPayload | ImageGenerationPayload | SpeechToTextPayload | TextToSpeechPayload | ... }`
 - `extra: Map<String, Value>`（未知字段透传与实验字段）
 
 说明：

@@ -53,15 +53,19 @@ fn stt_req() -> CanonicalRequestEnvelope {
 #[test]
 fn test_cchat_send_pipeline_stub_backend() {
     let mut cfg = crate::spearlet::config::SpearletConfig::default();
-    cfg.llm
+    cfg.ai.enable_stub_backend = true;
+    cfg.ai
         .backends
-        .push(crate::spearlet::config::LlmBackendConfig {
+        .push(crate::spearlet::config::AiBackendConfig {
             name: "stub".to_string(),
             kind: "stub".to_string(),
             base_url: String::new(),
             hosting: Some("local".to_string()),
             model: None,
             credential_ref: None,
+            provider: None,
+            origin: None,
+            deployment_id: None,
             weight: 100,
             priority: 0,
             ops: vec!["chat_completions".to_string()],
@@ -97,15 +101,19 @@ fn test_cchat_send_pipeline_stub_backend() {
 #[test]
 fn test_cchat_send_auto_tool_call_loop_stub_backend() {
     let mut cfg = crate::spearlet::config::SpearletConfig::default();
-    cfg.llm
+    cfg.ai.enable_stub_backend = true;
+    cfg.ai
         .backends
-        .push(crate::spearlet::config::LlmBackendConfig {
+        .push(crate::spearlet::config::AiBackendConfig {
             name: "stub".to_string(),
             kind: "stub".to_string(),
             base_url: String::new(),
             hosting: Some("local".to_string()),
             model: None,
             credential_ref: None,
+            provider: None,
+            origin: None,
+            deployment_id: None,
             weight: 100,
             priority: 0,
             ops: vec!["chat_completions".to_string()],
@@ -159,22 +167,25 @@ fn test_cchat_send_auto_tool_call_loop_stub_backend() {
 #[test]
 fn test_configured_openai_backend_missing_key_is_filtered() {
     let mut cfg = crate::spearlet::config::SpearletConfig::default();
-    cfg.llm
+    cfg.ai
         .credentials
-        .push(crate::spearlet::config::LlmCredentialConfig {
+        .push(crate::spearlet::config::AiCredentialConfig {
             name: "openai_default".to_string(),
             kind: "env".to_string(),
             api_key_env: "OPENAI_API_KEY".to_string(),
         });
-    cfg.llm
+    cfg.ai
         .backends
-        .push(crate::spearlet::config::LlmBackendConfig {
+        .push(crate::spearlet::config::AiBackendConfig {
             name: "openai-us".to_string(),
             kind: "openai_chat_completion".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             hosting: Some("remote".to_string()),
             model: None,
             credential_ref: Some("openai_default".to_string()),
+            provider: None,
+            origin: None,
+            deployment_id: None,
             weight: 100,
             priority: 0,
             ops: vec!["chat_completions".to_string()],
@@ -203,24 +214,27 @@ fn test_configured_openai_backend_missing_key_is_filtered() {
 }
 
 #[test]
-fn test_registry_credential_ref_missing_env_filters_backend() {
+fn test_registry_credential_ref_missing_env_keeps_backend_registered() {
     let mut cfg = crate::spearlet::config::SpearletConfig::default();
-    cfg.llm
+    cfg.ai
         .credentials
-        .push(crate::spearlet::config::LlmCredentialConfig {
+        .push(crate::spearlet::config::AiCredentialConfig {
             name: "openai_chat".to_string(),
             kind: "env".to_string(),
             api_key_env: "OPENAI_CHAT_API_KEY".to_string(),
         });
-    cfg.llm
+    cfg.ai
         .backends
-        .push(crate::spearlet::config::LlmBackendConfig {
+        .push(crate::spearlet::config::AiBackendConfig {
             name: "openai-chat".to_string(),
             kind: "openai_chat_completion".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             hosting: Some("remote".to_string()),
             model: None,
             credential_ref: Some("openai_chat".to_string()),
+            provider: None,
+            origin: None,
+            deployment_id: None,
             weight: 100,
             priority: 0,
             ops: vec!["chat_completions".to_string()],
@@ -236,30 +250,36 @@ fn test_registry_credential_ref_missing_env_filters_backend() {
         resource_pool: ResourcePoolConfig::default(),
     };
 
-    let (reg, _policy) = super::registry::build_registry_from_runtime_config(&runtime_config);
+    let (reg, _policy) =
+        crate::spearlet::execution::ai::router::builder::build_registry_from_runtime_config(
+            &runtime_config,
+        );
     let candidates = reg.candidates(&chat_req());
-    assert_eq!(candidates.len(), 0);
+    assert_eq!(candidates.len(), 1);
 }
 
 #[test]
 fn test_registry_credential_ref_with_env_registers_backend() {
     let mut cfg = crate::spearlet::config::SpearletConfig::default();
-    cfg.llm
+    cfg.ai
         .credentials
-        .push(crate::spearlet::config::LlmCredentialConfig {
+        .push(crate::spearlet::config::AiCredentialConfig {
             name: "openai_chat".to_string(),
             kind: "env".to_string(),
             api_key_env: "OPENAI_CHAT_API_KEY".to_string(),
         });
-    cfg.llm
+    cfg.ai
         .backends
-        .push(crate::spearlet::config::LlmBackendConfig {
+        .push(crate::spearlet::config::AiBackendConfig {
             name: "openai-chat".to_string(),
             kind: "openai_chat_completion".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             hosting: Some("remote".to_string()),
             model: None,
             credential_ref: Some("openai_chat".to_string()),
+            provider: None,
+            origin: None,
+            deployment_id: None,
             weight: 100,
             priority: 0,
             ops: vec!["chat_completions".to_string()],
@@ -277,31 +297,37 @@ fn test_registry_credential_ref_with_env_registers_backend() {
         resource_pool: ResourcePoolConfig::default(),
     };
 
-    let (reg, _policy) = super::registry::build_registry_from_runtime_config(&runtime_config);
+    let (reg, _policy) =
+        crate::spearlet::execution::ai::router::builder::build_registry_from_runtime_config(
+            &runtime_config,
+        );
     let candidates = reg.candidates(&chat_req());
     assert_eq!(candidates.len(), 1);
-    assert_eq!(candidates[0].name, "openai-chat");
+    assert_eq!(candidates[0].spec.name, "openai-chat");
 }
 
 #[test]
 fn test_registry_openai_chat_completion_kind_alias_registers_backend() {
     let mut cfg = crate::spearlet::config::SpearletConfig::default();
-    cfg.llm
+    cfg.ai
         .credentials
-        .push(crate::spearlet::config::LlmCredentialConfig {
+        .push(crate::spearlet::config::AiCredentialConfig {
             name: "openai_chat".to_string(),
             kind: "env".to_string(),
             api_key_env: "OPENAI_CHAT_API_KEY".to_string(),
         });
-    cfg.llm
+    cfg.ai
         .backends
-        .push(crate::spearlet::config::LlmBackendConfig {
+        .push(crate::spearlet::config::AiBackendConfig {
             name: "openai-chat".to_string(),
             kind: "openai_chat_completion".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             hosting: Some("remote".to_string()),
             model: None,
             credential_ref: Some("openai_chat".to_string()),
+            provider: None,
+            origin: None,
+            deployment_id: None,
             weight: 100,
             priority: 0,
             ops: vec!["chat_completions".to_string()],
@@ -319,31 +345,37 @@ fn test_registry_openai_chat_completion_kind_alias_registers_backend() {
         resource_pool: ResourcePoolConfig::default(),
     };
 
-    let (reg, _policy) = super::registry::build_registry_from_runtime_config(&runtime_config);
+    let (reg, _policy) =
+        crate::spearlet::execution::ai::router::builder::build_registry_from_runtime_config(
+            &runtime_config,
+        );
     let candidates = reg.candidates(&chat_req());
     assert_eq!(candidates.len(), 1);
-    assert_eq!(candidates[0].name, "openai-chat");
+    assert_eq!(candidates[0].spec.name, "openai-chat");
 }
 
 #[test]
 fn test_realtime_ws_plan_uses_resolved_env_template() {
     let mut cfg = crate::spearlet::config::SpearletConfig::default();
-    cfg.llm
+    cfg.ai
         .credentials
-        .push(crate::spearlet::config::LlmCredentialConfig {
+        .push(crate::spearlet::config::AiCredentialConfig {
             name: "openai_realtime".to_string(),
             kind: "env".to_string(),
             api_key_env: "OPENAI_REALTIME_API_KEY".to_string(),
         });
-    cfg.llm
+    cfg.ai
         .backends
-        .push(crate::spearlet::config::LlmBackendConfig {
+        .push(crate::spearlet::config::AiBackendConfig {
             name: "rt-ws".to_string(),
             kind: "openai_realtime_ws".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             hosting: Some("remote".to_string()),
             model: None,
             credential_ref: Some("openai_realtime".to_string()),
+            provider: None,
+            origin: None,
+            deployment_id: None,
             weight: 100,
             priority: 0,
             ops: vec!["speech_to_text".to_string()],
@@ -361,7 +393,10 @@ fn test_realtime_ws_plan_uses_resolved_env_template() {
         resource_pool: ResourcePoolConfig::default(),
     };
 
-    let (reg, _policy) = super::registry::build_registry_from_runtime_config(&runtime_config);
+    let (reg, _policy) =
+        crate::spearlet::execution::ai::router::builder::build_registry_from_runtime_config(
+            &runtime_config,
+        );
     let candidates = reg.candidates(&stt_req());
     assert_eq!(candidates.len(), 1);
     let plan = candidates[0].adapter.streaming_plan(&stt_req()).unwrap();
@@ -373,7 +408,7 @@ fn test_realtime_ws_plan_uses_resolved_env_template() {
         .find(|(k, _)| k == "authorization")
         .map(|(_, v)| v.clone())
         .unwrap_or_default();
-    assert_eq!(auth, "Bearer ${env:OPENAI_REALTIME_API_KEY}");
+    assert_eq!(auth, "Bearer dummy");
 }
 
 #[test]
@@ -554,22 +589,25 @@ async fn test_rtasr_websocket_transport_receives_events() {
     });
 
     let mut cfg = crate::spearlet::config::SpearletConfig::default();
-    cfg.llm
+    cfg.ai
         .credentials
-        .push(crate::spearlet::config::LlmCredentialConfig {
+        .push(crate::spearlet::config::AiCredentialConfig {
             name: "openai_realtime".to_string(),
             kind: "env".to_string(),
             api_key_env: "OPENAI_REALTIME_API_KEY".to_string(),
         });
-    cfg.llm
+    cfg.ai
         .backends
-        .push(crate::spearlet::config::LlmBackendConfig {
+        .push(crate::spearlet::config::AiBackendConfig {
             name: "rt-ws".to_string(),
             kind: "openai_realtime_ws".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             hosting: Some("remote".to_string()),
             model: None,
             credential_ref: Some("openai_realtime".to_string()),
+            provider: None,
+            origin: None,
+            deployment_id: None,
             weight: 100,
             priority: 0,
             ops: vec!["speech_to_text".to_string()],
@@ -777,22 +815,25 @@ async fn test_rtasr_websocket_flush_sends_commit() {
     });
 
     let mut cfg = crate::spearlet::config::SpearletConfig::default();
-    cfg.llm
+    cfg.ai
         .credentials
-        .push(crate::spearlet::config::LlmCredentialConfig {
+        .push(crate::spearlet::config::AiCredentialConfig {
             name: "openai_realtime".to_string(),
             kind: "env".to_string(),
             api_key_env: "OPENAI_REALTIME_API_KEY".to_string(),
         });
-    cfg.llm
+    cfg.ai
         .backends
-        .push(crate::spearlet::config::LlmBackendConfig {
+        .push(crate::spearlet::config::AiBackendConfig {
             name: "rt-ws".to_string(),
             kind: "openai_realtime_ws".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             hosting: Some("remote".to_string()),
             model: None,
             credential_ref: Some("openai_realtime".to_string()),
+            provider: None,
+            origin: None,
+            deployment_id: None,
             weight: 100,
             priority: 0,
             ops: vec!["speech_to_text".to_string()],
@@ -891,22 +932,25 @@ async fn test_rtasr_websocket_autoflush_bytes_sends_commit() {
     });
 
     let mut cfg = crate::spearlet::config::SpearletConfig::default();
-    cfg.llm
+    cfg.ai
         .credentials
-        .push(crate::spearlet::config::LlmCredentialConfig {
+        .push(crate::spearlet::config::AiCredentialConfig {
             name: "openai_realtime".to_string(),
             kind: "env".to_string(),
             api_key_env: "OPENAI_REALTIME_API_KEY".to_string(),
         });
-    cfg.llm
+    cfg.ai
         .backends
-        .push(crate::spearlet::config::LlmBackendConfig {
+        .push(crate::spearlet::config::AiBackendConfig {
             name: "rt-ws".to_string(),
             kind: "openai_realtime_ws".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             hosting: Some("remote".to_string()),
             model: None,
             credential_ref: Some("openai_realtime".to_string()),
+            provider: None,
+            origin: None,
+            deployment_id: None,
             weight: 100,
             priority: 0,
             ops: vec!["speech_to_text".to_string()],

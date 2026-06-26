@@ -17,6 +17,8 @@ use crate::proto::sms::{
     ReportModelDeploymentStatusRequest,
 };
 use crate::spearlet::config::SpearletConfig;
+use crate::spearlet::ai::dynamic_backend_registry::DynamicBackendSource;
+use crate::spearlet::controller::Controller;
 
 use super::llamacpp::LlamaCppSupervisor;
 use super::managed_backends::ManagedBackendRegistry;
@@ -48,6 +50,7 @@ impl LocalModelController {
 
     pub fn shutdown(&self) {
         self.cancel.cancel();
+        self.managed_backends.clear(DynamicBackendSource::LocalController);
     }
 
     pub fn start(&self) {
@@ -268,9 +271,12 @@ impl LocalModelController {
             }
         }
 
+        self.managed_backends.set_backends(
+            DynamicBackendSource::LocalController,
+            managed_backend_infos,
+        );
         seen_spec.retain(|id, _| live_ids.contains(id));
         self.llamacpp.stop_removed(&live_ids).await;
-        self.managed_backends.set_backends(managed_backend_infos);
     }
 
     async fn reconcile_one(
@@ -502,6 +508,20 @@ impl LocalModelController {
             return self.llamacpp.get_backend(deployment_id).await;
         }
         None
+    }
+}
+
+impl Controller for LocalModelController {
+    fn name(&self) -> &'static str {
+        "local_model_controller"
+    }
+
+    fn start(&self) {
+        LocalModelController::start(self)
+    }
+
+    fn shutdown(&self) {
+        LocalModelController::shutdown(self)
     }
 }
 

@@ -2,34 +2,18 @@ syntax = "proto3";
 
 package sms;
 
+import "sms/backend_spec.proto";
+
 enum BackendStatus {
   BACKEND_STATUS_UNSPECIFIED = 0;
   BACKEND_STATUS_AVAILABLE = 1;
   BACKEND_STATUS_UNAVAILABLE = 2;
 }
 
-enum BackendHosting {
-  BACKEND_HOSTING_UNSPECIFIED = 0;
-  BACKEND_HOSTING_REMOTE = 1;
-  BACKEND_HOSTING_NODE_LOCAL = 2;
-}
-
 message BackendInfo {
-  string name = 1;
-  string kind = 2;
-  repeated string operations = 3;
-  repeated string features = 4;
-  repeated string transports = 5;
-  uint32 weight = 6;
-  int32 priority = 7;
-  string base_url = 8;
-  BackendStatus status = 9;
-  string status_reason = 10;
-  string provider = 11;
-  string model = 12;
-  BackendHosting hosting = 13;
-  // Credential reference name (no secret value) / 凭据引用名称（不包含密钥明文）
-  string credential_ref = 14;
+  BackendSpec spec = 1;
+  BackendStatus status = 2;
+  string status_reason = 3;
 }
 
 message NodeBackendSnapshot {

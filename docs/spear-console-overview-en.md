@@ -37,8 +37,9 @@ SPEAR Console uses the existing execution stream protocol:
 1) User selects a Task -> Instance -> Execution in the “Start a chat” dialog.
 2) Console calls `POST /api/v1/executions/{execution_id}/streams/session` (same-origin) to obtain `ws_url`.
 3) Console connects to `ws_url` via WebSocket and exchanges SSF frames.
-   - On `open`, Console sends an initial SSF v1 CTRL frame (`msgType=1`, empty data) to establish the stream (`stream_id=1`) without waiting for the first user input.
-   - User input is sent as one or more DATA frames (`msgType=2`), followed by a COMMIT frame (`msgType=3`) to mark the end of the input segment.
+   - On `open`, Console sends SSF v1 CTRL(OPEN) frames (`msgType=1`) for every `stream_id` it plans to use. DATA/COMMIT is not allowed before CTRL(OPEN) (no backward compatibility).
+   - Text input (default `stream_id=1`): send one or more DATA frames (`msgType=2`), then a COMMIT frame (`msgType=3`) to mark the end of the input segment.
+   - Voice input (optional `stream_id=2`): on press start send CTRL(UTTERANCE_BEGIN), keep sending DATA(audio chunks), and on release send COMMIT. Full spec: [spear-console-voice-input-design-en.md](./spear-console-voice-input-design-en.md).
 
 ### Multi-Client Concurrency (Same Execution)
 

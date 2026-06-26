@@ -4,7 +4,7 @@ This document explains how SPEARlet imports models from Ollama and exposes them 
 
 ## Background
 
-SPEARlet builds its runtime backend registry from `spearlet.llm.backends`. To make local Ollama models routable and observable like other LLM providers, Ollama discovery is introduced: on SPEARlet startup, it queries Ollama APIs and materializes per-model backends.
+SPEARlet builds its runtime backend registry from `spearlet.ai.backends`. To make local Ollama models routable and observable like other AI providers, Ollama discovery is introduced: on SPEARlet startup, it queries Ollama APIs and materializes per-model backends.
 
 ## Behavior
 
@@ -14,7 +14,7 @@ SPEARlet builds its runtime backend registry from `spearlet.llm.backends`. To ma
 
 ## Configuration
 
-The config section is: `[spearlet.llm.discovery.ollama]`.
+The config section is: `[spearlet.ai.discovery.ollama]`.
 
 Key fields:
 
@@ -32,7 +32,7 @@ Key fields:
 Example:
 
 ```toml
-[spearlet.llm.discovery.ollama]
+[spearlet.ai.discovery.ollama]
 enabled = true
 scope = "installed"
 base_url = "http://127.0.0.1:11434"

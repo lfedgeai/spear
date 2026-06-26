@@ -28,7 +28,7 @@ Legacy: WebSocket session + append audio + delta events (`legacy/spearlet/stream
 
 New design:
 
-- `Operation::realtime_voice` + `Transport::websocket|grpc`
+- Planned only: `Operation::realtime_voice` + `Transport::websocket|grpc` (not implemented in the current runtime)
 - stream subsystem shares registry/capabilities with router
 
 ## 2. MVP phases
@@ -47,7 +47,7 @@ New design:
 - Reuse the same router/registry/policies
 - Introduce `MediaRef` for image/audio and unify object storage interaction
 
-### Phase 3: Realtime voice / streaming (dedicated subsystem)
+### Phase 3: Realtime voice / streaming (planned only, not implemented in the current runtime)
 
 - Add streaming lifecycle and event model
 - Enforce capabilities (bidi stream, transport, session constraints)
@@ -58,4 +58,3 @@ New design:
 - circuit breaking and outlier ejection
 - cost-aware routing
 - hedging/mirroring gated by operation and budget
-

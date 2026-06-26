@@ -1,11 +1,13 @@
-use crate::spearlet::execution::ai::ir::{Operation, Payload, RoutingHints, SpeechToTextPayload};
-use crate::spearlet::execution::ai::streaming::{StreamingPlan, StreamingWebsocketPlan};
+use crate::spearlet::execution::ai::ir::{
+    CanonicalRequestEnvelope, Operation, Payload, RoutingHints, SpeechToTextPayload,
+};
+use crate::spearlet::execution::ai::streaming::StreamingPlan;
 use crate::spearlet::execution::host_api::errno::{
     SPEAR_EAGAIN, SPEAR_EBADF, SPEAR_EINVAL, SPEAR_EIO,
 };
 use crate::spearlet::execution::host_api::DefaultHostApi;
 use crate::spearlet::execution::hostcall::types::{
-    FdEntry, FdFlags, FdInner, FdKind, PollEvents, RtAsrConnState, RtAsrSendItem,
+    FdEntry, FdFlags, FdInner, FdKind, PollEvents, RtAsrConnState, RtAsrSendItem, RtAsrState,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -17,6 +19,85 @@ mod readiness;
 mod segmentation;
 mod stub;
 mod websocket;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RtAsrTransport {
+    Websocket,
+    Stub,
+}
+
+impl RtAsrTransport {
+    fn parse(params: &HashMap<String, serde_json::Value>) -> Self {
+        match params.get(rtasr_keys::TRANSPORT).and_then(|x| x.as_str()) {
+            Some("websocket") => Self::Websocket,
+            _ => Self::Stub,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct RtAsrConnectOverrides {
+    ws_url: Option<String>,
+    client_secret: Option<String>,
+    model: Option<String>,
+}
+
+impl RtAsrConnectOverrides {
+    fn parse(params: &HashMap<String, serde_json::Value>) -> Self {
+        let ws_url = params
+            .get(rtasr_keys::WS_URL)
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
+        let client_secret = params
+            .get(rtasr_keys::CLIENT_SECRET)
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
+        let model = params
+            .get(rtasr_keys::MODEL)
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
+        Self {
+            ws_url,
+            client_secret,
+            model,
+        }
+    }
+}
+
+enum RtAsrConnectAction {
+    Noop,
+    SpawnStub,
+    ResolveWebsocket {
+        req: CanonicalRequestEnvelope,
+        overrides: RtAsrConnectOverrides,
+        segmentation: crate::spearlet::execution::hostcall::types::RtAsrSegmentationConfig,
+    },
+}
+
+fn build_ws_s2t_request(st: &RtAsrState, model: Option<String>) -> CanonicalRequestEnvelope {
+    CanonicalRequestEnvelope {
+        version: 1,
+        request_id: "rtasr_connect".to_string(),
+        operation: Operation::SpeechToText,
+        meta: HashMap::new(),
+        routing: RoutingHints {
+            backend: st
+                .params
+                .get(chat_keys::BACKEND)
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string()),
+            allowlist: vec![],
+            denylist: vec![],
+        },
+        requirements: crate::spearlet::execution::ai::ir::Requirements {
+            required_features: vec![],
+            required_transports: vec!["websocket".to_string()],
+        },
+        timeout_ms: None,
+        payload: Payload::SpeechToText(SpeechToTextPayload { model }),
+        extra: HashMap::new(),
+    }
+}
 
 impl DefaultHostApi {
     pub fn rtasr_create(&self) -> i32 {
@@ -103,12 +184,7 @@ impl DefaultHostApi {
                 Ok(None)
             }
             RTASR_CTL_CONNECT => {
-                let mut spawn_stub = false;
-                let mut spawn_ws = false;
-                let mut ws_plan: Option<StreamingWebsocketPlan> = None;
-                let mut ws_url_override: Option<String> = None;
-                let mut client_secret_override: Option<String> = None;
-                let mut model_override: Option<String> = None;
+                let mut action = RtAsrConnectAction::Noop;
                 let notify = {
                     let mut e = entry.lock().map_err(|_| -SPEAR_EIO)?;
                     if e.closed {
@@ -125,76 +201,23 @@ impl DefaultHostApi {
                         return Err(-SPEAR_EIO);
                     }
 
-                    if !st.stub_connected {
-                        st.stub_connected = true;
-                        st.state = RtAsrConnState::Connected;
-                        let transport = st
-                            .params
-                            .get(rtasr_keys::TRANSPORT)
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("stub");
-
-                        if let Some(s) = st.params.get(rtasr_keys::WS_URL).and_then(|x| x.as_str())
-                        {
-                            ws_url_override = Some(s.to_string());
-                        }
-                        if let Some(s) = st
-                            .params
-                            .get(rtasr_keys::CLIENT_SECRET)
-                            .and_then(|x| x.as_str())
-                        {
-                            client_secret_override = Some(s.to_string());
-                        }
-                        if let Some(s) = st.params.get(rtasr_keys::MODEL).and_then(|x| x.as_str()) {
-                            model_override = Some(s.to_string());
-                        }
-
-                        if transport == "websocket" {
-                            let req =
-                                crate::spearlet::execution::ai::ir::CanonicalRequestEnvelope {
-                                    version: 1,
-                                    request_id: "rtasr_connect".to_string(),
-                                    operation: Operation::SpeechToText,
-                                    meta: HashMap::new(),
-                                    routing: RoutingHints {
-                                        backend: st
-                                            .params
-                                            .get(chat_keys::BACKEND)
-                                            .and_then(|x| x.as_str())
-                                            .map(|s| s.to_string()),
-                                        allowlist: vec![],
-                                        denylist: vec![],
-                                    },
-                                    requirements:
-                                        crate::spearlet::execution::ai::ir::Requirements {
-                                            required_features: vec![],
-                                            required_transports: vec!["websocket".to_string()],
-                                        },
-                                    timeout_ms: None,
-                                    payload: Payload::SpeechToText(SpeechToTextPayload {
-                                        model: model_override.clone(),
-                                    }),
-                                    extra: HashMap::new(),
+                    if !st.tasks_spawned {
+                        let transport = RtAsrTransport::parse(&st.params);
+                        let overrides = RtAsrConnectOverrides::parse(&st.params);
+                        match transport {
+                            RtAsrTransport::Websocket => {
+                                st.state = RtAsrConnState::Connecting;
+                                action = RtAsrConnectAction::ResolveWebsocket {
+                                    req: build_ws_s2t_request(st, overrides.model.clone()),
+                                    overrides,
+                                    segmentation: st.segmentation.clone(),
                                 };
-
-                            if let Ok(inv) = self.ai_engine.invoke_streaming(&req) {
-                                match inv.plan {
-                                    StreamingPlan::Websocket(mut p) => {
-                                        if p.websocket.supports_turn_detection {
-                                            segmentation::apply_turn_detection_to_client_events(
-                                                &mut p.websocket.client_events,
-                                                &st.segmentation,
-                                            );
-                                        }
-                                        ws_plan = Some(p);
-                                        spawn_ws = true;
-                                    }
-                                }
-                            } else {
-                                spawn_stub = true;
                             }
-                        } else {
-                            spawn_stub = true;
+                            RtAsrTransport::Stub => {
+                                st.tasks_spawned = true;
+                                st.state = RtAsrConnState::Connected;
+                                action = RtAsrConnectAction::SpawnStub;
+                            }
                         }
                     }
 
@@ -205,16 +228,78 @@ impl DefaultHostApi {
                 if notify {
                     self.fd_table.notify_watchers(fd);
                 }
-                if spawn_ws {
-                    let plan = ws_plan.ok_or(-SPEAR_EIO)?;
-                    self.spawn_rtasr_websocket_tasks(
-                        fd,
-                        plan,
-                        ws_url_override,
-                        client_secret_override,
-                    );
-                } else if spawn_stub {
-                    self.spawn_rtasr_stub_tasks(fd);
+                match action {
+                    RtAsrConnectAction::Noop => {}
+                    RtAsrConnectAction::SpawnStub => {
+                        self.spawn_rtasr_stub_tasks(fd);
+                    }
+                    RtAsrConnectAction::ResolveWebsocket {
+                        req,
+                        overrides,
+                        segmentation,
+                    } => {
+                        let plan = match self.ai_engine_holder.get().invoke_streaming(&req) {
+                            Ok(inv) => match inv.plan {
+                                StreamingPlan::Websocket(mut p) => {
+                                    if p.websocket.features.turn_detection {
+                                        segmentation::apply_turn_detection_to_client_events(
+                                            &mut p.websocket.client_events,
+                                            &segmentation,
+                                        );
+                                    }
+                                    p
+                                }
+                            },
+                            Err(e) => {
+                                let notify = {
+                                    let mut e2 = entry.lock().map_err(|_| -SPEAR_EIO)?;
+                                    if e2.closed {
+                                        return Err(-SPEAR_EBADF);
+                                    }
+                                    let FdInner::RtAsr(st2) = &mut e2.inner else {
+                                        return Err(-SPEAR_EBADF);
+                                    };
+                                    st2.state = RtAsrConnState::Error;
+                                    st2.last_error = Some(format!(
+                                        "rtasr websocket transport requested, but no speech_to_text websocket backend available: {}",
+                                        e
+                                    ));
+                                    let old = e2.poll_mask;
+                                    self.recompute_rtasr_readiness_locked(&mut e2);
+                                    e2.poll_mask.bits() != old.bits()
+                                };
+                                if notify {
+                                    self.fd_table.notify_watchers(fd);
+                                }
+                                return Err(-SPEAR_EINVAL);
+                            }
+                        };
+
+                        let notify = {
+                            let mut e2 = entry.lock().map_err(|_| -SPEAR_EIO)?;
+                            if e2.closed {
+                                return Err(-SPEAR_EBADF);
+                            }
+                            let FdInner::RtAsr(st2) = &mut e2.inner else {
+                                return Err(-SPEAR_EBADF);
+                            };
+                            st2.tasks_spawned = true;
+                            st2.state = RtAsrConnState::Connected;
+                            let old = e2.poll_mask;
+                            self.recompute_rtasr_readiness_locked(&mut e2);
+                            e2.poll_mask.bits() != old.bits()
+                        };
+                        if notify {
+                            self.fd_table.notify_watchers(fd);
+                        }
+
+                        self.spawn_rtasr_websocket_tasks(
+                            fd,
+                            plan,
+                            overrides.ws_url,
+                            overrides.client_secret,
+                        );
+                    }
                 }
                 Ok(None)
             }
@@ -269,6 +354,11 @@ impl DefaultHostApi {
                     if st.state == RtAsrConnState::Error {
                         return Err(-SPEAR_EIO);
                     }
+                    if v.get("type").and_then(|x| x.as_str()) == Some("input_audio_buffer.commit")
+                        && st.buffered_audio_bytes_since_flush == 0
+                    {
+                        return Ok(None);
+                    }
                     let n = txt.len();
                     if st.send_queue_bytes.saturating_add(n) > st.max_send_queue_bytes {
                         return Err(-SPEAR_EAGAIN);
@@ -298,6 +388,9 @@ impl DefaultHostApi {
                 }
                 if st.state == RtAsrConnState::Error {
                     return Err(-SPEAR_EIO);
+                }
+                if st.buffered_audio_bytes_since_flush == 0 {
+                    return Ok(None);
                 }
                 let txt = segmentation::rtasr_flush_event_text();
                 let n = txt.len();

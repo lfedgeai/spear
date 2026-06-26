@@ -36,7 +36,7 @@ YELLOW := \033[1;33m
 BLUE := \033[0;34m
 NC := \033[0m # No Color
 
-.PHONY: all build build-release test test-ui test-mic-device test-sled test-rocksdb test-all-features test-ui clean clean-coverage coverage coverage-quick coverage-llvm coverage-html coverage-lcov coverage-no-fail coverage-open install-deps format format-check lint check doc help bench audit outdated ci dev info e2e e2e-docker e2e-linux e2e-kind mac-build mac-build-release web-admin-build web-admin-lint web-admin-test web-console-build web-console-lint web-console-test samples image-spear
+.PHONY: all build build-release test test-ui test-mic-device test-sled test-rocksdb test-all-features test-ui clean clean-coverage coverage coverage-quick coverage-llvm coverage-html coverage-lcov coverage-no-fail coverage-open install-deps format format-check lint check doc help bench audit outdated ci dev info e2e e2e-docker e2e-linux e2e-kind mac-build mac-build-release web-admin-build web-admin-lint web-admin-test web-console-build web-console-lint web-console-test samples samples-c samples-js samples-rust image-spear
 .DEFAULT_GOAL := build
 
 # Default target / 默认目标
@@ -393,12 +393,15 @@ bench:
 	@echo -e "$(GREEN)✅ Benchmarks completed / 基准测试完成$(NC)"
 
 # Build WASM samples
-.PHONY: samples
-samples:
-	@echo -e "$(BLUE)🔨 Building WASM samples... / 构建WASM示例...$(NC)"
+.PHONY: samples samples-c samples-js samples-rust
+samples: samples-c samples-js samples-rust
+	@echo -e "$(GREEN)✅ Samples build completed / 示例构建完成$(NC)"
+
+samples-c:
+	@echo -e "$(BLUE)🔨 Building WASM-C samples... / 构建WASM-C示例...$(NC)"
 	@mkdir -p $(SAMPLES_BUILD)
 	@if command -v zig >/dev/null 2>&1; then \
-		for name in hello chat_completion chat_completion_tool_sum mic_rtasr mcp_fs user_stream_echo; do \
+		for name in $(C_SAMPLES); do \
 			src="$(SAMPLES_DIR)/$$name.c"; \
 			out="$(SAMPLES_BUILD)/$$name.wasm"; \
 			extra_ld=""; \
@@ -410,7 +413,7 @@ samples:
 		done; \
 	else \
 		if command -v clang >/dev/null 2>&1 && [ -n "$(WASI_SYSROOT)" ]; then \
-			for name in hello chat_completion chat_completion_tool_sum mic_rtasr mcp_fs user_stream_echo; do \
+			for name in $(C_SAMPLES); do \
 				src="$(SAMPLES_DIR)/$$name.c"; \
 				out="$(SAMPLES_BUILD)/$$name.wasm"; \
 				extra_ld=""; \
@@ -424,10 +427,11 @@ samples:
 			echo -e "$(RED)❌ No suitable compiler found (zig, or clang+WASI_SYSROOT). Install zig or set WASI_SYSROOT$(NC)"; exit 1; \
 		fi; \
 	fi
+
+samples-js:
 	@if [ "$(BUILD_JS_SAMPLES)" = "1" ]; then \
 		if command -v cargo >/dev/null 2>&1; then \
 			echo -e "$(BLUE)🟨 Building WASM-JS samples... / 构建WASM-JS示例...$(NC)"; \
-			rm -rf "$(SAMPLES_BUILD)/rust"; \
 			mkdir -p "$(SAMPLES_JS_BUILD)"; \
 			for name in $(JS_SAMPLES); do \
 				dir="$(REPO_ROOT)/$(SAMPLES_JS_DIR)/$$name"; \
@@ -448,8 +452,37 @@ samples:
 		else \
 			echo -e "$(YELLOW)⚠️  cargo not found, skipping WASM-JS samples / 未找到cargo，跳过WASM-JS示例$(NC)"; \
 		fi; \
+	else \
+		echo -e "$(YELLOW)⚠️  BUILD_JS_SAMPLES=$(BUILD_JS_SAMPLES), skipping WASM-JS samples / BUILD_JS_SAMPLES=$(BUILD_JS_SAMPLES)，跳过WASM-JS示例$(NC)"; \
 	fi
-	@echo -e "$(GREEN)✅ Samples build completed / 示例构建完成$(NC)"
+
+samples-rust:
+	@if [ "$(BUILD_RUST_SAMPLES)" = "1" ]; then \
+		if command -v cargo >/dev/null 2>&1; then \
+			echo -e "$(BLUE)🟪 Building WASM-Rust samples... / 构建WASM-Rust示例...$(NC)"; \
+			mkdir -p "$(SAMPLES_RUST_BUILD)"; \
+			for name in $(RUST_SAMPLES); do \
+				dir="$(REPO_ROOT)/$(SAMPLES_RUST_DIR)/$$name"; \
+				if [ ! -f "$$dir/Cargo.toml" ]; then \
+					echo -e "$(YELLOW)⚠️  Sample missing Cargo.toml: $$dir (skip) / 缺少Cargo.toml，跳过$(NC)"; \
+					continue; \
+				fi; \
+				( cd "$$dir" && cargo build --release --target wasm32-wasip1 ) || (echo -e "$(RED)❌ wasm-rust build failed: $$name (need rustup target wasm32-wasip1) / WASM-Rust构建失败（需要安装wasm32-wasip1目标）$(NC)"; exit 1); \
+				in="$$dir/target/wasm32-wasip1/release/$$name.wasm"; \
+				out_rust="$(SAMPLES_RUST_BUILD)/$$name.wasm"; \
+				if [ -f "$$in" ]; then \
+					cp "$$in" "$$out_rust"; \
+					echo -e "$(GREEN)✅ Built WASM-Rust sample: $$out_rust$(NC)"; \
+				else \
+					echo -e "$(RED)❌ WASM-Rust output missing: $$in$(NC)"; exit 1; \
+				fi; \
+			done; \
+		else \
+			echo -e "$(YELLOW)⚠️  cargo not found, skipping WASM-Rust samples / 未找到cargo，跳过WASM-Rust示例$(NC)"; \
+		fi; \
+	else \
+		echo -e "$(YELLOW)⚠️  BUILD_RUST_SAMPLES=$(BUILD_RUST_SAMPLES), skipping WASM-Rust samples / BUILD_RUST_SAMPLES=$(BUILD_RUST_SAMPLES)，跳过WASM-Rust示例$(NC)"; \
+	fi
 
 
 # Docker image options / Docker镜像选项
@@ -560,23 +593,13 @@ e2e-linux:
 SAMPLES_DIR := samples/wasm-c
 SAMPLES_BUILD := samples/build
 SAMPLES_CFLAGS ?=
+C_SAMPLES ?= hello chat_completion chat_completion_tool_sum mic_rtasr mcp_fs user_stream_echo user_stream_voice_chat user_stream_live_caption
 SAMPLES_JS_DIR ?= samples/wasm-js
 SAMPLES_JS_BUILD ?= $(SAMPLES_BUILD)/js
 JS_WASM_PREFIX ?= js-
-JS_SAMPLES ?= chat_completion chat_completion_tool_sum router_filter_keyword user_stream_echo user_stream_chat_completion
+JS_SAMPLES ?= chat_completion chat_completion_tool_sum router_filter_keyword user_stream_echo user_stream_chat_completion user_stream_live_caption user_stream_voice_chat
 BUILD_JS_SAMPLES ?= 1
-SAMPLES_RUST_DIR ?= $(SAMPLES_JS_DIR)
-RUST_SAMPLES ?= $(JS_SAMPLES)
-BUILD_RUST_SAMPLES ?= $(BUILD_JS_SAMPLES)
-
-ifeq ($(origin JS_SAMPLES), file)
-ifeq ($(origin RUST_SAMPLES), command line)
-JS_SAMPLES := $(RUST_SAMPLES)
-endif
-endif
-
-ifeq ($(origin BUILD_JS_SAMPLES), file)
-ifeq ($(origin BUILD_RUST_SAMPLES), command line)
-BUILD_JS_SAMPLES := $(BUILD_RUST_SAMPLES)
-endif
-endif
+SAMPLES_RUST_DIR ?= samples/wasm-rust
+SAMPLES_RUST_BUILD ?= $(SAMPLES_BUILD)/rust
+RUST_SAMPLES ?= user_stream_live_caption user_stream_voice_chat
+BUILD_RUST_SAMPLES ?= 1

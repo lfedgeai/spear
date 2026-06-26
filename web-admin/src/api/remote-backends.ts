@@ -35,11 +35,11 @@ export type DeleteRemoteBackendResponse = {
 }
 
 export function listRemoteBackends() {
-  return fetchJson<ListRemoteBackendsResponse>('/admin/api/llm/remote-backends')
+  return fetchJson<ListRemoteBackendsResponse>('/admin/api/ai/remote-backends')
 }
 
 export function upsertRemoteBackend(backend: RemoteBackendConfig) {
-  return fetchJson<UpsertRemoteBackendResponse>('/admin/api/llm/remote-backends', {
+  return fetchJson<UpsertRemoteBackendResponse>('/admin/api/ai/remote-backends', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(backend),
@@ -48,7 +48,7 @@ export function upsertRemoteBackend(backend: RemoteBackendConfig) {
 
 export function deleteRemoteBackend(name: string) {
   return fetchJson<DeleteRemoteBackendResponse>(
-    `/admin/api/llm/remote-backends/${encodeURIComponent(name)}`,
+    `/admin/api/ai/remote-backends/${encodeURIComponent(name)}`,
     { method: 'DELETE' },
   )
 }

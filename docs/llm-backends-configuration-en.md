@@ -1,6 +1,6 @@
-# LLM Backends Configuration
+# AI Backends Configuration
 
-This document describes how to configure `spearlet` LLM backends and credentials.
+This document describes how to configure `spearlet` AI backends and credentials.
 
 ## Where it lives
 
@@ -8,10 +8,10 @@ The configuration is loaded from `SPEAR_CONFIG` (TOML) and rendered by Helm into
 
 ## Credentials
 
-Define API key sources under `[[spearlet.llm.credentials]]` and reference environment variables instead of storing plaintext keys.
+Define API key sources under `[[spearlet.ai.credentials]]` and reference environment variables instead of storing plaintext keys.
 
 ```toml
-[[spearlet.llm.credentials]]
+[[spearlet.ai.credentials]]
 name = "openai_default"
 kind = "env"
 api_key_env = "OPENAI_API_KEY"
@@ -19,7 +19,7 @@ api_key_env = "OPENAI_API_KEY"
 
 ## Backends
 
-Each backend is configured under `[[spearlet.llm.backends]]`.
+Each backend is configured under `[[spearlet.ai.backends]]`.
 
 Required fields:
 
@@ -39,7 +39,7 @@ Optional fields:
 Example:
 
 ```toml
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-chat"
 kind = "openai_chat_completion"
 base_url = "https://api.openai.com/v1"
@@ -52,7 +52,7 @@ transports = ["http"]
 weight = 100
 priority = 0
 
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-realtime-asr"
 kind = "openai_realtime_ws"
 base_url = "https://api.openai.com/v1"
@@ -77,7 +77,7 @@ priority = 0
 
 - If `credential_ref` is set (non-empty):
   - the referenced credential must exist
-  - the referenced `api_key_env` must be present and non-empty in the runtime environment, otherwise the backend is filtered as unavailable
+  - the referenced `api_key_env` must be present and non-empty in the runtime environment (`RuntimeConfig.global_environment` first, then the OS process env), otherwise the backend is filtered as unavailable
 - If `credential_ref` is not set:
   - the backend is treated as “no-auth” (no API key header), useful for OpenAI-compatible proxies that do not require a key
 
@@ -99,3 +99,19 @@ Routing behavior:
 - Configured backends (static) form the base registry.
 - Managed backends are merged at routing time and can override availability for a provider/model combination on a node.
 
+## SMS-managed remote backends
+
+Remote backends created from SMS / Web Admin are watched by `spearlet` through `RemoteBackendSyncService` and merged into the same dynamic backend registry used by local controllers.
+
+Current runtime support for SMS-managed dynamic backend kinds:
+
+- `openai_chat_completion`
+- `openai_realtime_ws`
+- `ollama_chat`
+- `stub`
+
+Notes:
+
+- The backend entry is created dynamically inside `spearlet`; this does not provision the remote service itself.
+- If `credential_ref` is set, the referenced credential must still resolve successfully in the runtime environment, otherwise the backend is filtered as unavailable.
+- Node backend reporting is intentionally one-way for node-owned facts only: `spearlet` reports static backends and local-controller backends, but does not echo SMS-managed remote backends back into SMS node snapshots.

@@ -248,32 +248,47 @@ async fn stream_ws_proxy_loop(state: GatewayState, execution_id: String, socket:
     {
         Ok(v) => v,
         Err(_) => {
+            tracing::warn!(execution_id = %execution_id, "stream_ws_proxy register_client failed");
             let _ = out_tx.send(Message::Close(None));
             drop(out_tx);
             let _ = writer.await;
             return;
         }
     };
+    tracing::info!(execution_id = %execution_id, client_id = %client_id, "stream_ws_proxy started");
 
-    loop {
+    let exit_reason = loop {
         tokio::select! {
             msg = client_rx.next() => {
-                let Some(Ok(msg)) = msg else { break; };
+                let Some(msg) = msg else {
+                    break "client_ws_eof".to_string();
+                };
+                let Ok(msg) = msg else {
+                    break "client_ws_error".to_string();
+                };
                 match msg {
                     Message::Binary(b) => {
                         if state.execution_stream_pool.forward_client_binary(&state, &execution_id, &client_id, &b).await.is_err() {
-                            break;
+                            break "forward_client_binary_error".to_string();
                         }
                     }
                     Message::Text(_) => {}
-                    Message::Close(_) => break,
+                    Message::Close(_) => {
+                        break "client_ws_close_frame".to_string()
+                    },
                     Message::Ping(p) => { let _ = out_tx.send(Message::Pong(p)); }
                     _ => {}
                 }
             }
         }
-    }
+    };
 
+    tracing::info!(
+        execution_id = %execution_id,
+        client_id = %client_id,
+        exit_reason = %exit_reason,
+        "stream_ws_proxy stopping"
+    );
     state
         .execution_stream_pool
         .unregister_client(&execution_id, &client_id)

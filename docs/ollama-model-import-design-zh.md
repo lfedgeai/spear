@@ -2,7 +2,7 @@
 
 ## 背景
 
-当前 Spearlet 的 LLM backends 来自静态配置 `spearlet.llm.backends[]`，并在进程启动时由 [registry.rs](../src/spearlet/execution/host_api/registry.rs) 构建为运行时 `BackendRegistry`。这带来两个限制：
+当前 Spearlet 的 AI backends 来自静态配置 `spearlet.ai.backends[]`，并在进程启动时由 [builder.rs](../src/spearlet/execution/ai/router/builder.rs) 构建为运行时 `BackendRegistry`。这带来两个限制：
 
 - 无法根据节点上 **Ollama 正在 serve 的模型** 动态生成可用 backend 列表。
 - Web Admin 的“Backends”视图只能看到静态配置（或本地生成的固定项），无法直接反映 Ollama 运行态。
@@ -39,10 +39,10 @@
 
 ## 配置设计
 
-在 `SpearletConfig.llm` 下新增一节 `discovery`（遵循现有 `deny_unknown_fields`，必须在 schema 中显式加入字段）：
+在 `SpearletConfig.ai` 下新增一节 `discovery`（遵循现有 `deny_unknown_fields`，必须在 schema 中显式加入字段）：
 
 ```toml
-[spearlet.llm.discovery.ollama]
+[spearlet.ai.discovery.ollama]
 enabled = false
 
 # Ollama HTTP endpoint
@@ -89,9 +89,9 @@ priority = -10
 binding_mode = "fixed_default_model"
 ```
 
-### 为什么要放到 `spearlet.llm.discovery.*`
+### 为什么要放到 `spearlet.ai.discovery.*`
 
-- 语义清晰：`llm.backends[]` 是声明式配置；`llm.discovery.*` 是运行态发现。
+- 语义清晰：`ai.backends[]` 是声明式配置；`ai.discovery.*` 是运行态发现。
 - 易扩展：未来可以加入 `discovery.openai_compatible`, `discovery.k8s_service`, `discovery.file` 等。
 
 ## 行为语义（详细）
@@ -127,7 +127,7 @@ Ollama “正在 serve 的模型”建议通过 Ollama API `GET /api/ps` 获取�
 
 ### 3）冲突处理
 
-当导入生成的 `name` 与静态配置 `llm.backends[].name` 重名时：
+当导入生成的 `name` 与静态配置 `ai.backends[].name` 重名时：
 
 - 默认 `name_conflict=skip`：跳过导入项，并记录结构化日志（backend_name/model_name）。
 - 不建议 `override`：容易让运维误以为仍在使用静态配置，实际已被导入覆盖。
@@ -160,12 +160,12 @@ Ollama “正在 serve 的模型”建议通过 Ollama API `GET /api/ps` 获取�
 参考现有周期性服务（如节点上报 backends、MCP registry sync），新增一个 discovery service：
 
 - 负责调用 Ollama HTTP API
-- 产出 `Vec<LlmBackendConfig>` 或更底层的 `Vec<BackendInstanceSpec>`
+- 产出 `Vec<AiBackendConfig>` 或更底层的 `Vec<BackendInstanceSpec>`
 - 持有 `Arc<RwLock<DiscoveredBackends>>`
 
 ### 2）Registry 合并与热更新
 
-当前 [registry.rs](../src/spearlet/execution/host_api/registry.rs) 在启动时一次性构建 `BackendRegistry`。
+当前 [builder.rs](../src/spearlet/execution/ai/router/builder.rs) 在启动时一次性构建 `BackendRegistry`。
 
 要满足“serving models 随运行态变化”的需求，推荐引入 `RegistryHandle`：
 
@@ -221,7 +221,7 @@ Ollama “正在 serve 的模型”建议通过 Ollama API `GET /api/ps` 获取�
 
 ## 测试计划
 
-- 配置解析测试：新增 `spearlet.llm.discovery.ollama` 能正确解析；unknown 字段应失败。
+- 配置解析测试：新增 `spearlet.ai.discovery.ollama` 能正确解析；unknown 字段应失败。
 - 单元测试（sanitize/allowlist/denylist/conflict）：导入结果稳定可预测。
 - 集成测试：mock 一个 Ollama `/api/ps`，验证 registry 会随返回值变化而更新。
 - Web Admin：`GET /admin/api/backends` 能看到导入项（由节点上报快照驱动）。
@@ -231,4 +231,3 @@ Ollama “正在 serve 的模型”建议通过 Ollama API `GET /api/ps` 获取�
 - Phase 0：只在启动时导入一次（`refresh_interval_secs=0`），先闭环“展示 + 路由可用”。
 - Phase 1：周期刷新 + registry 热更新。
 - Phase 2：支持 installed models（`/api/tags`）与更丰富的 capability（embeddings 等）。
-

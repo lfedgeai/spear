@@ -1,4 +1,4 @@
-use spear_next::spearlet::config::{LlmBackendConfig, LlmCredentialConfig, SpearletConfig};
+use spear_next::spearlet::config::{AiBackendConfig, AiCredentialConfig, SpearletConfig};
 use spear_next::spearlet::execution::host_api::DefaultHostApi;
 use spear_next::spearlet::execution::runtime::{ResourcePoolConfig, RuntimeConfig, RuntimeType};
 use std::collections::HashMap;
@@ -13,7 +13,7 @@ fn test_openai_realtime_asr_websocket_connect() {
         Some(v) => v,
         None => {
             eprintln!(
-                "skipped: missing llm backend config/env for realtime asr (need speech_to_text + websocket)"
+                "skipped: missing ai backend config/env for realtime asr (need speech_to_text + websocket)"
             );
             return;
         }
@@ -25,18 +25,21 @@ fn test_openai_realtime_asr_websocket_connect() {
         .unwrap_or_else(|| "gpt-4o-mini-transcribe".to_string());
 
     let mut cfg = SpearletConfig::default();
-    cfg.llm.credentials.push(LlmCredentialConfig {
+    cfg.ai.credentials.push(AiCredentialConfig {
         name: "openai_default".to_string(),
         kind: "env".to_string(),
         api_key_env: resolved.api_key_env.clone(),
     });
-    cfg.llm.backends.push(LlmBackendConfig {
+    cfg.ai.backends.push(AiBackendConfig {
         name: resolved.name.clone(),
         kind: "openai_realtime_ws".to_string(),
         base_url: resolved.base_url.clone(),
         hosting: None,
         model: None,
         credential_ref: Some("openai_default".to_string()),
+        provider: None,
+        origin: None,
+        deployment_id: None,
         weight: 100,
         priority: 0,
         ops: vec!["speech_to_text".to_string()],

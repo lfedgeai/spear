@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Copy } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { getNodeDetail } from '@/api/nodes'
+import { getNodeCredentialSync, getNodeDetail } from '@/api/nodes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,9 +14,21 @@ function formatTs(ts: number) {
   return d.toLocaleString()
 }
 
+function formatMs(ts?: number | null) {
+  if (!ts) return '-'
+  return new Date(ts).toLocaleString()
+}
+
 function StatusBadge({ status }: { status: string }) {
   const s = (status || '').toLowerCase()
   if (s === 'online' || s === 'active') return <Badge variant="success">{status}</Badge>
+  return <Badge variant="destructive">{status || 'unknown'}</Badge>
+}
+
+function CredentialSyncBadge({ status }: { status: string }) {
+  const s = (status || '').toLowerCase()
+  if (s === 'ready') return <Badge variant="success">{status}</Badge>
+  if (s === 'syncing') return <Badge variant="secondary">{status}</Badge>
   return <Badge variant="destructive">{status || 'unknown'}</Badge>
 }
 
@@ -46,9 +58,16 @@ export default function NodeDetailPage() {
     enabled: !!id,
     refetchInterval: 15_000,
   })
+  const credentialSyncQuery = useQuery({
+    queryKey: ['node-credential-sync', id],
+    queryFn: () => getNodeCredentialSync(id),
+    enabled: !!id,
+    refetchInterval: 15_000,
+  })
 
   const node = q.data?.node
   const resource = q.data?.resource
+  const credentialSync = credentialSyncQuery.data?.monitoring?.credential_sync
 
   return (
     <div className="space-y-4">
@@ -81,7 +100,7 @@ export default function NodeDetailPage() {
         <div className="text-sm text-[hsl(var(--muted-foreground))]">Not found</div>
       ) : (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <Card>
               <CardHeader>
                 <CardTitle>Summary</CardTitle>
@@ -129,6 +148,62 @@ export default function NodeDetailPage() {
             </Card>
           </div>
 
+          <Card>
+            <CardHeader>
+              <CardTitle>Credential Sync</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {credentialSyncQuery.isLoading ? (
+                <div className="text-sm text-[hsl(var(--muted-foreground))]">Loading…</div>
+              ) : credentialSyncQuery.isError ? (
+                <div className="text-sm text-[hsl(var(--muted-foreground))]">
+                  Failed to load credential sync status.
+                </div>
+              ) : !credentialSyncQuery.data?.success ? (
+                <div className="text-sm text-[hsl(var(--muted-foreground))]">
+                  {credentialSyncQuery.data?.message || 'Credential sync status unavailable.'}
+                </div>
+              ) : !credentialSync ? (
+                <div className="text-sm text-[hsl(var(--muted-foreground))]">
+                  Credential sync status unavailable.
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[hsl(var(--muted-foreground))]">Status</span>
+                    <CredentialSyncBadge status={credentialSync.status} />
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[hsl(var(--muted-foreground))]">Started</span>
+                    <span>{credentialSync.started ? 'yes' : 'no'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[hsl(var(--muted-foreground))]">Watch connected</span>
+                    <span>{credentialSync.watch_connected ? 'yes' : 'no'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[hsl(var(--muted-foreground))]">Applied revision</span>
+                    <span>{credentialSync.applied_revision}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[hsl(var(--muted-foreground))]">Local credentials</span>
+                    <span>{credentialSync.credential_count}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[hsl(var(--muted-foreground))]">Last success</span>
+                    <span>{formatMs(credentialSync.last_success_at_ms)}</span>
+                  </div>
+                  <div className="flex items-start justify-between gap-4 text-sm">
+                    <span className="text-[hsl(var(--muted-foreground))]">Last error</span>
+                    <span className="max-w-[70%] text-right">
+                      {credentialSync.last_error || '-'}
+                    </span>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="flex items-center justify-between">
             <div className="text-sm text-[hsl(var(--muted-foreground))]">Raw JSON</div>
           </div>
@@ -140,4 +215,3 @@ export default function NodeDetailPage() {
     </div>
   )
 }
-

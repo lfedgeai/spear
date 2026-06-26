@@ -112,6 +112,10 @@ impl InstanceExecutionIndex {
         Ok((true, rec.updated_at_ms))
     }
 
+    pub fn stale_after_ms(&self) -> i64 {
+        self.stale_after_ms
+    }
+
     pub async fn upsert_execution(&self, exe: Execution) -> Result<(bool, i64), SmsError> {
         if exe.execution_id.is_empty()
             || exe.task_id.is_empty()
@@ -134,6 +138,19 @@ impl InstanceExecutionIndex {
         let val = serialization::serialize(&rec)?;
         self.kv.put(&key, &val).await?;
         Ok((true, rec.updated_at_ms))
+    }
+
+    pub async fn get_instance(&self, instance_id: &str) -> Result<Option<Instance>, SmsError> {
+        if instance_id.is_empty() {
+            return Ok(None);
+        }
+        let key = format!("{}{}", INSTANCE_KEY_PREFIX, instance_id);
+        let stored = self.kv.get(&key).await?;
+        let Some(bytes) = stored else {
+            return Ok(None);
+        };
+        let rec: StoredInstanceRecord = serialization::deserialize(&bytes)?;
+        Ok(Some(proto_instance_from_stored(rec)))
     }
 
     pub async fn get_execution(&self, execution_id: &str) -> Result<Option<Execution>, SmsError> {
@@ -466,6 +483,20 @@ fn stored_instance_record_from_proto(inst: &Instance) -> StoredInstanceRecord {
     }
 }
 
+fn proto_instance_from_stored(rec: StoredInstanceRecord) -> Instance {
+    Instance {
+        instance_id: rec.instance_id,
+        task_id: rec.task_id,
+        node_uuid: rec.node_uuid,
+        status: rec.status,
+        created_at_ms: rec.created_at_ms,
+        updated_at_ms: rec.updated_at_ms,
+        last_seen_ms: rec.last_seen_ms,
+        current_execution_id: rec.current_execution_id,
+        metadata: rec.metadata,
+    }
+}
+
 fn stored_execution_record_from_proto(exe: &Execution) -> StoredExecutionRecord {
     StoredExecutionRecord {
         execution_id: exe.execution_id.clone(),
@@ -500,7 +531,7 @@ fn proto_execution_from_stored(rec: StoredExecutionRecord) -> Execution {
     }
 }
 
-fn is_instance_active_and_fresh(
+pub(crate) fn is_instance_active_and_fresh(
     status: i32,
     last_seen_ms: i64,
     now_ms: i64,
@@ -534,6 +565,59 @@ impl Default for InstanceExecutionIndex {
             max_recent_executions_per_instance: 1000,
             stale_after_ms: 120_000,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_instance_active_and_fresh, InstanceExecutionIndex};
+    use crate::proto::sms::{Instance, InstanceStatus};
+
+    #[tokio::test]
+    async fn get_instance_returns_latest_stored_instance() {
+        let idx = InstanceExecutionIndex::default();
+        let inst = Instance {
+            instance_id: "inst-1".to_string(),
+            task_id: "task-1".to_string(),
+            node_uuid: "node-1".to_string(),
+            status: InstanceStatus::Running as i32,
+            created_at_ms: 10,
+            updated_at_ms: 20,
+            last_seen_ms: 20,
+            current_execution_id: "exe-1".to_string(),
+            metadata: std::collections::HashMap::new(),
+        };
+
+        idx.upsert_instance(inst.clone()).await.unwrap();
+
+        let stored = idx.get_instance("inst-1").await.unwrap().unwrap();
+        assert_eq!(stored.instance_id, inst.instance_id);
+        assert_eq!(stored.task_id, inst.task_id);
+        assert_eq!(stored.node_uuid, inst.node_uuid);
+        assert_eq!(stored.status, inst.status);
+        assert_eq!(stored.current_execution_id, inst.current_execution_id);
+    }
+
+    #[test]
+    fn instance_activity_requires_non_terminated_and_fresh_status() {
+        assert!(is_instance_active_and_fresh(
+            InstanceStatus::Running as i32,
+            1_000,
+            1_100,
+            500,
+        ));
+        assert!(!is_instance_active_and_fresh(
+            InstanceStatus::Terminated as i32,
+            1_000,
+            1_100,
+            500,
+        ));
+        assert!(!is_instance_active_and_fresh(
+            InstanceStatus::Running as i32,
+            1_000,
+            2_000,
+            500,
+        ));
     }
 }
 

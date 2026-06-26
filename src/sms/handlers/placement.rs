@@ -3,9 +3,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::proto::sms::{
-    InvocationOutcomeClass, PlaceInvocationRequest, ReportInvocationOutcomeRequest,
+    PlaceInvocationRequest, ReportInvocationOutcomeRequest,
 };
 use crate::sms::gateway::GatewayState;
+use crate::sms::placement::outcome::parse_http_outcome_class;
 
 /// Place an invocation via HTTP (REST) and return candidate nodes.
 ///
@@ -72,22 +73,6 @@ pub struct HttpReportInvocationOutcomeRequest {
     pub error_message: Option<String>,
 }
 
-/// Parse outcome_class from HTTP into SMS enum.
-///
-/// 将 HTTP 字符串的 outcome_class 解析成 SMS 的枚举值。
-fn parse_outcome_class(v: Option<String>) -> i32 {
-    match v.as_deref().map(|s| s.to_ascii_lowercase()) {
-        Some(s) if s == "success" => InvocationOutcomeClass::Success as i32,
-        Some(s) if s == "overloaded" => InvocationOutcomeClass::Overloaded as i32,
-        Some(s) if s == "unavailable" => InvocationOutcomeClass::Unavailable as i32,
-        Some(s) if s == "timeout" => InvocationOutcomeClass::Timeout as i32,
-        Some(s) if s == "rejected" => InvocationOutcomeClass::Rejected as i32,
-        Some(s) if s == "bad_request" => InvocationOutcomeClass::BadRequest as i32,
-        Some(s) if s == "internal" => InvocationOutcomeClass::Internal as i32,
-        _ => InvocationOutcomeClass::Unknown as i32,
-    }
-}
-
 /// REST endpoint: POST /api/v1/placement/invocations/report-outcome
 ///
 /// REST 端点：POST /api/v1/placement/invocations/report-outcome
@@ -101,7 +86,7 @@ pub async fn report_invocation_outcome(
         request_id: req.request_id,
         task_id: req.task_id,
         node_uuid: req.node_uuid,
-        outcome_class: parse_outcome_class(req.outcome_class),
+        outcome_class: parse_http_outcome_class(req.outcome_class),
         error_message: req.error_message.unwrap_or_default(),
     };
     match client.report_invocation_outcome(grpc_req).await {

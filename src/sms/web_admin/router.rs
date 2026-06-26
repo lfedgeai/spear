@@ -33,6 +33,13 @@ pub fn create_admin_router(state: GatewayState) -> Router {
             }),
         )
         .route(
+            "/admin/api/nodes/{uuid}/ai/credentials",
+            get({
+                let state = state.clone();
+                move |p: Path<String>| super::get_node_ai_credential_sync(state.clone(), p)
+            }),
+        )
+        .route(
             "/admin/api/nodes/stream",
             get({
                 let state = state.clone();
@@ -44,20 +51,6 @@ pub fn create_admin_router(state: GatewayState) -> Router {
             get({
                 let state = state.clone();
                 move || super::get_stats(state.clone())
-            }),
-        )
-        .route(
-            "/admin/api/backends",
-            get({
-                let state = state.clone();
-                move |q: Query<ListQuery>| super::list_backends(state.clone(), q)
-            }),
-        )
-        .route(
-            "/admin/api/backends/{kind}/{name}",
-            get({
-                let state = state.clone();
-                move |p: Path<(String, String)>| super::get_backend_detail(state.clone(), p)
             }),
         )
         .route(
@@ -111,14 +104,14 @@ pub fn create_admin_router(state: GatewayState) -> Router {
             }),
         )
         .route(
-            "/admin/api/llm/remote-backends",
+            "/admin/api/ai/remote-backends",
             get({
                 let state = state.clone();
                 move || super::list_remote_backends_admin(state.clone())
             }),
         )
         .route(
-            "/admin/api/llm/remote-backends",
+            "/admin/api/ai/remote-backends",
             post({
                 let state = state.clone();
                 move |body: Json<super::UpsertRemoteBackendBody>| {
@@ -127,10 +120,33 @@ pub fn create_admin_router(state: GatewayState) -> Router {
             }),
         )
         .route(
-            "/admin/api/llm/remote-backends/{name}",
+            "/admin/api/ai/remote-backends/{name}",
             delete({
                 let state = state.clone();
                 move |p: Path<String>| super::delete_remote_backend_admin(state.clone(), p)
+            }),
+        )
+        .route(
+            "/admin/api/ai/credentials",
+            get({
+                let state = state.clone();
+                move || super::list_credentials_admin(state.clone())
+            }),
+        )
+        .route(
+            "/admin/api/ai/credentials",
+            post({
+                let state = state.clone();
+                move |body: Json<super::UpsertCredentialBody>| {
+                    super::upsert_credential_admin(state.clone(), body)
+                }
+            }),
+        )
+        .route(
+            "/admin/api/ai/credentials/{name}",
+            delete({
+                let state = state.clone();
+                move |p: Path<String>| super::delete_credential_admin(state.clone(), p)
             }),
         )
         .route(
@@ -193,6 +209,13 @@ pub fn create_admin_router(state: GatewayState) -> Router {
                 move |p: Path<String>, q: Query<PageTokenQuery>| {
                     super::list_task_instances_admin(state.clone(), p, q)
                 }
+            }),
+        )
+        .route(
+            "/admin/api/instances/{instance_id}",
+            get({
+                let state = state.clone();
+                move |p: Path<String>| super::get_instance_admin(state.clone(), p)
             }),
         )
         .route(

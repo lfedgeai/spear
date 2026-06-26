@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+import "sms/backend_spec.proto";
+
+package sms;
+
+message ListRemoteBackendsRequest {}
+
+message ListRemoteBackendsResponse {
+  uint64 revision = 1;
+  repeated BackendSpec backends = 2;
+}
+
+message UpsertRemoteBackendRequest { BackendSpec backend = 1; }
+
+message UpsertRemoteBackendResponse { uint64 revision = 1; }
+
+message DeleteRemoteBackendRequest { string name = 1; }
+
+message DeleteRemoteBackendResponse {
+  uint64 revision = 1;
+  bool deleted = 2;
+}
+
+message WatchRemoteBackendsRequest { uint64 since_revision = 1; }
+
+message RemoteBackendEvent {
+  uint64 revision = 1;
+  repeated string upserts = 2;
+  repeated string deletes = 3;
+}
+
+message WatchRemoteBackendsResponse { RemoteBackendEvent event = 1; }
+
+service AdminAiConfigService {
+  rpc ListRemoteBackends(ListRemoteBackendsRequest) returns (ListRemoteBackendsResponse);
+  rpc UpsertRemoteBackend(UpsertRemoteBackendRequest) returns (UpsertRemoteBackendResponse);
+  rpc DeleteRemoteBackend(DeleteRemoteBackendRequest) returns (DeleteRemoteBackendResponse);
+  rpc WatchRemoteBackends(WatchRemoteBackendsRequest)
+      returns (stream WatchRemoteBackendsResponse);
+}

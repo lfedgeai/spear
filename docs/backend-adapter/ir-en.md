@@ -43,7 +43,7 @@ CanonicalRequestEnvelope
   - optional `preferred_backends: Vec<String>`
 - `policy: Option<SelectionPolicySpec>` (request override, constrained by host config)
 - `timeout_ms: Option<u64>`
-- `payload: oneof { ChatCompletionsPayload | EmbeddingsPayload | ImageGenerationPayload | SpeechToTextPayload | TextToSpeechPayload | RealtimeVoicePayload | ... }`
+- `payload: oneof { ChatCompletionsPayload | EmbeddingsPayload | ImageGenerationPayload | SpeechToTextPayload | TextToSpeechPayload | ... }`
 - `extra: Map<String, Value>` (unknown/experimental passthrough)
 
 Notes:

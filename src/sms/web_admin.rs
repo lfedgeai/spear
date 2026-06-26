@@ -22,12 +22,13 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::proto::sms::{
-    admin_llm_config_service_client::AdminLlmConfigServiceClient,
+    admin_credential_service_client::AdminCredentialServiceClient,
+    admin_ai_config_service_client::AdminAiConfigServiceClient,
     backend_registry_service_client::BackendRegistryServiceClient,
     mcp_registry_service_client::McpRegistryServiceClient,
     model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient,
     node_service_client::NodeServiceClient, placement_service_client::PlacementServiceClient,
-    ListNodesRequest,
+    DeleteCredentialRequest, ListCredentialsRequest, ListNodesRequest, UpsertCredentialRequest,
 };
 use crate::sms::gateway::GatewayState;
 pub use router::create_admin_router;
@@ -37,10 +38,12 @@ use crate::proto::spearlet::{
     execution_service_client::ExecutionServiceClient,
     instance_service_client::InstanceServiceClient,
     invocation_service_client::InvocationServiceClient, DestroyInstanceRequest, ExecutionMode,
-    ExecutionStatus, InvokeRequest, Payload, TerminateExecutionRequest,
+    TerminateExecutionRequest,
 };
-use crate::spearlet::execution::DEFAULT_ENTRY_FUNCTION_NAME;
 
+mod ai_model_catalog;
+mod invocation_flow;
+mod node_rpc;
 mod router;
 mod types;
 
@@ -114,7 +117,8 @@ impl WebAdminServer {
             );
         let mcp_registry_client = McpRegistryServiceClient::new(channel.clone());
         let backend_registry_client = BackendRegistryServiceClient::new(channel.clone());
-        let admin_llm_config_client = AdminLlmConfigServiceClient::new(channel.clone());
+        let admin_credential_client = AdminCredentialServiceClient::new(channel.clone());
+        let admin_ai_config_client = AdminAiConfigServiceClient::new(channel.clone());
         let model_deployment_registry_client =
             ModelDeploymentRegistryServiceClient::new(channel.clone());
         let state = GatewayState {
@@ -127,7 +131,8 @@ impl WebAdminServer {
             execution_index_client,
             mcp_registry_client,
             backend_registry_client,
-            admin_llm_config_client,
+            admin_credential_client,
+            admin_ai_config_client,
             model_deployment_registry_client,
             stream_sessions: crate::sms::gateway::StreamSessionStore::new(),
             execution_stream_pool: crate::sms::gateway::ExecutionStreamPool::new(),
@@ -205,6 +210,14 @@ pub(crate) struct UpsertRemoteBackendBody {
 }
 
 #[derive(Deserialize)]
+pub(crate) struct UpsertCredentialBody {
+    name: String,
+    secret: Option<String>,
+    description: Option<String>,
+    disabled: Option<bool>,
+}
+
+#[derive(Deserialize)]
 struct McpBudgetsBody {
     tool_timeout_ms: Option<u64>,
     max_concurrency: Option<u64>,
@@ -215,251 +228,6 @@ struct McpBudgetsBody {
 struct McpApprovalPolicyBody {
     default_policy: Option<String>,
     per_tool: Option<std::collections::HashMap<String, String>>,
-}
-
-async fn list_backends(state: GatewayState, Query(q): Query<ListQuery>) -> Json<serde_json::Value> {
-    use crate::proto::sms::{BackendStatus, ListNodeBackendSnapshotsRequest};
-
-    #[derive(Default)]
-    struct Agg {
-        name: String,
-        kind: String,
-        operations: std::collections::BTreeSet<String>,
-        features: std::collections::BTreeSet<String>,
-        transports: std::collections::BTreeSet<String>,
-        available_nodes: i64,
-        total_nodes: i64,
-        nodes: Vec<serde_json::Value>,
-    }
-
-    let mut client = state.backend_registry_client.clone();
-    let limit = q.limit.unwrap_or(500) as u32;
-    let offset = q.offset.unwrap_or(0) as u32;
-    let resp = match client
-        .list_node_backend_snapshots(ListNodeBackendSnapshotsRequest { limit, offset })
-        .await
-    {
-        Ok(r) => r.into_inner(),
-        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
-    };
-
-    let status_filter = q.status.as_deref().map(|s| s.to_ascii_lowercase());
-    let needle = q.q.as_deref().map(|s| s.to_ascii_lowercase());
-
-    let mut agg: std::collections::HashMap<(String, String), Agg> =
-        std::collections::HashMap::new();
-
-    for snap in resp.snapshots.into_iter() {
-        let node_uuid = snap.node_uuid.clone();
-        for b in snap.backends.into_iter() {
-            let status = if b.status == BackendStatus::Available as i32 {
-                "available"
-            } else {
-                "unavailable"
-            };
-            if let Some(f) = status_filter.as_ref() {
-                if f != status {
-                    continue;
-                }
-            }
-            if let Some(n) = needle.as_ref() {
-                let hay = format!("{} {}", b.name, b.kind).to_ascii_lowercase();
-                if !hay.contains(n) {
-                    continue;
-                }
-            }
-
-            let key = (b.name.clone(), b.kind.clone());
-            let entry = agg.entry(key).or_insert_with(|| Agg {
-                name: b.name.clone(),
-                kind: b.kind.clone(),
-                ..Default::default()
-            });
-
-            for op in b.operations.iter() {
-                if !op.trim().is_empty() {
-                    entry.operations.insert(op.clone());
-                }
-            }
-            for f in b.features.iter() {
-                if !f.trim().is_empty() {
-                    entry.features.insert(f.clone());
-                }
-            }
-            for t in b.transports.iter() {
-                if !t.trim().is_empty() {
-                    entry.transports.insert(t.clone());
-                }
-            }
-
-            entry.nodes.push(json!({
-                "node_uuid": node_uuid,
-                "status": status,
-                "status_reason": b.status_reason,
-                "weight": b.weight,
-                "priority": b.priority,
-                "base_url": b.base_url,
-                "provider": b.provider,
-                "model": b.model,
-                "hosting": b.hosting,
-            }));
-            entry.total_nodes += 1;
-            if status == "available" {
-                entry.available_nodes += 1;
-            }
-        }
-    }
-
-    let mut list = agg
-        .into_values()
-        .map(|a| {
-            json!({
-                "name": a.name,
-                "kind": a.kind,
-                "operations": a.operations.into_iter().collect::<Vec<_>>(),
-                "features": a.features.into_iter().collect::<Vec<_>>(),
-                "transports": a.transports.into_iter().collect::<Vec<_>>(),
-                "available_nodes": a.available_nodes,
-                "total_nodes": a.total_nodes,
-                "nodes": a.nodes,
-            })
-        })
-        .collect::<Vec<_>>();
-
-    list.sort_by(|a, b| {
-        let av = a
-            .get("available_nodes")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-        let bv = b
-            .get("available_nodes")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-        let an = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        let bn = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        bv.cmp(&av).then_with(|| an.cmp(bn))
-    });
-
-    Json(json!({"success": true, "backends": list, "total_count": resp.total_count}))
-}
-
-async fn get_backend_detail(
-    state: GatewayState,
-    p: Path<(String, String)>,
-) -> Json<serde_json::Value> {
-    use crate::proto::sms::{BackendStatus, ListNodeBackendSnapshotsRequest};
-
-    let (kind, name) = p.0;
-    if kind.trim().is_empty() || name.trim().is_empty() {
-        return Json(json!({"success": true, "found": false}));
-    }
-
-    #[derive(Default)]
-    struct Agg {
-        name: String,
-        kind: String,
-        operations: std::collections::BTreeSet<String>,
-        features: std::collections::BTreeSet<String>,
-        transports: std::collections::BTreeSet<String>,
-        available_nodes: i64,
-        total_nodes: i64,
-        nodes: Vec<serde_json::Value>,
-    }
-
-    let mut client = state.backend_registry_client.clone();
-
-    let mut offset: u32 = 0;
-    let limit: u32 = 500;
-    let mut agg = Agg {
-        name: name.clone(),
-        kind: kind.clone(),
-        ..Default::default()
-    };
-
-    loop {
-        let resp = match client
-            .list_node_backend_snapshots(ListNodeBackendSnapshotsRequest { limit, offset })
-            .await
-        {
-            Ok(r) => r.into_inner(),
-            Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
-        };
-        let total_count = resp.total_count;
-
-        if resp.snapshots.is_empty() {
-            break;
-        }
-
-        for snap in resp.snapshots.into_iter() {
-            let node_uuid = snap.node_uuid.clone();
-            for b in snap.backends.into_iter() {
-                if b.name != name || b.kind != kind {
-                    continue;
-                }
-                let status = if b.status == BackendStatus::Available as i32 {
-                    "available"
-                } else {
-                    "unavailable"
-                };
-
-                for op in b.operations.iter() {
-                    if !op.trim().is_empty() {
-                        agg.operations.insert(op.clone());
-                    }
-                }
-                for f in b.features.iter() {
-                    if !f.trim().is_empty() {
-                        agg.features.insert(f.clone());
-                    }
-                }
-                for t in b.transports.iter() {
-                    if !t.trim().is_empty() {
-                        agg.transports.insert(t.clone());
-                    }
-                }
-
-                agg.nodes.push(json!({
-                    "node_uuid": node_uuid,
-                    "status": status,
-                    "status_reason": b.status_reason,
-                    "weight": b.weight,
-                    "priority": b.priority,
-                    "base_url": b.base_url,
-                    "provider": b.provider,
-                    "model": b.model,
-                    "hosting": b.hosting,
-                }));
-                agg.total_nodes += 1;
-                if status == "available" {
-                    agg.available_nodes += 1;
-                }
-            }
-        }
-
-        offset = offset.saturating_add(limit);
-        if offset >= total_count {
-            break;
-        }
-    }
-
-    if agg.total_nodes == 0 {
-        return Json(json!({"success": true, "found": false}));
-    }
-
-    Json(json!({
-        "success": true,
-        "found": true,
-        "backend": {
-            "name": agg.name,
-            "kind": agg.kind,
-            "operations": agg.operations.into_iter().collect::<Vec<_>>(),
-            "features": agg.features.into_iter().collect::<Vec<_>>(),
-            "transports": agg.transports.into_iter().collect::<Vec<_>>(),
-            "available_nodes": agg.available_nodes,
-            "total_nodes": agg.total_nodes,
-            "nodes": agg.nodes,
-        }
-    }))
 }
 
 async fn get_node_backends(state: GatewayState, p: Path<String>) -> Json<serde_json::Value> {
@@ -490,21 +258,23 @@ async fn get_node_backends(state: GatewayState, p: Path<String>) -> Json<serde_j
                 .map(|s| {
                     s.backends
                         .iter()
-                        .map(|b| {
-                            json!({
-                                "name": b.name,
-                                "kind": b.kind,
-                                "operations": b.operations,
-                                "features": b.features,
-                                "transports": b.transports,
-                                "weight": b.weight,
-                                "priority": b.priority,
-                                "base_url": b.base_url,
-                                "status": b.status,
-                                "status_reason": b.status_reason,
-                                "provider": b.provider,
-                                "model": b.model,
-                                "hosting": b.hosting,
+                        .filter_map(|b| {
+                            b.spec.as_ref().map(|spec| {
+                                json!({
+                                    "name": spec.name,
+                                    "kind": spec.kind,
+                                    "operations": spec.operations,
+                                    "features": spec.features,
+                                    "transports": spec.transports,
+                                    "weight": spec.weight,
+                                    "priority": spec.priority,
+                                    "base_url": spec.base_url,
+                                    "status": b.status,
+                                    "status_reason": b.status_reason,
+                                    "provider": spec.provider,
+                                    "model": spec.model,
+                                    "hosting": spec.hosting,
+                                })
                             })
                         })
                         .collect::<Vec<_>>()
@@ -525,38 +295,7 @@ async fn list_ai_models(
     state: GatewayState,
     Query(q): Query<AiModelsQuery>,
 ) -> Json<serde_json::Value> {
-    use crate::proto::sms::{BackendHosting, BackendStatus, ListNodeBackendSnapshotsRequest};
-
-    #[derive(Default)]
-    struct Agg {
-        provider: String,
-        model: String,
-        hosting: String,
-        operations: std::collections::BTreeSet<String>,
-        features: std::collections::BTreeSet<String>,
-        transports: std::collections::BTreeSet<String>,
-        available_nodes: i64,
-        total_nodes: i64,
-        instances: Vec<serde_json::Value>,
-    }
-
-    fn hosting_str(v: i32) -> &'static str {
-        if v == BackendHosting::Remote as i32 {
-            "remote"
-        } else if v == BackendHosting::NodeLocal as i32 {
-            "local"
-        } else {
-            "unknown"
-        }
-    }
-
-    fn status_str(v: i32) -> &'static str {
-        if v == BackendStatus::Available as i32 {
-            "available"
-        } else {
-            "unavailable"
-        }
-    }
+    use crate::proto::sms::ListNodeBackendSnapshotsRequest;
 
     let mut client = state.backend_registry_client.clone();
     let limit = q.limit.unwrap_or(500) as u32;
@@ -573,128 +312,12 @@ async fn list_ai_models(
     let hosting_filter = q.hosting.as_deref().map(|s| s.to_ascii_lowercase());
     let needle = q.q.as_deref().map(|s| s.to_ascii_lowercase());
 
-    let mut agg: std::collections::HashMap<(String, String, String), Agg> =
-        std::collections::HashMap::new();
-
-    for snap in resp.snapshots.into_iter() {
-        let node_uuid = snap.node_uuid.clone();
-        for b in snap.backends.into_iter() {
-            let provider = if !b.provider.trim().is_empty() {
-                b.provider.clone()
-            } else if b.kind.starts_with("openai_") {
-                "openai".to_string()
-            } else if b.kind == "ollama_chat" {
-                "ollama".to_string()
-            } else if b.kind == "stub" {
-                "internal".to_string()
-            } else {
-                "unknown".to_string()
-            };
-
-            let mut model = b.model.clone();
-            if model.trim().is_empty() {
-                model = "(dynamic)".to_string();
-                if b.kind == "ollama_chat" && b.name.contains('/') {
-                    if let Some((_, rest)) = b.name.split_once('/') {
-                        if !rest.trim().is_empty() {
-                            model = rest.to_string();
-                        }
-                    }
-                }
-            }
-
-            let hosting = hosting_str(b.hosting).to_string();
-            let status = status_str(b.status);
-
-            if let Some(pf) = provider_filter.as_ref() {
-                if provider.to_ascii_lowercase() != *pf {
-                    continue;
-                }
-            }
-            if let Some(hf) = hosting_filter.as_ref() {
-                if hosting.to_ascii_lowercase() != *hf {
-                    continue;
-                }
-            }
-            if let Some(n) = needle.as_ref() {
-                let hay = format!(
-                    "{} {} {} {} {}",
-                    provider, model, b.name, b.kind, b.base_url
-                )
-                .to_ascii_lowercase();
-                if !hay.contains(n) {
-                    continue;
-                }
-            }
-
-            let key = (provider.clone(), model.clone(), hosting.clone());
-            let entry = agg.entry(key).or_insert_with(|| Agg {
-                provider: provider.clone(),
-                model: model.clone(),
-                hosting: hosting.clone(),
-                ..Default::default()
-            });
-
-            for op in b.operations.iter() {
-                if !op.trim().is_empty() {
-                    entry.operations.insert(op.clone());
-                }
-            }
-            for f in b.features.iter() {
-                if !f.trim().is_empty() {
-                    entry.features.insert(f.clone());
-                }
-            }
-            for t in b.transports.iter() {
-                if !t.trim().is_empty() {
-                    entry.transports.insert(t.clone());
-                }
-            }
-
-            entry.instances.push(json!({
-                "node_uuid": node_uuid,
-                "backend_name": b.name,
-                "kind": b.kind,
-                "base_url": b.base_url,
-                "status": status,
-                "status_reason": b.status_reason,
-                "weight": b.weight,
-                "priority": b.priority,
-                "provider": provider,
-                "model": model,
-                "hosting": hosting,
-            }));
-            entry.total_nodes += 1;
-            if status == "available" {
-                entry.available_nodes += 1;
-            }
-        }
-    }
-
-    let mut list = agg
-        .into_values()
-        .map(|a| {
-            json!({
-                "provider": a.provider,
-                "model": a.model,
-                "hosting": a.hosting,
-                "operations": a.operations.into_iter().collect::<Vec<_>>(),
-                "features": a.features.into_iter().collect::<Vec<_>>(),
-                "transports": a.transports.into_iter().collect::<Vec<_>>(),
-                "available_nodes": a.available_nodes,
-                "total_nodes": a.total_nodes,
-                "instances": a.instances,
-            })
-        })
-        .collect::<Vec<_>>();
-
-    list.sort_by(|a, b| {
-        let ap = a.get("provider").and_then(|v| v.as_str()).unwrap_or("");
-        let bp = b.get("provider").and_then(|v| v.as_str()).unwrap_or("");
-        let am = a.get("model").and_then(|v| v.as_str()).unwrap_or("");
-        let bm = b.get("model").and_then(|v| v.as_str()).unwrap_or("");
-        ap.cmp(bp).then_with(|| am.cmp(bm))
-    });
+    let list = ai_model_catalog::aggregate_models(
+        resp.snapshots,
+        provider_filter.as_deref(),
+        hosting_filter.as_deref(),
+        needle.as_deref(),
+    );
 
     Json(json!({"success": true, "models": list, "total_count": resp.total_count}))
 }
@@ -832,6 +455,7 @@ async fn create_node_model_deployment(
         provider,
         model: body.model.clone(),
         params: body.params.clone().unwrap_or_default(),
+        backend: None,
     };
     let record = ModelDeploymentRecord {
         deployment_id: String::new(),
@@ -883,7 +507,7 @@ async fn delete_node_model_deployment(
 }
 
 async fn list_remote_backends_admin(state: GatewayState) -> Json<serde_json::Value> {
-    let mut client = state.admin_llm_config_client.clone();
+    let mut client = state.admin_ai_config_client.clone();
     match client
         .list_remote_backends(crate::proto::sms::ListRemoteBackendsRequest {})
         .await
@@ -927,21 +551,24 @@ async fn upsert_remote_backend_admin(
         return Json(json!({"success": false, "message": "operations are required"}));
     }
 
-    let mut client = state.admin_llm_config_client.clone();
+    let mut client = state.admin_ai_config_client.clone();
     let resp = match client
         .upsert_remote_backend(crate::proto::sms::UpsertRemoteBackendRequest {
-            backend: Some(crate::proto::sms::RemoteBackendConfig {
+            backend: Some(crate::proto::sms::BackendSpec {
                 name: b.name,
                 kind: b.kind,
-                base_url: b.base_url,
-                model: b.model.unwrap_or_default(),
-                credential_ref: b.credential_ref.unwrap_or_default(),
-                weight: b.weight.unwrap_or(100),
-                priority: b.priority.unwrap_or(0),
                 operations: b.operations,
                 features: b.features.unwrap_or_default(),
                 transports: b.transports.unwrap_or_else(|| vec!["http".to_string()]),
                 provider: b.provider.unwrap_or_default(),
+                model: b.model.unwrap_or_default(),
+                base_url: b.base_url,
+                credential_ref: b.credential_ref.unwrap_or_default(),
+                weight: b.weight.unwrap_or(100),
+                priority: b.priority.unwrap_or(0),
+                hosting: crate::proto::sms::BackendHosting::Remote as i32,
+                origin: crate::proto::sms::BackendOrigin::Sms as i32,
+                deployment_id: String::new(),
             }),
         })
         .await
@@ -961,9 +588,99 @@ async fn delete_remote_backend_admin(
     if name.trim().is_empty() {
         return Json(json!({"success": false, "message": "name is required"}));
     }
-    let mut client = state.admin_llm_config_client.clone();
+    let mut client = state.admin_ai_config_client.clone();
     let resp = match client
         .delete_remote_backend(crate::proto::sms::DeleteRemoteBackendRequest { name })
+        .await
+    {
+        Ok(r) => r.into_inner(),
+        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
+    };
+    Json(json!({"success": true, "revision": resp.revision, "deleted": resp.deleted}))
+}
+
+async fn list_credentials_admin(state: GatewayState) -> Json<serde_json::Value> {
+    let mut client = state.admin_credential_client.clone();
+    match client.list_credentials(ListCredentialsRequest {}).await {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            let mut backend_client = state.admin_ai_config_client.clone();
+            let referenced_by_count = match backend_client
+                .list_remote_backends(crate::proto::sms::ListRemoteBackendsRequest {})
+                .await
+            {
+                Ok(resp) => {
+                    // Reuse the admin remote backend snapshot to surface lightweight reference counts.
+                    // 复用 admin remote backend 快照，为页面提供轻量级引用计数。
+                    let mut counts = std::collections::HashMap::<String, usize>::new();
+                    for backend in resp.into_inner().backends {
+                        let credential_ref = backend.credential_ref.trim();
+                        if credential_ref.is_empty() {
+                            continue;
+                        }
+                        *counts.entry(credential_ref.to_string()).or_insert(0) += 1;
+                    }
+                    counts
+                }
+                Err(_) => std::collections::HashMap::new(),
+            };
+            let credentials = inner
+                .credentials
+                .into_iter()
+                .map(|c| {
+                    json!({
+                        "name": c.name,
+                        "provider_kind": c.provider_kind,
+                        "version": c.version,
+                        "description": if c.description.is_empty() { None::<String> } else { Some(c.description) },
+                        "disabled": c.disabled,
+                        "created_at_ms": c.created_at_ms,
+                        "updated_at_ms": c.updated_at_ms,
+                        "referenced_by_count": referenced_by_count.get(&c.name).copied().unwrap_or(0),
+                    })
+                })
+                .collect::<Vec<_>>();
+            Json(json!({"success": true, "revision": inner.revision, "credentials": credentials}))
+        }
+        Err(e) => Json(json!({"success": false, "message": e.to_string()})),
+    }
+}
+
+async fn upsert_credential_admin(
+    state: GatewayState,
+    body: Json<UpsertCredentialBody>,
+) -> Json<serde_json::Value> {
+    let b = body.0;
+    if b.name.trim().is_empty() {
+        return Json(json!({"success": false, "message": "name is required"}));
+    }
+    let mut client = state.admin_credential_client.clone();
+    let resp = match client
+        .upsert_credential(UpsertCredentialRequest {
+            name: b.name,
+            secret: b.secret.unwrap_or_default(),
+            description: b.description.unwrap_or_default(),
+            disabled: b.disabled.unwrap_or(false),
+        })
+        .await
+    {
+        Ok(r) => r.into_inner(),
+        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
+    };
+    Json(json!({"success": true, "revision": resp.revision}))
+}
+
+async fn delete_credential_admin(
+    state: GatewayState,
+    p: Path<String>,
+) -> Json<serde_json::Value> {
+    let name = p.0;
+    if name.trim().is_empty() {
+        return Json(json!({"success": false, "message": "name is required"}));
+    }
+    let mut client = state.admin_credential_client.clone();
+    let resp = match client
+        .delete_credential(DeleteCredentialRequest { name })
         .await
     {
         Ok(r) => r.into_inner(),
@@ -1215,7 +932,7 @@ pub(super) async fn terminate_execution_admin(
     p: Path<String>,
     axum::extract::Json(body): axum::extract::Json<TerminateExecutionBody>,
 ) -> Json<serde_json::Value> {
-    use crate::proto::sms::{GetExecutionRequest, GetNodeRequest};
+    use crate::proto::sms::GetExecutionRequest;
     let execution_id = p.0;
     if execution_id.trim().is_empty() {
         return Json(json!({"success": false, "message": "execution_id is required"}));
@@ -1241,32 +958,12 @@ pub(super) async fn terminate_execution_admin(
         return Json(json!({"success": false, "message": "node_uuid is missing for execution"}));
     }
 
-    let mut node_client = state.node_client.clone();
-    let node_resp = match node_client
-        .get_node(GetNodeRequest {
-            uuid: exe.node_uuid.clone(),
-        })
-        .await
-    {
-        Ok(r) => r.into_inner(),
-        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
-    };
-    if !node_resp.found {
-        return Json(json!({"success": false, "message": "node not found"}));
-    }
-    let Some(node) = node_resp.node else {
-        return Json(json!({"success": false, "message": "node not found"}));
+    let target = match node_rpc::resolve_node_channel(&state, &exe.node_uuid).await {
+        Ok(t) => t,
+        Err(resp) => return resp,
     };
 
-    let url = format!("http://{}:{}", node.ip_address, node.port);
-    let channel = tonic::transport::Channel::from_shared(url.clone())
-        .ok()
-        .map(|ch| ch.connect_lazy());
-    let Some(channel) = channel else {
-        return Json(json!({"success": false, "message": "invalid node url"}));
-    };
-
-    let mut client = ExecutionServiceClient::new(channel);
+    let mut client = ExecutionServiceClient::new(target.channel);
     let reason = body.reason.unwrap_or_default();
     let resp = match client
         .terminate_execution(TerminateExecutionRequest {
@@ -1281,7 +978,7 @@ pub(super) async fn terminate_execution_admin(
 
     Json(json!({
         "success": resp.success,
-        "node_uuid": exe.node_uuid,
+        "node_uuid": target.node_uuid,
         "execution_id": execution_id,
         "final_status": resp.final_status,
         "message": resp.message,
@@ -1293,7 +990,6 @@ pub(super) async fn destroy_instance_admin(
     p: Path<String>,
     axum::extract::Json(body): axum::extract::Json<DestroyInstanceBody>,
 ) -> Json<serde_json::Value> {
-    use crate::proto::sms::GetNodeRequest;
     let instance_id = p.0;
     if instance_id.trim().is_empty() {
         return Json(json!({"success": false, "message": "instance_id is required"}));
@@ -1302,32 +998,12 @@ pub(super) async fn destroy_instance_admin(
         return Json(json!({"success": false, "message": "node_uuid is required"}));
     }
 
-    let mut node_client = state.node_client.clone();
-    let node_resp = match node_client
-        .get_node(GetNodeRequest {
-            uuid: body.node_uuid.clone(),
-        })
-        .await
-    {
-        Ok(r) => r.into_inner(),
-        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
-    };
-    if !node_resp.found {
-        return Json(json!({"success": false, "message": "node not found"}));
-    }
-    let Some(node) = node_resp.node else {
-        return Json(json!({"success": false, "message": "node not found"}));
+    let target = match node_rpc::resolve_node_channel(&state, &body.node_uuid).await {
+        Ok(t) => t,
+        Err(resp) => return resp,
     };
 
-    let url = format!("http://{}:{}", node.ip_address, node.port);
-    let channel = tonic::transport::Channel::from_shared(url.clone())
-        .ok()
-        .map(|ch| ch.connect_lazy());
-    let Some(channel) = channel else {
-        return Json(json!({"success": false, "message": "invalid node url"}));
-    };
-
-    let mut client = InstanceServiceClient::new(channel);
+    let mut client = InstanceServiceClient::new(target.channel);
     let reason = body.reason.unwrap_or_default();
     let resp = match client
         .destroy_instance(DestroyInstanceRequest {
@@ -1337,12 +1013,20 @@ pub(super) async fn destroy_instance_admin(
         .await
     {
         Ok(r) => r.into_inner(),
+        Err(e) if e.code() == tonic::Code::NotFound => {
+            return Json(json!({
+                "success": true,
+                "node_uuid": target.node_uuid,
+                "instance_id": instance_id,
+                "message": "instance already absent",
+            }));
+        }
         Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
     };
 
     Json(json!({
         "success": resp.success,
-        "node_uuid": body.node_uuid,
+        "node_uuid": target.node_uuid,
         "instance_id": instance_id,
         "message": resp.message,
     }))
@@ -1369,65 +1053,27 @@ async fn create_invocation(
     let max_candidates = body.max_candidates.unwrap_or(3);
 
     if let Some(node_uuid) = body.node_uuid.as_ref().filter(|s| !s.is_empty()) {
-        use crate::proto::sms::GetNodeRequest;
-        let mut node_client = state.node_client.clone();
-        let node_resp = node_client
-            .get_node(GetNodeRequest {
-                uuid: node_uuid.clone(),
-            })
-            .await;
-        let node_resp = match node_resp {
-            Ok(r) => r.into_inner(),
-            Err(e) => return Json(json!({ "success": false, "message": e.to_string() })),
+        let target = match node_rpc::resolve_node_channel(&state, node_uuid).await {
+            Ok(t) => t,
+            Err(resp) => return resp,
         };
-        if !node_resp.found {
-            return Json(json!({ "success": false, "message": "node not found" }));
-        }
-        let Some(node) = node_resp.node else {
-            return Json(json!({ "success": false, "message": "node not found" }));
-        };
-
-        let url = format!("http://{}:{}", node.ip_address, node.port);
-        let channel = tonic::transport::Channel::from_shared(url.clone())
-            .ok()
-            .map(|ch| ch.connect_lazy());
-        let Some(channel) = channel else {
-            return Json(json!({ "success": false, "message": "invalid node url" }));
-        };
-        let mut invc = InvocationServiceClient::new(channel);
-        let req = InvokeRequest {
-            invocation_id: request_id.clone(),
-            execution_id: execution_id.clone(),
-            task_id: body.task_id.clone(),
-            function_name: DEFAULT_ENTRY_FUNCTION_NAME.to_string(),
-            input: Some(Payload {
-                content_type: "application/octet-stream".to_string(),
-                data: Vec::new(),
-            }),
-            headers: Default::default(),
-            environment: Default::default(),
-            timeout_ms: 0,
-            session_id: String::new(),
-            mode,
-            force_new_instance: false,
-            metadata: Default::default(),
-        };
+        let mut invc = InvocationServiceClient::new(target.channel);
+        let req =
+            invocation_flow::build_invoke_request(&body.task_id, &request_id, &execution_id, mode);
         return match invc.invoke(req).await {
             Ok(resp) => {
                 let inner = resp.into_inner();
-                let success = inner.status == ExecutionStatus::Completed as i32;
-                let message = inner
-                    .error
-                    .as_ref()
-                    .map(|e| e.message.clone())
-                    .unwrap_or_else(|| "ok".to_string());
-                Json(json!({
-                    "success": success,
-                    "node_uuid": node.uuid,
-                    "invocation_id": inner.invocation_id,
-                    "execution_id": inner.execution_id,
-                    "message": message,
-                }))
+                let (success, message) = invocation_flow::summarize_invoke_result(
+                    inner.status,
+                    inner.error.as_ref().map(|e| e.message.as_str()),
+                );
+                Json(invocation_flow::direct_invoke_success_json(
+                    &target.node_uuid,
+                    &inner.invocation_id,
+                    &inner.execution_id,
+                    &message,
+                    success,
+                ))
             }
             Err(e) => Json(json!({ "success": false, "message": e.to_string() })),
         };
@@ -1457,69 +1103,46 @@ async fn create_invocation(
     for c in placement_resp.candidates.iter() {
         // Step 2: try candidates in order (spillback).
         // 第二步：按顺序尝试候选节点（spillback）。
-        let url = format!("http://{}:{}", c.ip_address, c.port);
-        let channel = tonic::transport::Channel::from_shared(url.clone())
-            .ok()
-            .map(|ch| ch.connect_lazy());
+        let channel = node_rpc::connect_lazy_node_channel(&c.ip_address, c.port);
         let Some(channel) = channel else {
             // Node address is invalid: treat as unavailable and spillback.
             // 节点地址不可用：按 unavailable 处理并继续 spillback。
             let _ = placement
-                .report_invocation_outcome(crate::proto::sms::ReportInvocationOutcomeRequest {
-                    decision_id: placement_resp.decision_id.clone(),
-                    request_id: request_id.clone(),
-                    task_id: body.task_id.clone(),
-                    node_uuid: c.node_uuid.clone(),
-                    outcome_class: crate::proto::sms::InvocationOutcomeClass::Unavailable as i32,
-                    error_message: "invalid node url".to_string(),
-                })
+                .report_invocation_outcome(crate::sms::placement::outcome::build_outcome_request(
+                    &placement_resp.decision_id,
+                    &request_id,
+                    &body.task_id,
+                    &c.node_uuid,
+                    crate::proto::sms::InvocationOutcomeClass::Unavailable as i32,
+                    "invalid node url".to_string(),
+                ))
                 .await;
             continue;
         };
         let mut invc = InvocationServiceClient::new(channel);
         // Use ExistingTask invocation; Spearlet may fetch task from SMS when missing.
         // 使用 ExistingTask 调用；若节点本地缺 task，Spearlet 会从 SMS 拉取补齐后执行。
-        let req = InvokeRequest {
-            invocation_id: request_id.clone(),
-            execution_id: execution_id.clone(),
-            task_id: body.task_id.clone(),
-            function_name: DEFAULT_ENTRY_FUNCTION_NAME.to_string(),
-            input: Some(Payload {
-                content_type: "application/octet-stream".to_string(),
-                data: Vec::new(),
-            }),
-            headers: Default::default(),
-            environment: Default::default(),
-            timeout_ms: 0,
-            session_id: String::new(),
-            mode,
-            force_new_instance: false,
-            metadata: Default::default(),
-        };
+        let req =
+            invocation_flow::build_invoke_request(&body.task_id, &request_id, &execution_id, mode);
         match invc.invoke(req).await {
             Ok(resp) => {
                 let inner = resp.into_inner();
-                let success = inner.status == ExecutionStatus::Completed as i32;
-                let message = inner
-                    .error
-                    .as_ref()
-                    .map(|e| e.message.clone())
-                    .unwrap_or_else(|| "ok".to_string());
+                let (success, message) = invocation_flow::summarize_invoke_result(
+                    inner.status,
+                    inner.error.as_ref().map(|e| e.message.as_str()),
+                );
                 if success {
                     // Success: report feedback to SMS and return.
                     // 成功：回报给 SMS 用于后续 placement，然后直接返回。
                     let _ = placement
-                        .report_invocation_outcome(
-                            crate::proto::sms::ReportInvocationOutcomeRequest {
-                                decision_id: placement_resp.decision_id.clone(),
-                                request_id: request_id.clone(),
-                                task_id: body.task_id.clone(),
-                                node_uuid: c.node_uuid.clone(),
-                                outcome_class: crate::proto::sms::InvocationOutcomeClass::Success
-                                    as i32,
-                                error_message: String::new(),
-                            },
-                        )
+                        .report_invocation_outcome(crate::sms::placement::outcome::build_outcome_request(
+                            &placement_resp.decision_id,
+                            &request_id,
+                            &body.task_id,
+                            &c.node_uuid,
+                            crate::proto::sms::InvocationOutcomeClass::Success as i32,
+                            String::new(),
+                        ))
                         .await;
                     return Json(json!({
                         "success": true,
@@ -1533,51 +1156,32 @@ async fn create_invocation(
                 // Function-level failure is not retryable here: return immediately.
                 // Function 级失败在这里不做重试：直接返回给前端。
                 let _ = placement
-                    .report_invocation_outcome(crate::proto::sms::ReportInvocationOutcomeRequest {
-                        decision_id: placement_resp.decision_id.clone(),
-                        request_id: request_id.clone(),
-                        task_id: body.task_id.clone(),
-                        node_uuid: c.node_uuid.clone(),
-                        outcome_class: crate::proto::sms::InvocationOutcomeClass::Internal as i32,
-                        error_message: message.clone(),
-                    })
+                    .report_invocation_outcome(crate::sms::placement::outcome::build_outcome_request(
+                        &placement_resp.decision_id,
+                        &request_id,
+                        &body.task_id,
+                        &c.node_uuid,
+                        crate::proto::sms::InvocationOutcomeClass::Internal as i32,
+                        message.clone(),
+                    ))
                     .await;
                 return Json(json!({ "success": false, "message": message }));
             }
             Err(e) => {
                 // gRPC error classification decides whether to spillback.
                 // gRPC 错误分类用于决定是否继续 spillback。
-                let class = match e.code() {
-                    tonic::Code::DeadlineExceeded => {
-                        crate::proto::sms::InvocationOutcomeClass::Timeout as i32
-                    }
-                    tonic::Code::Unavailable => {
-                        crate::proto::sms::InvocationOutcomeClass::Unavailable as i32
-                    }
-                    tonic::Code::ResourceExhausted => {
-                        crate::proto::sms::InvocationOutcomeClass::Overloaded as i32
-                    }
-                    tonic::Code::InvalidArgument => {
-                        crate::proto::sms::InvocationOutcomeClass::BadRequest as i32
-                    }
-                    tonic::Code::Unauthenticated | tonic::Code::PermissionDenied => {
-                        crate::proto::sms::InvocationOutcomeClass::Rejected as i32
-                    }
-                    _ => crate::proto::sms::InvocationOutcomeClass::Internal as i32,
-                };
+                let class = crate::sms::placement::outcome::classify_invoke_rpc_error(e.code());
                 let _ = placement
-                    .report_invocation_outcome(crate::proto::sms::ReportInvocationOutcomeRequest {
-                        decision_id: placement_resp.decision_id.clone(),
-                        request_id: request_id.clone(),
-                        task_id: body.task_id.clone(),
-                        node_uuid: c.node_uuid.clone(),
-                        outcome_class: class,
-                        error_message: e.to_string(),
-                    })
+                    .report_invocation_outcome(crate::sms::placement::outcome::build_outcome_request(
+                        &placement_resp.decision_id,
+                        &request_id,
+                        &body.task_id,
+                        &c.node_uuid,
+                        class,
+                        e.to_string(),
+                    ))
                     .await;
-                if class == crate::proto::sms::InvocationOutcomeClass::BadRequest as i32
-                    || class == crate::proto::sms::InvocationOutcomeClass::Rejected as i32
-                {
+                if crate::sms::placement::outcome::is_terminal_outcome_class(class) {
                     // Non-retryable: stop spillback.
                     // 不可重试：终止 spillback。
                     return Json(json!({ "success": false, "message": e.to_string() }));
@@ -1847,6 +1451,42 @@ async fn list_task_instances_admin(
                 "success": true,
                 "instances": instances,
                 "next_page_token": inner.next_page_token,
+            }))
+        }
+        Err(e) => Json(json!({ "success": false, "message": e.to_string() })),
+    }
+}
+
+async fn get_instance_admin(
+    state: GatewayState,
+    Path(instance_id): Path<String>,
+) -> Json<serde_json::Value> {
+    use crate::proto::sms::GetInstanceRequest;
+    let mut client = state.execution_index_client.clone();
+    let resp = client
+        .get_instance(tonic::Request::new(GetInstanceRequest { instance_id }))
+        .await;
+    match resp {
+        Ok(r) => {
+            let inner = r.into_inner();
+            let instance = inner.instance.map(|i| {
+                json!({
+                    "instance_id": i.instance_id,
+                    "task_id": i.task_id,
+                    "node_uuid": i.node_uuid,
+                    "status": instance_status_to_public_str(i.status),
+                    "created_at_ms": i.created_at_ms,
+                    "updated_at_ms": i.updated_at_ms,
+                    "last_seen_ms": i.last_seen_ms,
+                    "current_execution_id": i.current_execution_id,
+                    "metadata": i.metadata,
+                })
+            });
+            Json(json!({
+                "success": true,
+                "found": inner.found,
+                "active": inner.active,
+                "instance": instance,
             }))
         }
         Err(e) => Json(json!({ "success": false, "message": e.to_string() })),
@@ -2134,6 +1774,45 @@ async fn get_node_detail(state: GatewayState, Path(uuid): Path<String>) -> Json<
         })),
     });
     Json(body)
+}
+
+async fn get_node_ai_credential_sync(
+    state: GatewayState,
+    Path(uuid): Path<String>,
+) -> Json<serde_json::Value> {
+    let target = match node_rpc::resolve_node_http_target(&state, &uuid).await {
+        Ok(target) => target,
+        Err(resp) => return resp,
+    };
+    let url = format!("{}/monitoring/ai/credentials", target.base_url);
+    // Proxy one lightweight read-only monitoring call from SMS Web Admin to Spearlet.
+    // 由 SMS Web Admin 代理一次只读的 Spearlet 本地监控请求。
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+    {
+        Ok(client) => client,
+        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
+    };
+    let resp = match client.get(&url).send().await {
+        Ok(resp) => resp,
+        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
+    };
+    if !resp.status().is_success() {
+        return Json(json!({
+            "success": false,
+            "message": format!("upstream returned HTTP {}", resp.status()),
+        }));
+    }
+    let monitoring = match resp.json::<serde_json::Value>().await {
+        Ok(value) => value,
+        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
+    };
+    Json(json!({
+        "success": true,
+        "node_uuid": target.node_uuid,
+        "monitoring": monitoring,
+    }))
 }
 
 async fn get_stats(state: GatewayState) -> Json<serde_json::Value> {

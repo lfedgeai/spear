@@ -5,99 +5,25 @@ use clap::Parser;
 use spear_next::config::init_tracing;
 use spear_next::spearlet::backend_reporter::BackendReporterService;
 use spear_next::spearlet::config::CliArgs;
+use spear_next::spearlet::controller::ControllerGroup;
 use spear_next::spearlet::grpc_server::GrpcServer;
 use spear_next::spearlet::http_gateway::HttpGateway;
+use spear_next::spearlet::ai::credential_sync::CredentialSyncService;
 use spear_next::spearlet::local_models::{global_managed_backends, LocalModelController};
+use spear_next::spearlet::ai::remote_backend_sync::RemoteBackendSyncService;
 use spear_next::spearlet::mcp::registry_sync::global_mcp_registry_sync_with_channel;
 use spear_next::spearlet::ollama_discovery::maybe_import_ollama_serving_models;
 use spear_next::spearlet::registration::RegistrationService;
 use spear_next::spearlet::sms_connector::sms_channel_lazy;
+use spear_next::spearlet::execution::ai::engine_holder::{init_global, EngineHolder};
+use spear_next::spearlet::execution::ai::router::grpc_filter_stream::RouterFilterStreamHub;
+use spear_next::spearlet::execution::ai::router::Router;
+use spear_next::spearlet::execution::ai::AiEngine;
+use spear_next::spearlet::execution::runtime::{ResourcePoolConfig, RuntimeConfig, RuntimeType};
+use spear_next::spearlet::ai::RemoteBackendMergePolicy;
 use tonic::transport::Channel;
 
 use std::sync::Arc;
-
-// Import remote backends managed by SMS Web Admin / 导入由SMS Web Admin管理的远端 backends
-async fn maybe_import_sms_admin_remote_backends(
-    cfg: &mut spear_next::spearlet::config::SpearletConfig,
-    sms_channel: Option<Channel>,
-) {
-    use spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient;
-    use spear_next::proto::sms::ListRemoteBackendsRequest;
-    use std::collections::HashMap;
-
-    let Some(channel) = sms_channel else {
-        return;
-    };
-
-    let mut client = AdminLlmConfigServiceClient::new(channel);
-    let resp = match client
-        .list_remote_backends(ListRemoteBackendsRequest {})
-        .await
-    {
-        Ok(r) => r.into_inner(),
-        Err(e) => {
-            tracing::warn!(error = %e, "List remote backends from SMS failed");
-            return;
-        }
-    };
-
-    if resp.backends.is_empty() {
-        return;
-    }
-
-    let mut by_name: HashMap<String, spear_next::spearlet::config::LlmBackendConfig> = cfg
-        .llm
-        .backends
-        .iter()
-        .cloned()
-        .map(|b| (b.name.clone(), b))
-        .collect();
-
-    let imported = resp.backends.len();
-    for b in resp.backends {
-        if b.name.trim().is_empty() {
-            continue;
-        }
-        let model = if b.model.trim().is_empty() {
-            None
-        } else {
-            Some(b.model)
-        };
-        let credential_ref = if b.credential_ref.trim().is_empty() {
-            None
-        } else {
-            Some(b.credential_ref)
-        };
-        by_name.insert(
-            b.name.clone(),
-            spear_next::spearlet::config::LlmBackendConfig {
-                name: b.name,
-                kind: b.kind,
-                base_url: b.base_url,
-                hosting: Some("remote".to_string()),
-                model,
-                credential_ref,
-                weight: b.weight,
-                priority: b.priority,
-                ops: b.operations,
-                features: b.features,
-                transports: b.transports,
-            },
-        );
-    }
-
-    cfg.llm.backends = by_name.into_values().collect();
-    cfg.llm.backends.sort_by(|a, b| {
-        a.name
-            .to_ascii_lowercase()
-            .cmp(&b.name.to_ascii_lowercase())
-    });
-
-    tracing::info!(
-        remote_backends = imported,
-        "Imported SMS Web Admin remote backends (restart SPEARlet to pick up later changes)"
-    );
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = CliArgs::parse();
@@ -122,7 +48,7 @@ async fn run(
     log_args: String,
     mut spearlet_cfg: spear_next::spearlet::config::SpearletConfig,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if spearlet_cfg.llm.discovery.ollama.enabled {
+    if spearlet_cfg.ai.discovery.ollama.enabled {
         match maybe_import_ollama_serving_models(&mut spearlet_cfg).await {
             Ok(n) => {
                 if n > 0 {
@@ -140,9 +66,10 @@ async fn run(
     } else {
         Some(sms_channel_lazy(&spearlet_cfg)?)
     };
-    maybe_import_sms_admin_remote_backends(&mut spearlet_cfg, sms_channel.clone()).await;
+    let base_cfg_for_remote_sync = Arc::new(spearlet_cfg.clone());
 
     let config = Arc::new(spearlet_cfg);
+    let _ = spear_next::spearlet::ai::credential_resolver::init_global(&config);
 
     tracing::info!("Starting SPEARlet with args: {}", log_args);
 
@@ -157,6 +84,58 @@ async fn run(
     let sms_channel = sms_channel;
 
     global_mcp_registry_sync_with_channel(config.clone(), sms_channel.clone());
+
+    let env = spear_next::spearlet::ai::collect_ai_global_environment(&config);
+    let runtime_config = RuntimeConfig {
+        runtime_type: RuntimeType::Wasm,
+        settings: std::collections::HashMap::new(),
+        global_environment: env,
+        spearlet_config: Some((*config).clone()),
+        resource_pool: ResourcePoolConfig::default(),
+    };
+    let (registry, policy) =
+        spear_next::spearlet::execution::ai::router::builder::build_registry_from_runtime_config(
+            &runtime_config,
+        );
+    let grpc_filter_stream = runtime_config
+        .spearlet_config
+        .as_ref()
+        .and_then(|cfg| {
+            cfg.ai.router_grpc_filter_stream.clone().map(|mut f| {
+                if f.enabled && f.addr.trim().is_empty() {
+                    f.addr = cfg.sms_grpc_addr.clone();
+                }
+                f
+            })
+        })
+        .map(RouterFilterStreamHub::init_global)
+        .or_else(RouterFilterStreamHub::global)
+        .filter(|h| h.config.enabled);
+    let router = Router::new_with_filter(registry, policy, grpc_filter_stream);
+    let engine = std::sync::Arc::new(AiEngine::new(router));
+    let _holder = init_global(std::sync::Arc::new(EngineHolder::new(engine, 0)));
+
+    let mut controllers = ControllerGroup::new();
+
+    if let Some(ch) = sms_channel.clone() {
+        let poll_ms = config.ai.remote_backend_sync.poll_interval_ms;
+        let credential_sync =
+            CredentialSyncService::new(ch.clone(), std::time::Duration::from_millis(poll_ms));
+        controllers.register(credential_sync);
+
+        if config.ai.remote_backend_sync.enabled {
+            let merge_policy =
+                RemoteBackendMergePolicy::parse(&config.ai.remote_backend_sync.merge_policy)
+                    .unwrap_or(RemoteBackendMergePolicy::SmsWinsByName);
+            let remote_backend_sync = RemoteBackendSyncService::new(
+                base_cfg_for_remote_sync,
+                ch,
+                std::time::Duration::from_millis(poll_ms),
+                merge_policy,
+            );
+            controllers.register(remote_backend_sync);
+        }
+    }
 
     let grpc_server = GrpcServer::new(config.clone(), sms_channel.clone()).await?;
     let (shutdown_tx_grpc, shutdown_rx_grpc) = tokio::sync::oneshot::channel::<()>();
@@ -237,18 +216,21 @@ async fn run(
             sms_channel.clone(),
             managed_backends.clone(),
         );
-        local_models.start();
+        controllers.register(std::sync::Arc::new(local_models));
 
         let backend_reporter = BackendReporterService::new(
             config.clone(),
             sms_channel.clone(),
             Some(managed_backends),
         );
-        backend_reporter.start();
+        controllers.register(std::sync::Arc::new(backend_reporter));
     }
+
+    controllers.start_all();
 
     tokio::signal::ctrl_c().await?;
     tracing::info!("SPEARlet shutting down");
+    controllers.shutdown_all();
     let _ = shutdown_tx_grpc.send(());
     let _ = shutdown_tx_http.send(());
     let _ = grpc_handle.await;

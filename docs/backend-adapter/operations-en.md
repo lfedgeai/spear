@@ -11,9 +11,9 @@ This document complements the main proposal by specifying per-`Operation` guidan
 | `image_generation` | text (extendable to image/mask) | image | http | `supports_image_input` `supports_mask` `supports_seed` |
 | `speech_to_text` (ASR) | audio | text | http (extendable to ws) | `supports_timestamps` `supports_language` `supports_diarization` |
 | `text_to_speech` (TTS) | text | audio | http | `supports_voices` `supports_formats` `supports_ssml` |
-| `realtime_voice` | audio/text events | audio/text events | websocket/grpc | `supports_bidi_stream` `supports_audio_in/out` |
+| `realtime_voice` (planned) | audio/text events | audio/text events | websocket/grpc | `supports_bidi_stream` `supports_audio_in/out` |
 
-This table is the minimal capability modeling core; it does not require implementing all fields at once.
+This table is the minimal capability modeling core; it does not require implementing all fields at once. `realtime_voice` is kept here as historical design / future planning only and is not supported by the current runtime.
 
 ## 2. Payload backbone fields (skeletons)
 
@@ -119,7 +119,7 @@ Typical downgrades:
 - unsupported voice: fallback to default
 - SSML unsupported: reject or strip tags (must be explicit)
 
-### 2.6 `RealtimeVoicePayload`
+### 2.6 `RealtimeVoicePayload` (historical design, not implemented in the current runtime)
 
 Realtime is a streaming session and should not be modeled as a single HTTP request/response. The payload should describe:
 
@@ -146,7 +146,7 @@ Typical downgrades:
 - `image_generation`: `priority + fallback` (high cost; no hedging by default)
 - `speech_to_text`: `least_inflight` or `weighted_rr`
 - `text_to_speech`: `weighted_rr`
-- `realtime_voice`: `least_inflight` (tight concurrency control)
+- Planned only: `realtime_voice` would likely prefer `least_inflight` (not implemented in the current runtime)
 
 ### 3.2 Hedging/mirroring guidance
 

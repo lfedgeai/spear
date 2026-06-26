@@ -75,7 +75,7 @@ COPY src/ src/
 # Local path dependencies (SDK crates) / 本地 path 依赖（SDK crates）
 COPY sdk/rust/crates/spear-ssf/ sdk/rust/crates/spear-ssf/
 
-RUN cargo build --release --locked --bin spearlet
+RUN cargo build --release --locked --bin spearlet --features debug-reporter
 
 FROM ${DEBIAN_IMAGE} AS runtime
 

@@ -13,10 +13,10 @@
 
 ## 2. backend.model 绑定（model-bound backend）
 
-`[[spearlet.llm.backends]]` 支持可选字段：
+`[[spearlet.ai.backends]]` 支持可选字段：
 
 ```toml
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-chat"
 kind = "openai_chat_completion"
 base_url = "https://api.openai.com/v1"

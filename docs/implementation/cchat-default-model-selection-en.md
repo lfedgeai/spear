@@ -13,10 +13,10 @@ Normalization writes this model into `CanonicalRequestEnvelope.payload` and it p
 
 ## 2. backend.model binding (model-bound backends)
 
-`[[spearlet.llm.backends]]` supports an optional `model` field:
+`[[spearlet.ai.backends]]` supports an optional `model` field:
 
 ```toml
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-chat"
 kind = "openai_chat_completion"
 base_url = "https://api.openai.com/v1"

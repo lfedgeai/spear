@@ -336,8 +336,14 @@ async fn test_admin_execution_spillback_and_feedback_affects_next_placement() {
         )
         .await
         .unwrap();
-    let admin_llm_config_client =
-        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+    let admin_ai_config_client =
+        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
+            sms_url.clone(),
+        )
+        .await
+        .unwrap();
+    let admin_credential_client =
+        spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
             sms_url.clone(),
         )
         .await
@@ -353,7 +359,8 @@ async fn test_admin_execution_spillback_and_feedback_affects_next_placement() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
-        admin_llm_config_client,
+        admin_credential_client,
+        admin_ai_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -529,8 +536,14 @@ async fn test_admin_does_not_spillback_on_invalid_argument() {
         )
         .await
         .unwrap();
-    let admin_llm_config_client =
-        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+    let admin_ai_config_client =
+        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
+            sms_url.clone(),
+        )
+        .await
+        .unwrap();
+    let admin_credential_client =
+        spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
             sms_url.clone(),
         )
         .await
@@ -546,7 +559,8 @@ async fn test_admin_does_not_spillback_on_invalid_argument() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
-        admin_llm_config_client,
+        admin_credential_client,
+        admin_ai_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),

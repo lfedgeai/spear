@@ -3,6 +3,7 @@ use tonic::{Request, Response, Status};
 
 use crate::proto::spearlet::instance_service_server::InstanceService;
 use crate::proto::spearlet::{DestroyInstanceRequest, DestroyInstanceResponse};
+use crate::spearlet::execution::ExecutionError;
 use crate::spearlet::function_service::FunctionServiceImpl;
 
 pub struct InstanceServiceImpl {
@@ -12,6 +13,13 @@ pub struct InstanceServiceImpl {
 impl InstanceServiceImpl {
     pub fn new(function_service: Arc<FunctionServiceImpl>) -> Self {
         Self { function_service }
+    }
+
+    fn map_destroy_instance_error(err: ExecutionError) -> Status {
+        match err {
+            ExecutionError::InstanceNotFound { id } => Status::not_found(format!("Instance not found: {}", id)),
+            other => Status::internal(other.to_string()),
+        }
     }
 }
 
@@ -33,7 +41,7 @@ impl InstanceService for InstanceServiceImpl {
             .get_execution_manager()
             .destroy_instance(&instance_id, reason)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(Self::map_destroy_instance_error)?;
 
         Ok(Response::new(DestroyInstanceResponse {
             success: true,

@@ -830,6 +830,28 @@ mod new_endpoints_tests {
         assert!(json["timestamp"].is_string());
         assert_eq!(json["details"]["task_count"], 1);
     }
+
+    #[tokio::test]
+    async fn test_get_ai_credentials_endpoint() {
+        let router = create_router_for_task_monitoring().await;
+
+        let resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/monitoring/ai/credentials")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert!(json["credential_sync"].is_object());
+        assert!(json["credential_sync"]["status"].is_string());
+    }
 }
 
 #[cfg(test)]

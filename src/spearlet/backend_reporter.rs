@@ -9,13 +9,14 @@ use tracing::{debug, warn};
 
 use crate::proto::sms::backend_registry_service_client::BackendRegistryServiceClient;
 use crate::proto::sms::{
-    BackendHosting, BackendInfo, BackendStatus, NodeBackendSnapshot, ReportNodeBackendsRequest,
+    BackendInfo, BackendStatus, NodeBackendSnapshot, ReportNodeBackendsRequest,
 };
-use crate::spearlet::config::{LlmBackendConfig, SpearletConfig};
-use crate::spearlet::execution::ai::backends::{
-    KIND_OLLAMA_CHAT, KIND_OPENAI_CHAT_COMPLETION, KIND_OPENAI_REALTIME_WS, KIND_STUB,
-};
+use crate::spearlet::ai::backend_assembly::backend_spec_from_config;
+use crate::spearlet::ai::credential_resolver::{CredentialResolution, CredentialResolver};
+use crate::spearlet::config::SpearletConfig;
 use crate::spearlet::local_models::ManagedBackendRegistry;
+use crate::spearlet::ai::dynamic_backend_registry::DynamicBackendSource;
+use crate::spearlet::controller::Controller;
 
 #[derive(Debug)]
 pub struct BackendReporterService {
@@ -68,66 +69,25 @@ impl BackendReporterService {
     }
 }
 
-fn infer_provider(kind: &str) -> String {
-    match kind {
-        KIND_OPENAI_CHAT_COMPLETION | KIND_OPENAI_REALTIME_WS => "openai".to_string(),
-        KIND_OLLAMA_CHAT => "ollama".to_string(),
-        KIND_STUB => "internal".to_string(),
-        _ => "unknown".to_string(),
+impl Controller for BackendReporterService {
+    fn name(&self) -> &'static str {
+        "backend_reporter"
     }
-}
 
-fn parse_hosting(s: &str) -> Option<i32> {
-    let v = s.trim().to_ascii_lowercase();
-    match v.as_str() {
-        "local" => Some(BackendHosting::NodeLocal as i32),
-        "remote" => Some(BackendHosting::Remote as i32),
-        "unknown" | "unspecified" => Some(BackendHosting::Unspecified as i32),
-        _ => None,
+    fn start(&self) {
+        BackendReporterService::start(self)
     }
-}
 
-fn resolve_hosting(backend: &LlmBackendConfig) -> i32 {
-    backend
-        .hosting
-        .as_deref()
-        .and_then(parse_hosting)
-        .unwrap_or(BackendHosting::Unspecified as i32)
-}
-
-fn credential_env_map(cfg: &SpearletConfig) -> HashMap<String, String> {
-    cfg.llm
-        .credentials
-        .iter()
-        .filter(|c| c.kind.as_str() == "env")
-        .filter(|c| !c.name.trim().is_empty())
-        .filter(|c| !c.api_key_env.trim().is_empty())
-        .map(|c| (c.name.clone(), c.api_key_env.clone()))
-        .collect()
-}
-
-fn resolve_backend_env(
-    backend: &LlmBackendConfig,
-    creds: &HashMap<String, String>,
-) -> Result<String, String> {
-    let r = backend
-        .credential_ref
-        .as_ref()
-        .ok_or_else(|| "missing credential_ref".to_string())?;
-    if r.trim().is_empty() {
-        return Err("credential_ref is empty".to_string());
+    fn shutdown(&self) {
+        BackendReporterService::shutdown(self)
     }
-    creds
-        .get(r)
-        .cloned()
-        .ok_or_else(|| format!("credential_ref not found: {r}"))
 }
 
 fn build_backend_info_list(cfg: &SpearletConfig) -> Vec<BackendInfo> {
-    let creds = credential_env_map(cfg);
+    let resolver = CredentialResolver::from_config(cfg);
     let mut out = Vec::new();
 
-    for b in cfg.llm.backends.iter() {
+    for b in cfg.ai.backends.iter() {
         let mut status = BackendStatus::Available as i32;
         let mut reason = String::new();
 
@@ -136,41 +96,68 @@ fn build_backend_info_list(cfg: &SpearletConfig) -> Vec<BackendInfo> {
             .map(|s| s.trim())
             .is_some_and(|s| !s.is_empty())
         {
-            let env = resolve_backend_env(b, &creds);
-            match env {
-                Ok(env_name) => match std::env::var(&env_name) {
-                    Ok(v) if !v.trim().is_empty() => {}
-                    _ => {
-                        status = BackendStatus::Unavailable as i32;
-                        reason = format!("missing env {env_name}");
-                    }
-                },
-                Err(e) => {
+            let credential_ref = b.credential_ref.as_deref().unwrap_or_default().trim();
+            let credential_state = resolver.resolve_api_key_state(Some(credential_ref));
+            match credential_state {
+                CredentialResolution::Ready(_) => {}
+                CredentialResolution::Disabled
+                | CredentialResolution::NotSynced
+                | CredentialResolution::Missing => {
                     status = BackendStatus::Unavailable as i32;
-                    reason = e;
+                    reason = credential_state.message(credential_ref);
                 }
             }
         }
 
+        let spec = backend_spec_from_config(b);
         out.push(BackendInfo {
-            name: b.name.clone(),
-            kind: b.kind.clone(),
-            operations: b.ops.clone(),
-            features: b.features.clone(),
-            transports: b.transports.clone(),
-            weight: b.weight as u32,
-            priority: b.priority,
-            base_url: b.base_url.clone(),
+            spec: Some(spec),
             status,
             status_reason: reason,
-            provider: infer_provider(&b.kind),
-            model: b.model.clone().unwrap_or_default(),
-            hosting: resolve_hosting(b),
-            credential_ref: b.credential_ref.clone().unwrap_or_default(),
         });
     }
 
     out
+}
+
+fn collect_reportable_backends(
+    cfg: &SpearletConfig,
+    managed_backends: Option<&ManagedBackendRegistry>,
+) -> Vec<BackendInfo> {
+    let static_backends = build_backend_info_list(cfg);
+    let mut by_name: HashMap<String, BackendInfo> = HashMap::new();
+    for b in static_backends.into_iter() {
+        let Some(spec) = b.spec.as_ref() else {
+            continue;
+        };
+        let name = spec.name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        by_name.insert(name.to_string(), b);
+    }
+
+    if let Some(m) = managed_backends {
+        // Report dynamic runtime backend facts back to SMS, including SMS-synced remote
+        // backends, so the Web Admin catalog can reflect what nodes can actually serve.
+        // 将动态运行时 backend 状态回报给 SMS（包含从 SMS 同步的 remote backends），
+        // 以便 Web Admin 目录能反映节点真实可用性。
+        for b in m
+            .list_merged_sorted(&[DynamicBackendSource::LocalController, DynamicBackendSource::Sms])
+            .into_iter()
+        {
+            let Some(spec) = b.spec.as_ref() else {
+                continue;
+            };
+            let name = spec.name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            by_name.insert(name.to_string(), b);
+        }
+    }
+
+    by_name.into_values().collect::<Vec<_>>()
 }
 
 async fn report_loop(
@@ -197,10 +184,7 @@ async fn report_loop(
         let mut client = BackendRegistryServiceClient::new(channel.clone());
 
         revision = revision.saturating_add(1);
-        let mut backends = build_backend_info_list(&config);
-        if let Some(m) = managed_backends.as_ref() {
-            backends.extend(m.list());
-        }
+        let backends = collect_reportable_backends(&config, managed_backends.as_ref());
         let snapshot = NodeBackendSnapshot {
             node_uuid: node_uuid.clone(),
             revision,
@@ -234,5 +218,130 @@ async fn report_loop(
                 backoff_ms = (backoff_ms * 2).min(10_000);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::proto::sms::{BackendHosting, BackendOrigin, BackendSpec, CredentialMaterial};
+    use crate::spearlet::ai::dynamic_backend_registry::DynamicBackendRegistry;
+    use crate::spearlet::config::AiBackendConfig;
+
+    fn mk_backend(name: &str, kind: &str, origin: BackendOrigin) -> BackendInfo {
+        BackendInfo {
+            spec: Some(BackendSpec {
+                name: name.to_string(),
+                kind: kind.to_string(),
+                operations: vec!["chat_completions".to_string()],
+                features: vec![],
+                transports: vec!["http".to_string()],
+                weight: 100,
+                priority: 0,
+                base_url: "https://example.com/v1".to_string(),
+                provider: String::new(),
+                model: String::new(),
+                hosting: BackendHosting::Remote as i32,
+                credential_ref: String::new(),
+                origin: origin as i32,
+                deployment_id: String::new(),
+            }),
+            status: BackendStatus::Available as i32,
+            status_reason: String::new(),
+        }
+    }
+
+    #[test]
+    fn collect_reportable_backends_includes_sms_dynamic_backends() {
+        let mut cfg = SpearletConfig::default();
+        cfg.ai.backends.push(AiBackendConfig {
+            name: "static-openai".to_string(),
+            kind: "openai_chat_completion".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            hosting: Some("remote".to_string()),
+            model: None,
+            credential_ref: None,
+            provider: None,
+            origin: None,
+            deployment_id: None,
+            weight: 100,
+            priority: 0,
+            ops: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+        });
+
+        let managed = DynamicBackendRegistry::new();
+        managed.set_backends(
+            DynamicBackendSource::LocalController,
+            vec![mk_backend(
+                "local-managed",
+                "ollama_chat",
+                BackendOrigin::LocalController,
+            )],
+        );
+        managed.set_backends(
+            DynamicBackendSource::Sms,
+            vec![mk_backend("sms-remote", "openai_chat_completion", BackendOrigin::Sms)],
+        );
+
+        let reported = collect_reportable_backends(&cfg, Some(&managed));
+        let mut names = reported
+            .into_iter()
+            .filter_map(|b| b.spec.map(|s| s.name))
+            .collect::<Vec<_>>();
+        names.sort();
+
+        assert_eq!(
+            names,
+            vec![
+                "local-managed".to_string(),
+                "sms-remote".to_string(),
+                "static-openai".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn build_backend_info_list_reports_disabled_dynamic_credential_as_unavailable() {
+        let _guard = crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
+            .lock()
+            .expect("lock");
+        let store = crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials();
+        store.clear();
+        store.set_credentials(vec![CredentialMaterial {
+            name: "openai-default".to_string(),
+            provider_kind: "inline_encrypted".to_string(),
+            secret: "sk-test".to_string(),
+            version: 1,
+            disabled: true,
+            updated_at_ms: 0,
+        }]);
+
+        let mut cfg = SpearletConfig::default();
+        cfg.ai.backends.push(AiBackendConfig {
+            name: "openai-chat".to_string(),
+            kind: "openai_chat_completion".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            hosting: Some("remote".to_string()),
+            model: None,
+            credential_ref: Some("openai-default".to_string()),
+            provider: None,
+            origin: None,
+            deployment_id: None,
+            weight: 100,
+            priority: 0,
+            ops: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+        });
+
+        let infos = build_backend_info_list(&cfg);
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].status, BackendStatus::Unavailable as i32);
+        assert!(infos[0]
+            .status_reason
+            .contains("credential_ref 'openai-default' is disabled"));
+        store.clear();
     }
 }

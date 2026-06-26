@@ -68,7 +68,7 @@ For tail-latency sensitive workloads with explicit budget:
 - `image_generation`: `priority + fallback` (no hedging by default)
 - `speech_to_text`: `least_inflight` or `weighted_rr`
 - `text_to_speech`: `weighted_rr`
-- `realtime_voice`: `least_inflight` (tight concurrency control)
+- Planned: if `realtime_voice` is reintroduced in the future, prefer `least_inflight` (not implemented in the current runtime)
 
 ## 6. Explainability
 
@@ -78,4 +78,3 @@ The router should be able to produce structured explanations for diagnostics:
 - `rejected_reasons`
 - `selected_instance(s)`
 - `policy` and key scoring signals
-

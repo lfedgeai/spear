@@ -8,8 +8,8 @@ use tonic::Request;
 
 use super::common::ErrorResponse;
 use crate::proto::sms::{
-    ExecutionStatus, GetExecutionRequest, InstanceStatus, ListInstanceExecutionsRequest,
-    ListTaskInstancesRequest,
+    ExecutionStatus, GetExecutionRequest, GetInstanceRequest, InstanceStatus,
+    ListInstanceExecutionsRequest, ListTaskInstancesRequest,
 };
 use crate::sms::gateway::GatewayState;
 
@@ -54,6 +54,26 @@ pub struct ListInstanceExecutionsHttpResponse {
 pub struct GetExecutionHttpResponse {
     pub found: bool,
     pub execution: Option<ExecutionResponse>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GetInstanceHttpResponse {
+    pub found: bool,
+    pub active: bool,
+    pub instance: Option<InstanceResponse>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct InstanceResponse {
+    pub instance_id: String,
+    pub task_id: String,
+    pub node_uuid: String,
+    pub status: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub last_seen_ms: i64,
+    pub current_execution_id: String,
+    pub metadata: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -167,6 +187,42 @@ pub async fn list_instance_executions(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
                 error: "LIST_INSTANCE_EXECUTIONS_FAILED".to_string(),
+                message: e.to_string(),
+            }),
+        )),
+    }
+}
+
+pub async fn get_instance(
+    State(state): State<GatewayState>,
+    Path(instance_id): Path<String>,
+) -> Result<Json<GetInstanceHttpResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let req = Request::new(GetInstanceRequest { instance_id });
+    let resp = state.execution_index_client.clone().get_instance(req).await;
+    match resp {
+        Ok(r) => {
+            let inner = r.into_inner();
+            let instance = inner.instance.map(|i| InstanceResponse {
+                instance_id: i.instance_id,
+                task_id: i.task_id,
+                node_uuid: i.node_uuid,
+                status: instance_status_to_str(i.status),
+                created_at_ms: i.created_at_ms,
+                updated_at_ms: i.updated_at_ms,
+                last_seen_ms: i.last_seen_ms,
+                current_execution_id: i.current_execution_id,
+                metadata: i.metadata,
+            });
+            Ok(Json(GetInstanceHttpResponse {
+                found: inner.found,
+                active: inner.active,
+                instance,
+            }))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "GET_INSTANCE_FAILED".to_string(),
                 message: e.to_string(),
             }),
         )),

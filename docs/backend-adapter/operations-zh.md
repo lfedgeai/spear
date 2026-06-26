@@ -11,9 +11,9 @@
 | `image_generation` | text（可扩 image/mask） | image | http | `supports_image_input` `supports_mask` `supports_seed` |
 | `speech_to_text`（ASR） | audio | text | http（可扩 ws） | `supports_timestamps` `supports_language` `supports_diarization` |
 | `text_to_speech`（TTS） | text | audio | http | `supports_voices` `supports_formats` `supports_ssml` |
-| `realtime_voice` | audio/text events | audio/text events | websocket/grpc | `supports_bidi_stream` `supports_audio_in/out` |
+| `realtime_voice`（规划） | audio/text events | audio/text events | websocket/grpc | `supports_bidi_stream` `supports_audio_in/out` |
 
-说明：表中是“能力建模的最小核心”，不要求一次实现全部字段。
+说明：表中是“能力建模的最小核心”，不要求一次实现全部字段。`realtime_voice` 当前仅作为历史设计/规划项保留，不代表现有运行时支持。
 
 ## 2. 每个操作的 Payload 字段建议（骨架）
 
@@ -119,7 +119,7 @@
 - voice 不支持：回退到默认 voice
 - ssml 不支持：拒绝或剥离标签（需显式）
 
-### 2.6 `RealtimeVoicePayload`
+### 2.6 `RealtimeVoicePayload`（历史规划，当前未实现）
 
 Realtime 是流式会话，不建议用“单 request single response”抽象。建议 payload 只描述：
 
@@ -146,7 +146,7 @@ Realtime 是流式会话，不建议用“单 request single response”抽象�
 - `image_generation`：`priority + fallback`（成本高，默认不 hedged）
 - `speech_to_text`：`least_inflight` 或 `weighted_rr`
 - `text_to_speech`：`weighted_rr`
-- `realtime_voice`：`least_inflight`（并发控制更重要）
+- 规划项：`realtime_voice` 可优先考虑 `least_inflight`（当前运行时未实现）
 
 ### 3.2 hedged/mirror 的适用性
 

@@ -10,12 +10,12 @@ UI 需求：
 仓库现状（已存在的相关能力）：
 
 - SMS 统一事件（Unified Events）内核与订阅接口已具备，采用 durable replay + live fanout（KV outbox + broadcast）的最小可用模式：
-  - 设计：[sms-unified-events-design-zh.md](file:///Users/bytedance/Documents/GitHub/bge/spear/docs/sms-unified-events-design-zh.md)
-  - 实现：[unified_events.rs](file:///Users/bytedance/Documents/GitHub/bge/spear/src/sms/unified_events.rs)、[service.rs](file:///Users/bytedance/Documents/GitHub/bge/spear/src/sms/service.rs)
+  - 设计：[sms-unified-events-design-zh.md](./sms-unified-events-design-zh.md)
+  - 实现：[unified_events.rs](../src/sms/unified_events.rs)、[service.rs](../src/sms/service.rs)
 - Spearlet invocation/execution 的协议已明确，且响应包含 `execution_id` 与 `instance_id`，并可流式输出：
-  - [function.proto](file:///Users/bytedance/Documents/GitHub/bge/spear/proto/spearlet/function.proto)
+  - [function.proto](../proto/spearlet/function.proto)
 - 日志系统已有“按 execution 持久化/分页/tail/下载”的设计文档：
-  - [invocation-log-storage-design-zh.md](file:///Users/bytedance/Documents/GitHub/bge/spear/docs/invocation-log-storage-design-zh.md)
+  - [invocation-log-storage-design-zh.md](./invocation-log-storage-design-zh.md)
 
 ## 关键约束（必须符合的业界规范）
 
@@ -94,7 +94,7 @@ Key：
 
 - `execution:{execution_id}` → ExecutionRecord
 
-建议字段（与 Spearlet [function.proto](file:///Users/bytedance/Documents/GitHub/bge/spear/proto/spearlet/function.proto) 对齐）：
+建议字段（与 Spearlet [function.proto](../proto/spearlet/function.proto) 对齐）：
 
 - `execution_id: string`（主键）
 - `invocation_id: string`（用于 UI 关联与重试聚合）
@@ -110,7 +110,7 @@ Key：
 
 ### LogRef（指向日志存储）
 
-日志落地建议严格按 [invocation-log-storage-design-zh.md](file:///Users/bytedance/Documents/GitHub/bge/spear/docs/invocation-log-storage-design-zh.md) 的 “按 execution 存储”。
+日志落地建议严格按 [invocation-log-storage-design-zh.md](./invocation-log-storage-design-zh.md) 的 “按 execution 存储”。
 
 LogRef 建议字段：
 
@@ -173,7 +173,7 @@ Key：
 
 ## 事件模型与 stream taxonomy（与 Unified Events 对齐）
 
-SMS 统一事件已具备 `ResourceType::INSTANCE` 与 `ResourceType::EXECUTION`（见 [events.proto](file:///Users/bytedance/Documents/GitHub/bge/spear/proto/sms/events.proto)）。
+SMS 统一事件已具备 `ResourceType::INSTANCE` 与 `ResourceType::EXECUTION`（见 [events.proto](../proto/sms/events.proto)）。
 
 建议采用你们当前已实现的多流写入策略（避免复杂服务器端过滤）：
 
@@ -284,7 +284,7 @@ Projector 订阅：
 - `TailExecutionLog(execution_id, cursor)`（实时 tail）
 - `DownloadExecutionLog(execution_id)`（整份下载）
 
-实现与落地建议参见：[invocation-log-storage-design-zh.md](file:///Users/bytedance/Documents/GitHub/bge/spear/docs/invocation-log-storage-design-zh.md)
+实现与落地建议参见：[invocation-log-storage-design-zh.md](./invocation-log-storage-design-zh.md)
 
 ## Spearlet ↔ SMS 上报协议（建议新增 SMS gRPC 服务）
 

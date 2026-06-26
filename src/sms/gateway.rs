@@ -8,7 +8,8 @@ use tower_http::cors::CorsLayer;
 
 use super::routes::create_routes;
 use crate::proto::sms::{
-    admin_llm_config_service_client::AdminLlmConfigServiceClient,
+    admin_credential_service_client::AdminCredentialServiceClient,
+    admin_ai_config_service_client::AdminAiConfigServiceClient,
     backend_registry_service_client::BackendRegistryServiceClient,
     execution_index_service_client::ExecutionIndexServiceClient,
     execution_registry_service_client::ExecutionRegistryServiceClient,
@@ -261,11 +262,18 @@ impl ExecutionStreamHub {
 
                 let hub2 = Arc::clone(&hub);
                 tokio::spawn(async move {
-                    loop {
+                    let exit_reason = loop {
                         tokio::select! {
-                            _ = hub2.cancel.cancelled() => break,
+                            _ = hub2.cancel.cancelled() => {
+                                break "hub_cancelled".to_string()
+                            },
                             msg = up_rx.next() => {
-                                let Some(Ok(msg)) = msg else { break; };
+                                let Some(msg) = msg else {
+                                    break "upstream_ws_eof".to_string();
+                                };
+                                let Ok(msg) = msg else {
+                                    break "upstream_ws_error".to_string();
+                                };
                                 match msg {
                                     tokio_tungstenite::tungstenite::Message::Binary(b) => {
                                         if let Ok(Some((client_id, frame))) = hub2.router.route_upstream_to_client(&b).await {
@@ -274,12 +282,20 @@ impl ExecutionStreamHub {
                                             }
                                         }
                                     }
-                                    tokio_tungstenite::tungstenite::Message::Close(_) => break,
+                                    tokio_tungstenite::tungstenite::Message::Close(_) => {
+                                        break "upstream_close_frame".to_string()
+                                    },
                                     _ => {}
                                 }
                             }
                         }
-                    }
+                    };
+                    tracing::warn!(
+                        execution_id = %hub2.execution_id,
+                        exit_reason = %exit_reason,
+                        client_count = hub2.clients.len(),
+                        "execution_stream_hub upstream loop stopping"
+                    );
                     hub2.healthy.store(false, std::sync::atomic::Ordering::Relaxed);
                     for entry in hub2.clients.iter() {
                         let _ = entry
@@ -323,7 +339,8 @@ pub struct GatewayState {
     pub execution_index_client: ExecutionIndexServiceClient<tonic::transport::Channel>,
     pub mcp_registry_client: McpRegistryServiceClient<tonic::transport::Channel>,
     pub backend_registry_client: BackendRegistryServiceClient<tonic::transport::Channel>,
-    pub admin_llm_config_client: AdminLlmConfigServiceClient<tonic::transport::Channel>,
+    pub admin_credential_client: AdminCredentialServiceClient<tonic::transport::Channel>,
+    pub admin_ai_config_client: AdminAiConfigServiceClient<tonic::transport::Channel>,
     pub model_deployment_registry_client:
         ModelDeploymentRegistryServiceClient<tonic::transport::Channel>,
     /// Stream sessions for WS proxy / WS 代理的流会话

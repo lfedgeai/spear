@@ -9,6 +9,7 @@ use tracing::{debug, warn};
 
 use crate::proto::sms::mcp_registry_service_client::McpRegistryServiceClient;
 use crate::proto::sms::{ListMcpServersRequest, McpServerRecord, WatchMcpServersRequest};
+use crate::spearlet::controller::Controller;
 use crate::spearlet::config::SpearletConfig;
 
 #[derive(Debug, Clone, Default)]
@@ -99,6 +100,20 @@ impl McpRegistrySyncService {
                 });
             }
         });
+    }
+}
+
+impl Controller for McpRegistrySyncService {
+    fn name(&self) -> &'static str {
+        "mcp_registry_sync"
+    }
+
+    fn start(&self) {
+        McpRegistrySyncService::start(self)
+    }
+
+    fn shutdown(&self) {
+        McpRegistrySyncService::shutdown(self)
     }
 }
 

@@ -444,27 +444,27 @@ file = "/tmp/home-spearlet.log"
             std::env::remove_var("SPEAR_HOME");
             std::env::remove_var("HOME");
 
-            std::env::set_var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_ENABLED", "true");
+            std::env::set_var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_ENABLED", "true");
             std::env::set_var(
-                "SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_ADDR",
+                "SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_ADDR",
                 "127.0.0.1:50123",
             );
             std::env::set_var(
-                "SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_DECISION_TIMEOUT_MS",
+                "SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_DECISION_TIMEOUT_MS",
                 "7",
             );
-            std::env::set_var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_FAIL_OPEN", "false");
+            std::env::set_var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_FAIL_OPEN", "false");
             std::env::set_var(
-                "SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_MAX_CANDIDATES_SENT",
+                "SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_CANDIDATES_SENT",
                 "12",
             );
-            std::env::set_var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_MAX_DEBUG_KV", "3");
+            std::env::set_var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_DEBUG_KV", "3");
             std::env::set_var(
-                "SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_MAX_INFLIGHT_TOTAL",
+                "SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_INFLIGHT_TOTAL",
                 "99",
             );
             std::env::set_var(
-                "SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_PER_AGENT_MAX_INFLIGHT",
+                "SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_PER_AGENT_MAX_INFLIGHT",
                 "11",
             );
         }
@@ -491,7 +491,7 @@ file = "/tmp/home-spearlet.log"
         let result = AppConfig::load_with_cli(&args);
         assert!(result.is_ok());
         let cfg = result.unwrap();
-        let f = cfg.spearlet.llm.router_grpc_filter_stream.as_ref().unwrap();
+        let f = cfg.spearlet.ai.router_grpc_filter_stream.as_ref().unwrap();
         assert!(f.enabled);
         assert_eq!(f.addr, "127.0.0.1:50123");
         assert_eq!(f.decision_timeout_ms, 7);
@@ -502,14 +502,14 @@ file = "/tmp/home-spearlet.log"
         assert_eq!(f.per_agent_max_inflight, 11);
 
         unsafe {
-            std::env::remove_var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_ENABLED");
-            std::env::remove_var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_ADDR");
-            std::env::remove_var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_DECISION_TIMEOUT_MS");
-            std::env::remove_var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_FAIL_OPEN");
-            std::env::remove_var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_MAX_CANDIDATES_SENT");
-            std::env::remove_var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_MAX_DEBUG_KV");
-            std::env::remove_var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_MAX_INFLIGHT_TOTAL");
-            std::env::remove_var("SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_PER_AGENT_MAX_INFLIGHT");
+            std::env::remove_var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_ENABLED");
+            std::env::remove_var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_ADDR");
+            std::env::remove_var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_DECISION_TIMEOUT_MS");
+            std::env::remove_var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_FAIL_OPEN");
+            std::env::remove_var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_CANDIDATES_SENT");
+            std::env::remove_var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_DEBUG_KV");
+            std::env::remove_var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_INFLIGHT_TOTAL");
+            std::env::remove_var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_PER_AGENT_MAX_INFLIGHT");
         }
     }
 
@@ -742,19 +742,19 @@ addr = "127.0.0.1:9100"
     }
 
     #[test]
-    fn test_llm_credentials_config_parses() {
+    fn test_ai_credentials_config_parses() {
         let s = r#"
 [spearlet]
 
-[spearlet.llm]
+[spearlet.ai]
 default_policy = "weighted_random"
 
-[[spearlet.llm.credentials]]
+[[spearlet.ai.credentials]]
 name = "openai_chat"
 kind = "env"
 api_key_env = "OPENAI_CHAT_API_KEY"
 
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-chat"
 kind = "openai_chat_completion"
 base_url = "https://api.openai.com/v1"
@@ -765,10 +765,10 @@ transports = ["http"]
 "#;
 
         let cfg: AppConfig = toml::from_str(s).unwrap();
-        assert_eq!(cfg.spearlet.llm.credentials.len(), 1);
-        assert_eq!(cfg.spearlet.llm.backends.len(), 1);
+        assert_eq!(cfg.spearlet.ai.credentials.len(), 1);
+        assert_eq!(cfg.spearlet.ai.backends.len(), 1);
         assert_eq!(
-            cfg.spearlet.llm.backends[0].credential_ref.as_deref(),
+            cfg.spearlet.ai.backends[0].credential_ref.as_deref(),
             Some("openai_chat")
         );
     }

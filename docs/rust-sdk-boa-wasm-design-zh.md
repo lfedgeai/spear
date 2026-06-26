@@ -69,14 +69,28 @@ Rust SDK 需要把这些模式内化，变成对 JS 用户不可见的实现细�
   - `Fd` RAII（显式 close，防止泄漏）
   - epoll wait 解析（`Vec<(fd, events)>`）
 - 保持与 JS/Boa 无关：以后也可给 Rust-on-WASM（非 JS）直接用。
+- 对下游 chat 而言，公开 wrapper 现为 `ChatRequestContext`，它表达的是单轮请求上下文，而不是长期多轮对话 session。
 
-3) `spear-boa`
+3) `spear-wasm-helper`
+- 构建在 `spear-wasm` 之上的 Rust 高层 helper。
+- 适合 Rust-first WASM app / sample 复用下列能力：
+  - `user stream` 状态管理
+  - 共享的 SSF / stream 协议解析
+  - 共享的 RTASR transcript 事件解析
+  - RTASR 基础会话骨架
+- 让产品级状态机不必进入低层 SDK。
+
+4) `spear-boa`
 - Boa 集成：
   - 注入虚拟模块：`spear`、`spear/chat`、`spear/audio`、`spear/poll`、`spear/errors` 等。
   - 将 `spear-wasm` 的能力映射到 JS 友好的 API（Promise/Options object）。
   - 维护工具回调注册表（JS tool handler 表）。
+- 同时暴露一小层面向 JS-first guest 逻辑复用的 helper 模块，例如：
+  - `spear/time_format`
+  - `spear/rtasr_event`
+  - `spear/stream_gate`
 
-4) 样例（`samples/wasm-js/*`）（以 JS 为主；通过 Boa JS runner 编译为 WASI 可执行）
+5) 样例（`samples/wasm-js/*`）（以 JS 为主；通过 Boa JS runner 编译为 WASI 可执行）
 - 提供一个轻量 runner：
   - 加载用户 JS（内嵌或从 WASI 允许目录读取）
   - 创建 Boa `Context`

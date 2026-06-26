@@ -37,8 +37,9 @@ SPEAR Console 复用当前 execution stream 协议：
 1) 在 “Start a chat” 弹窗中选择 Task -> Instance -> Execution。
 2) Console 以同域方式调用 `POST /api/v1/executions/{execution_id}/streams/session` 获取 `ws_url`。
 3) Console 通过 WebSocket 连接 `ws_url`，并使用 SSF frame 交互。
-   - 连接建立（`open`）后，Console 会先发送一个初始 SSF v1 CTRL 帧（`msgType=1`，空 data），用于立刻建立 `stream_id=1`，避免等待用户首次输入。
-   - 用户输入会先发送一条或多条 DATA 帧（`msgType=2`），并在输入完成后发送 COMMIT 帧（`msgType=3`）标记该段输入结束。
+   - 连接建立（`open`）后，Console 会为每个需要使用的 `stream_id` 先发送 SSF v1 CTRL(OPEN) 帧（`msgType=1`），之后才允许发送 DATA/COMMIT（不做兼容）。
+   - 文本输入（默认 `stream_id=1`）：发送一条或多条 DATA 帧（`msgType=2`），并在输入完成后发送 COMMIT 帧（`msgType=3`）标记该段输入结束。
+   - 语音输入（可选 `stream_id=2`）：按住说话开始时发送 CTRL(UTTERANCE_BEGIN)，持续发送 DATA(audio chunk)，松开时发送 COMMIT。完整协议见：[spear-console-voice-input-design-zh.md](./spear-console-voice-input-design-zh.md)。
 
 ### 多客户端并发（同一 execution）
 

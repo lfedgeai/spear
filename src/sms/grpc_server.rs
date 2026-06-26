@@ -7,7 +7,8 @@ use tonic::transport::Server;
 use tracing::{error, info};
 
 use crate::proto::sms::{
-    admin_llm_config_service_server::AdminLlmConfigServiceServer,
+    admin_credential_service_server::AdminCredentialServiceServer,
+    admin_ai_config_service_server::AdminAiConfigServiceServer,
     backend_registry_service_server::BackendRegistryServiceServer,
     events_service_server::EventsServiceServer,
     execution_index_service_server::ExecutionIndexServiceServer,
@@ -47,7 +48,8 @@ impl GrpcServer {
             .add_service(ExecutionLogIngestServiceServer::new(sms_service.clone()))
             .add_service(McpRegistryServiceServer::new(sms_service.clone()))
             .add_service(BackendRegistryServiceServer::new(sms_service.clone()))
-            .add_service(AdminLlmConfigServiceServer::new(sms_service.clone()))
+            .add_service(AdminCredentialServiceServer::new(sms_service.clone()))
+            .add_service(AdminAiConfigServiceServer::new(sms_service.clone()))
             .add_service(ModelDeploymentRegistryServiceServer::new(
                 sms_service.clone(),
             ))
@@ -81,7 +83,8 @@ impl GrpcServer {
             .add_service(ExecutionLogIngestServiceServer::new(sms_service.clone()))
             .add_service(McpRegistryServiceServer::new(sms_service.clone()))
             .add_service(BackendRegistryServiceServer::new(sms_service.clone()))
-            .add_service(AdminLlmConfigServiceServer::new(sms_service.clone()))
+            .add_service(AdminCredentialServiceServer::new(sms_service.clone()))
+            .add_service(AdminAiConfigServiceServer::new(sms_service.clone()))
             .add_service(ModelDeploymentRegistryServiceServer::new(
                 sms_service.clone(),
             ))

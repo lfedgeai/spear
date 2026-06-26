@@ -19,7 +19,6 @@
 - rtasr_fd 实现说明：
   - [realtime-asr-implementation-en.md](./realtime-asr-implementation-en.md)
   - [realtime-asr-implementation-zh.md](./realtime-asr-implementation-zh.md)
-- LLM 凭据实现：
+- AI 凭据实现：
   - [llm-credentials-implementation-en.md](./llm-credentials-implementation-en.md)
   - [llm-credentials-implementation-zh.md](./llm-credentials-implementation-zh.md)
-

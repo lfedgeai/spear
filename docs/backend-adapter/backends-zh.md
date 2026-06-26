@@ -51,20 +51,20 @@ legacy 对齐：`GetAPIEndpointInfo` 通过 env key 是否存在过滤 endpoint�
 示例（与当前 `spearlet` 配置结构一致）：
 
 ```toml
-[spearlet.llm]
+[spearlet.ai]
 default_policy = "weighted_random"
 
-[[spearlet.llm.credentials]]
+[[spearlet.ai.credentials]]
 name = "openai_chat"
 kind = "env"
 api_key_env = "OPENAI_CHAT_API_KEY"
 
-[[spearlet.llm.credentials]]
+[[spearlet.ai.credentials]]
 name = "openai_realtime"
 kind = "env"
 api_key_env = "OPENAI_REALTIME_API_KEY"
 
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-us"
 kind = "openai_chat_completion"
 base_url = "https://api.openai.com/v1"
@@ -77,7 +77,7 @@ ops = ["chat_completions", "text_to_speech"]
 features = ["supports_stream", "supports_tools", "supports_json_schema"]
 transports = ["http"]
 
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-realtime"
 kind = "openai_realtime_ws"
 base_url = "https://api.openai.com/v1"
@@ -97,25 +97,25 @@ transports = ["websocket"]
 - 若候选集中存在任何 `backend.model != None`，则可进一步用 `backend.model == request.model` 过滤候选
 - 这样 guest 不必显式指定 `backend` 名称，只需设置 `model`
 
-建议通过 `spearlet.llm.credentials[]` 集中管理 API key，并让 `spearlet.llm.backends[].credential_ref` 引用凭据，以支持不同 backend 使用不同 key。
+建议通过 `spearlet.ai.credentials[]` 集中管理 API key，并让 `spearlet.ai.backends[].credential_ref` 引用凭据，以支持不同 backend 使用不同 key。
 
 hosting 约定：
 
-- 每个 `[[spearlet.llm.backends]]` 都必须配置 `hosting`，且仅允许 `local` 或 `remote`。
+- 每个 `[[spearlet.ai.backends]]` 都必须配置 `hosting`，且仅允许 `local` 或 `remote`。
 
 详细设计与落地方案见：[llm-credentials-implementation-zh.md](../implementation/llm-credentials-implementation-zh.md)
 
 ## 6. Secret 与网络策略
 
-- `llm.credentials[].api_key_env`、`llm.backends[].credential_ref` 与 base_url 必须由 host 配置提供；WASM 不可注入。
+- `ai.credentials[].api_key_env`、`ai.backends[].credential_ref` 与 base_url 必须由 host 配置提供；WASM 不可注入。
 - backend allowlist/denylist 由 host 配置控制，请求侧只能收缩。
 
 ### 6.1 API key 的存储方式（建议）
 
 建议只在配置里保存“环境变量名”，不在配置文件中保存明文 key。
 
-- 在 `[[llm.credentials]]` 中使用 `api_key_env = "OPENAI_API_KEY"`
-- 在 `[[llm.backends]]` 中使用 `credential_ref = "<credential_name>"`
+- 在 `[[spearlet.ai.credentials]]` 中使用 `api_key_env = "OPENAI_API_KEY"`
+- 在 `[[spearlet.ai.backends]]` 中使用 `credential_ref = "<credential_name>"`
 - 在 spearlet 进程启动环境中注入 `OPENAI_API_KEY=...`
 
 这样可以：

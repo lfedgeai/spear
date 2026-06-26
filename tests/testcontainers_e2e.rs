@@ -100,7 +100,7 @@ fn write_spearlet_e2e_config() -> PathBuf {
         uuid::Uuid::new_v4().simple().to_string()
     ));
     let toml = r#"
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "stub_local"
 kind = "stub"
 base_url = ""
@@ -111,7 +111,7 @@ ops = ["chat_completions"]
 features = []
 transports = ["in_process"]
 
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "stub_remote"
 kind = "stub"
 base_url = ""

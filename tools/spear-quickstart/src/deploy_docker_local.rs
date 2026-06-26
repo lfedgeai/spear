@@ -274,7 +274,7 @@ pub(super) fn apply(cfg: &Config) -> anyhow::Result<()> {
     cmd.args(["-e", &format!("SPEARLET_LOG_LEVEL={}", level)]);
     cmd.args(["-e", &format!("SPEARLET_LOG_FORMAT={}", format)]);
     if cfg.components.enable_router_filter {
-        cmd.args(["-e", "SPEARLET_LLM_ROUTER_GRPC_FILTER_STREAM_ENABLED=true"]);
+        cmd.args(["-e", "SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_ENABLED=true"]);
     }
     if cfg.components.enable_e2e {
         cmd.args(["-e", "SPEAR_E2E=1"]);

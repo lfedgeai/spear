@@ -2,7 +2,7 @@
 
 ## 背景
 
-Spearlet 会基于 `SpearletConfig.llm.backends` 与 `llm.credentials` 构建运行时 backend registry，构建逻辑见 [registry.rs](../src/spearlet/execution/host_api/registry.rs)。目前系统缺少一个面向用户的 API 来列出“当前已注册且可用”的 backends，也缺少 Web Admin 页面展示“available backends”的入口。
+Spearlet 会基于 `SpearletConfig.ai.backends` 与 `ai.credentials` 构建运行时 backend registry，构建逻辑见 [builder.rs](../src/spearlet/execution/ai/router/builder.rs)。目前系统缺少一个面向用户的 API 来列出“当前已注册且可用”的 backends，也缺少 Web Admin 页面展示“available backends”的入口。
 
 实现状态说明（以当前仓库为准）：
 
@@ -62,7 +62,7 @@ Spearlet 会基于 `SpearletConfig.llm.backends` 与 `llm.credentials` 构建运
 
 实现建议：
 
-- registry 构建逻辑位于 [registry.rs](../src/spearlet/execution/host_api/registry.rs)。在构建 registry 的同时收集两类信息：
+- registry 构建逻辑位于 [builder.rs](../src/spearlet/execution/ai/router/builder.rs)。在构建 registry 的同时收集两类信息：
   - `BackendRegistry.instances()` 中已注册（可用）的实例
   - 对于配置中因 env 校验失败而被跳过的 backend：也纳入列表但标记 `status=unavailable` 并提供 `status_reason`
 

@@ -1,6 +1,6 @@
-# LLM Backends 配置说明
+# AI Backends 配置说明
 
-本文说明如何配置 `spearlet` 的 LLM backends 与凭证（credentials）。
+本文说明如何配置 `spearlet` 的 AI backends 与凭证（credentials）。
 
 ## 配置入口
 
@@ -8,10 +8,10 @@
 
 ## Credentials（凭证）
 
-在 `[[spearlet.llm.credentials]]` 下定义密钥来源，通过环境变量引用，避免在配置文件中保存明文密钥。
+在 `[[spearlet.ai.credentials]]` 下定义密钥来源，通过环境变量引用，避免在配置文件中保存明文密钥。
 
 ```toml
-[[spearlet.llm.credentials]]
+[[spearlet.ai.credentials]]
 name = "openai_default"
 kind = "env"
 api_key_env = "OPENAI_API_KEY"
@@ -19,7 +19,7 @@ api_key_env = "OPENAI_API_KEY"
 
 ## Backends（后端）
 
-每个 backend 配置在 `[[spearlet.llm.backends]]` 下。
+每个 backend 配置在 `[[spearlet.ai.backends]]` 下。
 
 必填字段：
 
@@ -39,7 +39,7 @@ api_key_env = "OPENAI_API_KEY"
 示例：
 
 ```toml
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-chat"
 kind = "openai_chat_completion"
 base_url = "https://api.openai.com/v1"
@@ -52,7 +52,7 @@ transports = ["http"]
 weight = 100
 priority = 0
 
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-realtime-asr"
 kind = "openai_realtime_ws"
 base_url = "https://api.openai.com/v1"
@@ -77,7 +77,7 @@ priority = 0
 
 - 若配置了 `credential_ref`（非空）：
   - 必须存在同名 credential
-  - 对应的 `api_key_env` 必须在运行时环境中存在且非空，否则该 backend 会被视为不可用并被过滤
+  - 对应的 `api_key_env` 必须在运行时环境中存在且非空（优先 `RuntimeConfig.global_environment`，再回退到进程环境变量），否则该 backend 会被视为不可用并被过滤
 - 若未配置 `credential_ref`：
   - 视为“无需鉴权”（不会附加 API key header），适用于自建 OpenAI-compatible 代理等场景
 
@@ -99,3 +99,19 @@ priority = 0
 - 静态配置 backends 构成基础 registry。
 - managed backends 会在路由时合并进入候选集合，用于表达某节点上已部署/可用的本地模型实例。
 
+## SMS 托管的 remote backends
+
+通过 SMS / Web Admin 创建的 remote backends，会被 `spearlet` 里的 `RemoteBackendSyncService` 持续 watch，并合并进与本地控制器共用的动态 backend registry。
+
+当前运行时已支持的 SMS 动态 backend kind：
+
+- `openai_chat_completion`
+- `openai_realtime_ws`
+- `ollama_chat`
+- `stub`
+
+说明：
+
+- 这里的“创建”是指在 `spearlet` 内动态生成可路由 backend 条目，不负责真正拉起远端服务实例。
+- 如果配置了 `credential_ref`，运行时仍然必须能成功解析对应凭据，否则该 backend 会被过滤为不可用。
+- 节点 backend 上报只表达“节点自身事实”：`spearlet` 仅上报静态 backends 与 local-controller backends，不会把 SMS 下发的 remote backends 再回显进 SMS 的 node snapshot。

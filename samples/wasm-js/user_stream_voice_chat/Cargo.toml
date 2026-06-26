@@ -1,0 +1,13 @@
+[package]
+name = "user_stream_voice_chat"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "user_stream_voice_chat"
+path = "src/main.rs"
+
+[dependencies]
+boa_engine = "0.19"
+spear-boa = { path = "../../../sdk/rust/crates/spear-boa" }
+
