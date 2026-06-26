@@ -2,7 +2,7 @@
 
 ## Background
 
-Today, Spearlet LLM backends are sourced from static config `spearlet.llm.backends[]` and are materialized into an in-process `BackendRegistry` once at startup by [registry.rs](../src/spearlet/execution/host_api/registry.rs). This has two limitations:
+Today, Spearlet AI backends are sourced from static config `spearlet.ai.backends[]` and are materialized into an in-process `BackendRegistry` once at startup by [builder.rs](../src/spearlet/execution/ai/router/builder.rs). This has two limitations:
 
 - Spearlet cannot dynamically generate routable backend instances based on **models currently being served by Ollama** on a node.
 - Web Admin “Backends” can only reflect static configuration (or fixed local entries) and does not show Ollama runtime availability.
@@ -39,10 +39,10 @@ Related docs:
 
 ## Configuration Design
 
-Add a new `discovery` section under `SpearletConfig.llm` (the current config uses `deny_unknown_fields`, so the schema must be extended explicitly):
+Add a new `discovery` section under `SpearletConfig.ai` (the current config uses `deny_unknown_fields`, so the schema must be extended explicitly):
 
 ```toml
-[spearlet.llm.discovery.ollama]
+[spearlet.ai.discovery.ollama]
 enabled = false
 
 # Ollama HTTP endpoint
@@ -153,7 +153,7 @@ Add a dedicated periodic discovery service, similar to other background services
 
 ### 2) Registry merge and hot update
 
-Currently [registry.rs](../src/spearlet/execution/host_api/registry.rs) builds a registry once. To support dynamic serving-model changes, introduce a `RegistryHandle`:
+Currently [builder.rs](../src/spearlet/execution/ai/router/builder.rs) builds a registry once. To support dynamic serving-model changes, introduce a `RegistryHandle`:
 
 - `ArcSwap<BackendRegistry>` or `RwLock<BackendRegistry>`
 - the router reads the current registry from the handle for each selection
@@ -207,7 +207,7 @@ Structured logs:
 
 ## Test Plan
 
-- Config parsing tests for `spearlet.llm.discovery.ollama`.
+- Config parsing tests for `spearlet.ai.discovery.ollama`.
 - Unit tests for sanitize/filter/conflict behavior.
 - Integration test with a mocked Ollama `/api/ps` to validate dynamic updates.
 - Web Admin: `/admin/api/backends` should reflect imported backends via node snapshots.
@@ -217,4 +217,3 @@ Structured logs:
 - Phase 0: import once at startup (`refresh_interval_secs=0`) to validate the full loop.
 - Phase 1: periodic refresh + registry hot updates.
 - Phase 2: installed models support (`/api/tags`) and richer capabilities (embeddings, etc.).
-

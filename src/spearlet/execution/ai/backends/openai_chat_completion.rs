@@ -1,18 +1,23 @@
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::time::Duration;
 
+use crate::spearlet::ai::credential_resolver::{CredentialResolution, CredentialResolver};
 use crate::spearlet::execution::ai::backends::BackendAdapter;
+use crate::spearlet::execution::ai::backends::http_json::{
+    build_json_payload_response, ensure_chat_operation, filtered_chat_params,
+    insert_tools_if_any, join_url, parse_json_response_body, post_json_blocking,
+    require_non_empty_field, upstream_status_error,
+};
 use crate::spearlet::execution::ai::ir::{
     CanonicalError, CanonicalRequestEnvelope, CanonicalResponseEnvelope, Operation, Payload,
-    ResultPayload,
 };
-use crate::spearlet::param_keys::{chat as chat_keys, mcp as mcp_keys};
 
 pub struct OpenAIChatCompletionBackendAdapter {
     name: String,
     base_url: String,
-    api_key: Option<String>,
+    static_api_key: Option<String>,
+    credential_ref: Option<String>,
+    credential_resolver: Option<CredentialResolver>,
     fixed_model: Option<String>,
 }
 
@@ -20,12 +25,14 @@ impl OpenAIChatCompletionBackendAdapter {
     pub fn new(
         name: impl Into<String>,
         base_url: impl Into<String>,
-        api_key: Option<String>,
+        credential_ref: Option<String>,
+        credential_resolver: Option<CredentialResolver>,
     ) -> Self {
         Self {
             name: name.into(),
             base_url: base_url.into(),
-            api_key: api_key.and_then(|s| {
+            static_api_key: None,
+            credential_ref: credential_ref.and_then(|s| {
                 let t = s.trim().to_string();
                 if t.is_empty() {
                     None
@@ -33,8 +40,15 @@ impl OpenAIChatCompletionBackendAdapter {
                     Some(t)
                 }
             }),
+            credential_resolver,
             fixed_model: None,
         }
+    }
+
+    pub fn with_static_api_key(mut self, api_key: impl Into<String>) -> Self {
+        let v = api_key.into();
+        self.static_api_key = if v.trim().is_empty() { None } else { Some(v) };
+        self
     }
 
     pub fn with_fixed_model(mut self, model: impl Into<String>) -> Self {
@@ -61,17 +75,8 @@ impl OpenAIChatCompletionBackendAdapter {
             .fixed_model
             .as_deref()
             .unwrap_or_else(|| p.model.as_str())
-            .trim()
             .to_string();
-
-        if model.is_empty() {
-            return Err(CanonicalError {
-                code: "invalid_request".to_string(),
-                message: "missing model".to_string(),
-                retryable: false,
-                operation: Some(req.operation.clone()),
-            });
-        }
+        let model = require_non_empty_field(req.operation.clone(), &model, "model")?;
 
         if p.messages.is_empty() {
             return Err(CanonicalError {
@@ -94,29 +99,14 @@ impl OpenAIChatCompletionBackendAdapter {
             "messages": messages_val,
         });
 
-        if !p.tools.is_empty() {
-            body["tools"] = Value::Array(p.tools.clone());
-        }
-
         if let Some(obj) = body.as_object_mut() {
-            for (k, v) in p.params.iter() {
-                if k.starts_with(mcp_keys::param::PREFIX) {
-                    continue;
-                }
-                if chat_keys::is_structural_param_key(k) {
-                    continue;
-                }
-                obj.insert(k.clone(), v.clone());
+            insert_tools_if_any(obj, &p.tools);
+            for (k, v) in filtered_chat_params(&p.params) {
+                obj.insert(k, v);
             }
         }
 
         Ok(body)
-    }
-
-    fn join_url(&self, path: &str) -> String {
-        let base = self.base_url.trim_end_matches('/');
-        let p = path.trim_start_matches('/');
-        format!("{}/{}", base, p)
     }
 
     fn extract_openai_error_message(json: &Value) -> Option<String> {
@@ -147,6 +137,18 @@ impl OpenAIChatCompletionBackendAdapter {
             Some(parts.join(": "))
         }
     }
+
+    fn resolve_api_key_state(&self) -> CredentialResolution {
+        if let Some(api_key) = self.static_api_key.clone() {
+            if !api_key.trim().is_empty() {
+                return CredentialResolution::Ready(api_key);
+            }
+        }
+        let Some(resolver) = self.credential_resolver.as_ref() else {
+            return CredentialResolution::Missing;
+        };
+        resolver.resolve_api_key_state(self.credential_ref.as_deref())
+    }
 }
 
 impl BackendAdapter for OpenAIChatCompletionBackendAdapter {
@@ -158,16 +160,7 @@ impl BackendAdapter for OpenAIChatCompletionBackendAdapter {
         &self,
         req: &CanonicalRequestEnvelope,
     ) -> Result<CanonicalResponseEnvelope, CanonicalError> {
-        if req.operation != Operation::ChatCompletions {
-            return Err(CanonicalError {
-                code: "unsupported_operation".to_string(),
-                message: "backend supports chat_completions only".to_string(),
-                retryable: false,
-                operation: Some(req.operation.clone()),
-            });
-        }
-
-        let api_key = self.api_key.as_deref().unwrap_or("");
+        ensure_chat_operation(req, "backend supports chat_completions only")?;
 
         let body_json = self.build_chat_completions_body(req)?;
         let body_bytes = serde_json::to_vec(&body_json).map_err(|e| CanonicalError {
@@ -178,95 +171,79 @@ impl BackendAdapter for OpenAIChatCompletionBackendAdapter {
         })?;
 
         let url = if self.base_url.contains("/v1") {
-            self.join_url("chat/completions")
+            join_url(&self.base_url, "chat/completions")
         } else {
-            self.join_url("v1/chat/completions")
+            join_url(&self.base_url, "v1/chat/completions")
         };
 
         let timeout = req.timeout_ms.map(Duration::from_millis);
-
-        let rt = tokio::runtime::Runtime::new().map_err(|e| CanonicalError {
-            code: "runtime_error".to_string(),
-            message: e.to_string(),
-            retryable: false,
-            operation: Some(req.operation.clone()),
-        })?;
-
-        let (status, resp_body, _headers) = rt.block_on(async move {
-            let client = reqwest::Client::new();
-            let mut r = client
-                .post(url)
-                .header("content-type", "application/json")
-                .body(body_bytes);
-            if !api_key.trim().is_empty() {
-                r = r.header("authorization", format!("Bearer {}", api_key.trim()));
+        let credential_state = self.resolve_api_key_state();
+        let api_key = match credential_state {
+            CredentialResolution::Ready(secret) => Some(secret),
+            CredentialResolution::Disabled
+            | CredentialResolution::NotSynced
+            | CredentialResolution::Missing if self.credential_ref.is_some() => {
+                return Err(CanonicalError {
+                    code: credential_state.code().to_string(),
+                    message: credential_state
+                        .message(self.credential_ref.as_deref().unwrap_or_default()),
+                    retryable: !matches!(credential_state, CredentialResolution::Disabled),
+                    operation: Some(Operation::ChatCompletions),
+                });
             }
-            if let Some(t) = timeout {
-                r = r.timeout(t);
-            }
-            let resp = r.send().await.map_err(|e| CanonicalError {
-                code: "network_error".to_string(),
-                message: e.to_string(),
-                retryable: true,
-                operation: Some(Operation::ChatCompletions),
-            })?;
-            let status = resp.status();
-            let headers = resp
-                .headers()
-                .iter()
-                .filter_map(|(k, v)| v.to_str().ok().map(|vs| (k.to_string(), vs.to_string())))
-                .collect::<HashMap<_, _>>();
-            let body = resp.bytes().await.map_err(|e| CanonicalError {
-                code: "network_error".to_string(),
-                message: e.to_string(),
-                retryable: true,
-                operation: Some(Operation::ChatCompletions),
-            })?;
-            Ok::<_, CanonicalError>((status.as_u16() as i32, body.to_vec(), headers))
-        })?;
+            CredentialResolution::Disabled
+            | CredentialResolution::NotSynced
+            | CredentialResolution::Missing => None,
+        };
+        let resp = post_json_blocking(
+            Operation::ChatCompletions,
+            url,
+            body_bytes,
+            timeout,
+            api_key.as_deref(),
+        )?;
 
-        let status_u16 = status as u16;
+        let status_u16 = resp.status as u16;
         let ok = (200..300).contains(&status_u16);
-        let parsed = serde_json::from_slice::<Value>(&resp_body).map_err(|e| CanonicalError {
-            code: "invalid_response".to_string(),
-            message: e.to_string(),
-            retryable: status_u16 >= 500,
-            operation: Some(req.operation.clone()),
-        })?;
+        let parsed =
+            parse_json_response_body(req.operation.clone(), resp.status, &resp.body)?;
 
         if !ok {
             let extra = Self::extract_openai_error_message(&parsed);
-            return Err(CanonicalError {
-                code: "upstream_error".to_string(),
-                message: match extra {
-                    Some(m) => format!("upstream status: {}: {}", status_u16, m),
-                    None => format!("upstream status: {}", status_u16),
-                },
-                retryable: status_u16 == 429 || status_u16 >= 500,
-                operation: Some(req.operation.clone()),
-            });
+            return Err(upstream_status_error(
+                req.operation.clone(),
+                resp.status,
+                extra,
+            ));
         }
 
-        Ok(CanonicalResponseEnvelope {
-            version: 1,
-            request_id: req.request_id.clone(),
-            operation: req.operation.clone(),
-            backend: self.name.clone(),
-            result: ResultPayload::Payload(parsed),
-            raw: Some(resp_body),
-        })
+        Ok(build_json_payload_response(
+            req,
+            &self.name,
+            parsed,
+            resp.body,
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::proto::sms::CredentialMaterial;
+    use crate::spearlet::config::SpearletConfig;
     use crate::spearlet::execution::ai::ir::{ChatCompletionsPayload, ChatMessage, RoutingHints};
+    use crate::spearlet::param_keys::{chat as chat_keys, mcp as mcp_keys};
+    use std::collections::HashMap;
 
     #[test]
     fn test_build_body_does_not_require_api_key() {
         let adapter =
-            OpenAIChatCompletionBackendAdapter::new("openai", "https://api.openai.com/v1", None);
+            OpenAIChatCompletionBackendAdapter::new(
+                "openai",
+                "https://api.openai.com/v1",
+                None,
+                None,
+            );
         let req = CanonicalRequestEnvelope {
             version: 1,
             request_id: "r1".to_string(),
@@ -299,9 +276,10 @@ mod tests {
             "openai",
             "https://api.openai.com/v1/",
             Some("k".to_string()),
+            None,
         );
         assert_eq!(
-            adapter.join_url("chat/completions"),
+            join_url(&adapter.base_url, "chat/completions"),
             "https://api.openai.com/v1/chat/completions"
         );
     }
@@ -312,6 +290,7 @@ mod tests {
             "openai",
             "https://api.openai.com/v1/",
             Some("k".to_string()),
+            None,
         );
 
         let mut params = HashMap::new();
@@ -370,5 +349,55 @@ mod tests {
         assert!(body.get(mcp_keys::param::ENABLED).is_none());
         assert!(body.get(mcp_keys::param::SERVER_IDS).is_none());
         assert!(body.get(mcp_keys::param::TOOL_ALLOWLIST).is_none());
+    }
+
+    #[test]
+    fn test_invoke_returns_credential_disabled_when_dynamic_credential_is_disabled() {
+        let _guard = crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
+            .lock()
+            .expect("lock");
+        let store = crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials();
+        store.clear();
+        store.set_credentials(vec![CredentialMaterial {
+            name: "openai-default".to_string(),
+            provider_kind: "inline_encrypted".to_string(),
+            secret: "sk-test".to_string(),
+            version: 1,
+            disabled: true,
+            updated_at_ms: 0,
+        }]);
+
+        let adapter = OpenAIChatCompletionBackendAdapter::new(
+            "openai",
+            "https://api.openai.com/v1",
+            Some("openai-default".to_string()),
+            Some(CredentialResolver::from_config(&SpearletConfig::default())),
+        );
+        let req = CanonicalRequestEnvelope {
+            version: 1,
+            request_id: "r1".to_string(),
+            operation: Operation::ChatCompletions,
+            meta: HashMap::new(),
+            routing: RoutingHints::default(),
+            requirements: Default::default(),
+            timeout_ms: None,
+            payload: Payload::ChatCompletions(ChatCompletionsPayload {
+                model: "gpt-test".to_string(),
+                messages: vec![ChatMessage {
+                    role: "user".to_string(),
+                    content: Value::String("hi".to_string()),
+                    tool_call_id: None,
+                    tool_calls: None,
+                    name: None,
+                }],
+                tools: vec![],
+                params: HashMap::new(),
+            }),
+            extra: HashMap::new(),
+        };
+
+        let err = adapter.invoke(&req).expect_err("should fail");
+        assert_eq!(err.code, "credential_disabled");
+        store.clear();
     }
 }

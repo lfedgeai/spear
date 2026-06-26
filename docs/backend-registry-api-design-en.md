@@ -2,7 +2,7 @@
 
 ## Background
 
-Spearlet builds a runtime backend registry from `SpearletConfig.llm.backends` and `llm.credentials`, materialized via [registry.rs](../src/spearlet/execution/host_api/registry.rs). Today, there is no user-facing API to list and inspect all currently registered backends, and Web Admin has no view to display available backends across nodes.
+Spearlet builds a runtime backend registry from `SpearletConfig.ai.backends` and `ai.credentials`, materialized via [builder.rs](../src/spearlet/execution/ai/router/builder.rs). Today, there is no user-facing API to list and inspect all currently registered backends, and Web Admin has no view to display available backends across nodes.
 
 Implementation note (current repo):
 
@@ -62,7 +62,7 @@ Add a new service to Spearlet:
 
 Implementation sketch:
 
-- The registry is built by [registry.rs](../src/spearlet/execution/host_api/registry.rs). Extend the function service or add a dedicated `BackendServiceImpl` that collects:
+- The registry is built by [builder.rs](../src/spearlet/execution/ai/router/builder.rs). Extend the function service or add a dedicated `BackendServiceImpl` that collects:
   - All instances from `BackendRegistry.instances()`.
   - For each configured backend that failed env checks, include it as `status=unavailable` with `status_reason`.
 

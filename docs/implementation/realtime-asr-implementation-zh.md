@@ -229,14 +229,14 @@ rtasr 的 read/write 以及后台任务在修改队列/状态后必须：
 
 ## 8. 配置与路由（与现有 LLM 配置对齐）
 
-仓库已有 `SpearletConfig.llm.backends`（见 `src/spearlet/config.rs`），包含 `ops/features/transports`。建议对 rtasr：
+仓库已有 `SpearletConfig.ai.backends`（见 `src/spearlet/config.rs`），包含 `ops/features/transports`。建议对 rtasr：
 
 - `ops`：增加一个约定值（例如 `realtime_asr` 或 `realtime_transcription`）
 - `transports`：使用 `websocket`
 
 配置注意事项：
 
-- `[[spearlet.llm.backends]] hosting` 为必填，只允许 `local` 或 `remote`。
+- `[[spearlet.ai.backends]] hosting` 为必填，只允许 `local` 或 `remote`。
 - `credential_ref` 为可选：未配置时视为“无需鉴权”。
 
 实现层面可选两条路：
@@ -446,7 +446,7 @@ int main() {
         return 1;
     }
 
-    // backend 名称来自 spearlet_config 的 llm.backends（例如 openai-realtime）。
+    // backend 名称来自 spearlet_config 的 ai.backends（例如 openai-realtime）。
     rc = sp_rtasr_set_param_string(asr_fd, "backend", "openai-realtime");
     if (rc != 0) {
         printf("rtasr set backend failed: %d\n", rc);

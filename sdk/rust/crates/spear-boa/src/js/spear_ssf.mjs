@@ -12,25 +12,12 @@ export const MsgType = {
 export function encodeUtf8(data) {
   if (data instanceof Uint8Array) return data;
   const s = typeof data === "string" ? data : String(data);
-  const bin = __spear_utf8_encode(s);
-  return bin_to_u8(String(bin ?? ""));
+  return __spear_utf8_encode(s);
 }
 
 export function decodeUtf8(u8) {
-  if (u8 instanceof Uint8Array) return String(__spear_utf8_decode(u8_to_bin(u8)) ?? "");
+  if (u8 instanceof Uint8Array) return String(__spear_utf8_decode(u8) ?? "");
   return String(u8 ?? "");
-}
-
-function u8_to_bin(u8) {
-  let s = "";
-  for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i] & 255);
-  return s;
-}
-
-function bin_to_u8(bin) {
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 255;
-  return out;
 }
 
 export function buildV1Frame(params) {
@@ -47,22 +34,70 @@ export function buildV1Frame(params) {
     flags,
     seqLo,
     seqHi,
-    u8_to_bin(metaU8),
-    u8_to_bin(dataU8),
+    metaU8,
+    dataU8,
   );
-  return bin_to_u8(String(bin ?? ""));
+  return bin ?? new Uint8Array(0);
 }
 
 export function parseV1Frame(frame) {
   if (!(frame instanceof Uint8Array)) return null;
-  const parsed = __spear_ssf_parse_v1(u8_to_bin(frame));
+  const parsed = __spear_ssf_parse_v1(frame);
   if (parsed == null) return null;
   const streamId = Number(parsed.streamId) >>> 0;
   const msgType = Number(parsed.msgType) >>> 0;
   const flags = Number(parsed.flags) >>> 0;
   const seqLo = Number(parsed.seqLo) >>> 0;
   const seqHi = Number(parsed.seqHi) >>> 0;
-  const meta = bin_to_u8(String(parsed.metaBin ?? ""));
-  const data = bin_to_u8(String(parsed.dataBin ?? ""));
+  const meta = parsed.metaBin instanceof Uint8Array ? parsed.metaBin : new Uint8Array(0);
+  const data = parsed.dataBin instanceof Uint8Array ? parsed.dataBin : new Uint8Array(0);
   return { streamId, msgType, seqLo, seqHi, flags, meta, data };
+}
+
+// Parse SSF meta JSON (v1).
+// 解析 SSF meta JSON（v1）。
+export function parseMetaV1(metaU8) {
+  const s = decodeUtf8(metaU8 instanceof Uint8Array ? metaU8 : encodeUtf8(metaU8));
+  try {
+    const obj = JSON.parse(s);
+    if (!obj || typeof obj !== "object") return null;
+    if (obj.v !== 1) return null;
+    return obj;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Parse CTRL meta into a normalized shape.
+// 将 CTRL meta 解析为归一化结构。
+export function parseCtrlMetaV1(metaU8) {
+  const m = parseMetaV1(metaU8);
+  if (!m) return null;
+  const kind = String(m.kind ?? "");
+  const modality = String(m.modality ?? "");
+  if (kind === "open" && modality === "text") {
+    return { kind: "open", modality: "text", tsMs: m.ts_ms, traceId: m.trace_id };
+  }
+  if (kind === "open" && modality === "audio") {
+    return { kind: "open", modality: "audio", audio: m.audio ?? null, tsMs: m.ts_ms, traceId: m.trace_id };
+  }
+  if (kind === "utterance_begin" && modality === "audio") {
+    return { kind: "utterance_begin", modality: "audio", utteranceId: m.utterance_id, tsMs: m.ts_ms, traceId: m.trace_id };
+  }
+  return null;
+}
+
+// Parse DATA/COMMIT meta in strict mode.
+// 严格模式解析 DATA/COMMIT meta。
+//
+// Strict rules / 严格规则：
+// - `v` must be 1 / `v` 必须为 1
+// - `kind/modality/audio` must NOT appear / 禁止出现 `kind/modality/audio`
+export function parseDataMetaV1(metaU8) {
+  const m = parseMetaV1(metaU8);
+  if (!m) return null;
+  if ("kind" in m) return null;
+  if ("modality" in m) return null;
+  if ("audio" in m) return null;
+  return m;
 }

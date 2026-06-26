@@ -4,7 +4,6 @@ pub(crate) mod errno;
 mod fd;
 mod iface;
 mod mic;
-pub(crate) mod registry;
 mod rtasr;
 pub(crate) mod ssf;
 pub(crate) mod termination;

@@ -149,11 +149,11 @@ Best practice:
 
 - Keep OpenAI API keys out of ConfigMaps and Helm values files.
 - Put the key in Kubernetes Secret (or an external secret system), and inject it as an environment variable.
-- Configure `spearlet.llm.credentials` + `credential_ref` and `spearlet.llm.backends` via Helm values.
+- Configure `spearlet.ai.credentials` + `credential_ref` and `spearlet.ai.backends` via Helm values.
 
 Config note:
 
-- For every backend item under `spearlet.config.llm.backends`, `hosting` is required and must be `local` or `remote`.
+- For every backend item under `spearlet.config.ai.backends`, `hosting` is required and must be `local` or `remote`.
 
 #### 1) Provide the OpenAI API key via Secret
 
@@ -166,7 +166,7 @@ kubectl -n spear create secret generic openai-api-key \
 
 Option B: use an external secret system (recommended for production), and sync to a Kubernetes Secret named `openai-api-key` with key `OPENAI_API_KEY`.
 
-#### 2) Configure SPEARlet LLM via a values override file
+#### 2) Configure SPEARlet AI via a values override file
 
 This repo provides a ready-to-use example file (no secret plaintext included):
 

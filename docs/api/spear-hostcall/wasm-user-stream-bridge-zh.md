@@ -52,8 +52,10 @@
 
 ### 2.3 Rust SDK 与 Boa JS 用法
 
-- Rust：`sdk/rust/crates/spear-wasm` 提供 `user_stream_*` / `user_stream_ctl_*` 的安全封装。
+- Rust：`sdk/rust/crates/spear-wasm` 提供 `user_stream_*` / `user_stream_ctl_*` / `spear_epoll_*` 的安全封装。
+- Rust helper 层：`sdk/rust/crates/spear-wasm-helper` 提供可复用的 `ManagedStream`、SSF/user stream 协议解析以及文本输出缓冲能力，适合 Rust-first guest app 直接复用。
 - Boa JS：`sdk/rust/crates/spear-boa` 暴露 `Spear.userStream`，JS 可直接 open/read/write，而无需处理原始指针。
+- Boa JS helper 模块：`spear/time_format`、`spear/rtasr_event`、`spear/stream_gate` 为 JS-first guest app 提供可复用的时间戳、RTASR 事件与 user stream gate 辅助能力。
 
 向 WASM 实例交付 inbound 数据，常见有两种方案：
 

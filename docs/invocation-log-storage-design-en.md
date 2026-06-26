@@ -304,7 +304,7 @@ Phase the rollout to keep semantics correct first, then improve UX.
 
 ### Phase 1: Fix async log lifecycle (no premature finalize)
 
-- [TaskExecutionManager::execute_existing_task_invocation](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/manager.rs#L658-L882)
+- [TaskExecutionManager::execute_existing_task_invocation](../src/spearlet/execution/manager.rs#L658-L882)
   - If `runtime_response.execution_status == Running`:
     - do not call `append_wasm_logs_to_sms`
     - do not write `execution_completed`
@@ -313,11 +313,11 @@ Phase the rollout to keep semantics correct first, then improve UX.
 
 ### Phase 2: Add completion signal for async runtimes
 
-- [WasmWorkerRequest](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/runtime/wasm.rs)
+- [WasmWorkerRequest](../src/spearlet/execution/runtime/wasm.rs)
   - Extend `Invoke` to carry `execution_id` and a completion sender (tokio mpsc/oneshot).
-- [WasmRuntime::execute](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/runtime/wasm.rs#L790-L927)
+- [WasmRuntime::execute](../src/spearlet/execution/runtime/wasm.rs#L790-L927)
   - In no_wait mode, enqueue `Invoke(execution_id, ...)` and register a completion handler.
-- [TaskExecutionManager](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/manager.rs)
+- [TaskExecutionManager](../src/spearlet/execution/manager.rs)
   - Add a background listener for completion events:
     - `append_wasm_logs_to_sms(execution_id, ...)`
     - write `execution_completed/failed`
@@ -326,11 +326,11 @@ Phase the rollout to keep semantics correct first, then improve UX.
 
 ### Phase 3: Attribute WASM hostcall logs by execution_id
 
-- [DefaultHostApi::wasm_log_write](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/host_api/core.rs#L151-L213)
+- [DefaultHostApi::wasm_log_write](../src/spearlet/execution/host_api/core.rs#L151-L213)
   - Introduce a “current execution_id” context (set/clear by worker around each invoke), and attach `execution_id` to each log entry.
-- [get_wasm_logs / clear_wasm_logs](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/host_api/core.rs#L99-L126)
+- [get_wasm_logs / clear_wasm_logs](../src/spearlet/execution/host_api/core.rs#L99-L126)
   - Add `get_wasm_logs_by_execution(execution_id, cursor, limit)` for flushing.
-- [append_wasm_logs_to_sms](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/execution/manager.rs#L952-L1000)
+- [append_wasm_logs_to_sms](../src/spearlet/execution/manager.rs#L952-L1000)
   - Switch from “read by instance_id” to “incremental read by execution_id + cursor”.
 
 ### Phase 4: Improve follow UX (optional)

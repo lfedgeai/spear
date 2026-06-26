@@ -10,7 +10,8 @@
 | Project Architecture Overview | [project-architecture-overview-en.md](./project-architecture-overview-en.md) | [project-architecture-overview-zh.md](./project-architecture-overview-zh.md) | 项目架构全面概述 |
 | Task Execution Model | [task-execution-model-en.md](./task-execution-model-en.md) | [task-execution-model-zh.md](./task-execution-model-zh.md) | Task 执行模型与方案 A 约定 |
 | SMS Terminology | [sms-terminology-en.md](./sms-terminology-en.md) | [sms-terminology-zh.md](./sms-terminology-zh.md) | SMS术语和架构说明 |
-| LLM Backends Configuration | [llm-backends-configuration-en.md](./llm-backends-configuration-en.md) | [llm-backends-configuration-zh.md](./llm-backends-configuration-zh.md) | LLM backend/credentials 配置说明与示例 |
+| AI Backends Configuration | [llm-backends-configuration-en.md](./llm-backends-configuration-en.md) | [llm-backends-configuration-zh.md](./llm-backends-configuration-zh.md) | AI backend/credentials 配置说明与示例 |
+| AI Runtime Refactor Roadmap | [ai-runtime-refactor-roadmap-en.md](./ai-runtime-refactor-roadmap-en.md) | [ai-runtime-refactor-roadmap-zh.md](./ai-runtime-refactor-roadmap-zh.md) | AI backend/runtime/SMS/Web Admin 重构路线图 |
 | ObjectRef API Removal | [objectref-api-removal-en.md](./objectref-api-removal-en.md) | [objectref-api-removal-zh.md](./objectref-api-removal-zh.md) | ObjectRef API移除文档 |
 | MCP Integration Architecture | [mcp-integration-architecture-en.md](./mcp-integration-architecture-en.md) | [mcp-integration-architecture-zh.md](./mcp-integration-architecture-zh.md) | MCP 注册中心、注入与执行链路 |
 | Task-level MCP Subset Design | [mcp-task-subset-design-en.md](./mcp-task-subset-design-en.md) | [mcp-task-subset-design-zh.md](./mcp-task-subset-design-zh.md) | Task 级 MCP 子集选择与治理 |
@@ -66,6 +67,7 @@
 | Web Admin Overview | [web-admin-overview-en.md](./web-admin-overview-en.md) | [web-admin-overview-zh.md](./web-admin-overview-zh.md) | 管理页面概览 |
 | Web Admin UI Guide | [web-admin-ui-guide-en.md](./web-admin-ui-guide-en.md) | [web-admin-ui-guide-zh.md](./web-admin-ui-guide-zh.md) | 管理页面交互与使用指南 |
 | SPEAR Console Overview | [spear-console-overview-en.md](./spear-console-overview-en.md) | [spear-console-overview-zh.md](./spear-console-overview-zh.md) | 用户前端 Console 概览 |
+| SPEAR Console Voice Input Design | [spear-console-voice-input-design-en.md](./spear-console-voice-input-design-en.md) | [spear-console-voice-input-design-zh.md](./spear-console-voice-input-design-zh.md) | Console 按住说话语音输入设计（协议/前端/Agent） |
 
 ### 🔌 gRPC Layer / gRPC层
 

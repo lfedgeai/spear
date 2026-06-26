@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/spear-wasm-sys",
   "crates/spear-wasm",
+  "crates/spear-wasm-helper",
   "crates/spear-boa",
   "crates/spear-ssf",
 ]

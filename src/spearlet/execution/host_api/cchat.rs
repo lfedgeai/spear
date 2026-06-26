@@ -39,7 +39,6 @@ fn redact_canonical_request_for_log(req: &CanonicalRequestEnvelope) -> Canonical
         Payload::ImageGeneration(_) => {}
         Payload::SpeechToText(_) => {}
         Payload::TextToSpeech(_) => {}
-        Payload::RealtimeVoice(_) => {}
     }
 
     out
@@ -358,7 +357,7 @@ impl DefaultHostApi {
             req = ?redact_canonical_request_for_log(&req),
             "cchat_send canonical request"
         );
-        let resp = match self.ai_engine.invoke(&req) {
+        let resp = match self.ai_engine_holder.get().invoke(&req) {
             Ok(r) => r,
             Err(e) => {
                 let body = json!({"error": {"message": e.to_string()}});
@@ -491,7 +490,7 @@ impl DefaultHostApi {
                 req = ?redact_canonical_request_for_log(&req),
                 "cchat_send canonical request"
             );
-            let resp = match self.ai_engine.invoke(&req) {
+            let resp = match self.ai_engine_holder.get().invoke(&req) {
                 Ok(r) => r,
                 Err(e) => {
                     let body = json!({"error": {"message": e.to_string()}});

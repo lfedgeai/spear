@@ -26,9 +26,10 @@ async fn test_llamacpp_supervisor_raw_mode_start_and_stop() {
         .ensure_server(&http, "d1", "k1", "m1", &params)
         .await
         .unwrap();
-    assert_eq!(b.provider, "llamacpp");
+    let spec = b.spec.as_ref().unwrap();
+    assert_eq!(spec.provider, "llamacpp");
     assert_eq!(
-        b.hosting,
+        spec.hosting,
         spear_next::proto::sms::BackendHosting::NodeLocal as i32
     );
     assert!(sup.get_backend("d1").await.is_some());
@@ -63,7 +64,10 @@ async fn test_llamacpp_supervisor_restarts_on_spec_change() {
         .ensure_server(&http, "d1", "k2", "m1", &params)
         .await
         .unwrap();
-    assert_ne!(b1.base_url, b2.base_url);
+    assert_ne!(
+        b1.spec.as_ref().unwrap().base_url,
+        b2.spec.as_ref().unwrap().base_url
+    );
 
     sup.stop_all().await;
     assert!(sup.get_backend("d1").await.is_none());

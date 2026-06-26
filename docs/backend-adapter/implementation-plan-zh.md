@@ -142,7 +142,7 @@ src/spearlet/execution/
 ### 2.1 新增 IR 类型文件
 
 - 文件：`src/spearlet/execution/ai/ir.rs`
-  - `enum Operation { ChatCompletions, Embeddings, ImageGeneration, SpeechToText, TextToSpeech, RealtimeVoice }`
+  - `enum Operation { ChatCompletions, Embeddings, ImageGeneration, SpeechToText, TextToSpeech }`
   - `struct CanonicalRequestEnvelope { version, request_id, task_id, operation, meta, routing, requirements, policy, timeout_ms, payload, extra }`
   - `enum Payload { ChatCompletions(ChatCompletionsPayload), ... }`
   - `struct CanonicalResponseEnvelope { version, request_id, operation, backend, result, raw }`
@@ -268,8 +268,8 @@ MVP 阶段 router 可以作为 `DefaultHostApi` 的一个字段（例如 `ai_eng
 ### 5.3 配置接入
 
 - 文件：`src/spearlet/config.rs`
-  - 为 `SpearletConfig` 增加 `llm: LlmConfig`（`#[serde(default)]`）
-  - `struct LlmConfig { backends: Vec<BackendConfig>, default_policy_by_operation: ... }`
+  - 为 `SpearletConfig` 增加 `ai: AiConfig`（`#[serde(default)]`）
+  - `struct AiConfig { backends: Vec<BackendConfig>, default_policy_by_operation: ... }`
   - `struct BackendConfig { name, kind, base_url, credential_ref, weight, priority, ops, features, transports }`
 - 文件：`src/spearlet/execution/runtime/mod.rs`
   - `RuntimeConfig.spearlet_config` 已包含全量配置快照，可由 `DefaultHostApi::new` 注入到 ai_engine 初始化
@@ -306,15 +306,15 @@ MVP 阶段 router 可以作为 `DefaultHostApi` 的一个字段（例如 `ai_eng
     - 禁止出现 `api_key`/`secret_value` 等字段
     - 限制 `credential_ref` 只能是引用名称（例如 `[a-zA-Z0-9_-]+`）
 
-### 7.2 SMS：Web Admin API（/admin/api/llm/*）
+### 7.2 SMS：Web Admin API（/admin/api/ai/*）
 
 - 文件：`src/sms/web_admin.rs`
   - 扩展 `create_admin_router(...)` 新增路由：
-    - `GET /admin/api/llm/backends`：返回 backend instance 列表（含 `credential_ref`，不含值）
-    - `PUT /admin/api/llm/backends`：整体替换（便于前端一次性保存）
-    - `POST /admin/api/llm/backends`：新增/更新单条（可选）
-    - `DELETE /admin/api/llm/backends/{name}`：删除单条（可选）
-    - `GET /admin/api/llm/secret-refs`：返回所有引用（从 backends 聚合或独立存储）（可选）
+    - `GET /admin/api/ai/backends`：返回 backend instance 列表（含 `credential_ref`，不含值）
+    - `PUT /admin/api/ai/backends`：整体替换（便于前端一次性保存）
+    - `POST /admin/api/ai/backends`：新增/更新单条（可选）
+    - `DELETE /admin/api/ai/backends/{name}`：删除单条（可选）
+    - `GET /admin/api/ai/secret-refs`：返回所有引用（从 backends 聚合或独立存储）（可选）
   - 新增 handler 函数：
     - `list_llm_backends(...)`
     - `replace_llm_backends(...)`
@@ -340,8 +340,8 @@ MVP 阶段 router 可以作为 `DefaultHostApi` 的一个字段（例如 `ai_eng
     - `web-admin/src/features/backends/*`：表格编辑 backend instance（`name/kind/base_url/weight/priority/ops/features/transports/credential_ref`）
     - `web-admin/src/features/credentials/*`：展示所有 credential（及其 env var 名称）引用与“节点具备情况”
   - 数据获取：
-    - 从 `GET /admin/api/llm/backends` 拉配置
-    - 保存时调用 `PUT /admin/api/llm/backends`
+    - 从 `GET /admin/api/ai/backends` 拉配置
+    - 保存时调用 `PUT /admin/api/ai/backends`
 - 构建产物：通过 `web-admin` 的构建产出覆盖 `assets/admin/*`（不直接维护 bundle 文件）。
 - 可观测联动：复用现有 `GET /admin/api/nodes` 返回的 `metadata` 字段，读取 `HAS_ENV:<ENV_NAME>` 值进行展示（无需额外 secret API）。
 

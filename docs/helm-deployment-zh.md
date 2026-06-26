@@ -148,11 +148,11 @@ curl -fsS http://127.0.0.1:18081/health && echo
 
 - 不要把 OpenAI API key 写进 ConfigMap 或 Helm values（避免进 Git、避免被渲染到 manifest 里）。
 - 把 key 放到 Kubernetes Secret（或外部 Secret 系统）里，通过环境变量注入到 SPEARlet。
-- 通过 Helm values 配置 `spearlet.llm.credentials` + `credential_ref` 与 `spearlet.llm.backends`。
+- 通过 Helm values 配置 `spearlet.ai.credentials` + `credential_ref` 与 `spearlet.ai.backends`。
 
 配置注意事项：
 
-- `spearlet.config.llm.backends` 下每个 backend 都必须配置 `hosting`，且只允许 `local` 或 `remote`。
+- `spearlet.config.ai.backends` 下每个 backend 都必须配置 `hosting`，且只允许 `local` 或 `remote`。
 
 #### 1) 通过 Secret 提供 OpenAI API key
 
@@ -165,7 +165,7 @@ kubectl -n spear create secret generic openai-api-key \
 
 方式 B：生产推荐使用外部 Secret 系统（例如 ESO / Vault / 云厂商 Secret Manager），同步到 Kubernetes Secret，名称为 `openai-api-key`，字段为 `OPENAI_API_KEY`。
 
-#### 2) 用 values 覆盖文件配置 SPEARlet 的 LLM
+#### 2) 用 values 覆盖文件配置 SPEARlet 的 AI
 
 仓库已提供示例文件（不包含 secret 明文）：
 
@@ -222,7 +222,7 @@ OPENAI_API_KEY=... ./scripts/kind-openai-quickstart.sh
 
 相关文档：
 
-- [LLM credential_ref 设计与落地](./implementation/llm-credentials-implementation-zh.md)
+- [AI credential_ref 设计与落地](./implementation/llm-credentials-implementation-zh.md)
 - [Backends 配置模型](./backend-adapter/backends-zh.md)
 
 ### Web Admin 文件上传目录（只读根文件系统注意事项）

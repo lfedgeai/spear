@@ -13,6 +13,7 @@
 use boa_engine::context::Context;
 use boa_engine::js_string;
 use boa_engine::module::{Module, ModuleLoader, Referrer};
+use boa_engine::object::builtins::{JsArrayBuffer, JsUint8Array};
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{JsNativeError, JsResult, JsString, JsValue, NativeFunction, Source};
@@ -39,6 +40,39 @@ fn tool_arena_ptr_len() -> (u32, u32) {
     // 避免创建指向 `static mut` 的共享引用。
     let ptr = std::ptr::addr_of!(TOOL_ARENA) as *const u8 as usize as u32;
     (ptr, TOOL_ARENA_BYTES as u32)
+}
+
+fn js_value_to_bytes(value: &JsValue, ctx: &mut Context) -> JsResult<Vec<u8>> {
+    if let Some(obj) = value.as_object() {
+        if let Ok(u8) = JsUint8Array::from_object(obj.clone()) {
+            let byte_offset = u8.byte_offset(ctx)?;
+            let byte_length = u8.byte_length(ctx)?;
+            let buffer = u8.buffer(ctx)?;
+            let buffer_obj = buffer
+                .as_object()
+                .ok_or_else(|| JsNativeError::typ().with_message("Uint8Array buffer is not an object"))?;
+            let array_buffer = JsArrayBuffer::from_object(buffer_obj.clone())?;
+            let data = array_buffer
+                .data()
+                .ok_or_else(|| JsNativeError::typ().with_message("Uint8Array buffer is detached"))?;
+            let end = byte_offset.saturating_add(byte_length);
+            let bytes = data
+                .get(byte_offset..end)
+                .ok_or_else(|| JsNativeError::range().with_message("Uint8Array view out of bounds"))?;
+            return Ok(bytes.to_vec());
+        }
+    }
+
+    let s = value
+        .to_string(ctx)?
+        .to_std_string()
+        .map_err(|e| JsNativeError::error().with_message(format!("invalid string: {e}")))?;
+    Ok(s.encode_utf16().map(|u| (u & 0xFF) as u8).collect::<Vec<u8>>())
+}
+
+fn js_bytes_to_value(bytes: Vec<u8>, ctx: &mut Context) -> JsResult<JsValue> {
+    let u8 = JsUint8Array::from_iter(bytes, ctx)?;
+    Ok(u8.into())
 }
 
 thread_local! {
@@ -77,6 +111,18 @@ const SPEAR_CHAT_MODULE: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_chat.mjs"));
 const SPEAR_SSF_MODULE: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_ssf.mjs"));
+const SPEAR_RTASR_MODULE: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_rtasr.mjs"));
+const SPEAR_TIME_FORMAT_MODULE: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_time_format.mjs"));
+const SPEAR_RTASR_EVENT_MODULE: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_rtasr_event.mjs"));
+const SPEAR_STREAM_GATE_MODULE: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_stream_gate.mjs"));
+const SPEAR_USER_STREAM_PROTOCOL_MODULE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/js/spear_user_stream_protocol.mjs"
+));
 
 fn json_stringify(ctx: &mut Context, value: JsValue) -> JsResult<String> {
     let json = ctx.global_object().get(js_string!("JSON"), ctx)?;
@@ -215,6 +261,14 @@ impl BuiltinModuleRegistry {
             ("spear".to_string(), Arc::from(SPEAR_MODULE)),
             ("spear/chat".to_string(), Arc::from(SPEAR_CHAT_MODULE)),
             ("spear/ssf".to_string(), Arc::from(SPEAR_SSF_MODULE)),
+            ("spear/rtasr".to_string(), Arc::from(SPEAR_RTASR_MODULE)),
+            ("spear/time_format".to_string(), Arc::from(SPEAR_TIME_FORMAT_MODULE)),
+            ("spear/rtasr_event".to_string(), Arc::from(SPEAR_RTASR_EVENT_MODULE)),
+            ("spear/stream_gate".to_string(), Arc::from(SPEAR_STREAM_GATE_MODULE)),
+            (
+                "spear/user_stream_protocol".to_string(),
+                Arc::from(SPEAR_USER_STREAM_PROTOCOL_MODULE),
+            ),
         ]);
         Self {
             sources: Rc::new(RefCell::new(sources)),
@@ -306,6 +360,126 @@ pub fn install_native_bindings(context: &mut Context) {
         Ok(JsValue::from(js_string!(out)))
     });
 
+
+    let rtasr_create = NativeFunction::from_fn_ptr(|_this, _args, _ctx| {
+        let fd = spear_wasm::rtasr_create()
+            .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
+        Ok(JsValue::from(fd.raw()))
+    });
+    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_create"), 0, rtasr_create);
+
+    let rtasr_close = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        spear_wasm::rtasr_close(spear_wasm::Fd::from_raw(fd))
+            .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
+        Ok(JsValue::Undefined)
+    });
+    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_close"), 1, rtasr_close);
+
+    let rtasr_write = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let data_arg = args.get(1).cloned().unwrap_or(JsValue::Undefined);
+        let bytes = js_value_to_bytes(&data_arg, ctx)?;
+        spear_wasm::rtasr_write(spear_wasm::Fd::from_raw(fd), &bytes)
+            .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
+        Ok(JsValue::Undefined)
+    });
+    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_write"), 2, rtasr_write);
+
+    let rtasr_read = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let bytes = spear_wasm::rtasr_read_alloc(spear_wasm::Fd::from_raw(fd))
+            .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
+        let Some(bytes) = bytes else {
+            return Ok(JsValue::Null);
+        };
+        js_bytes_to_value(bytes, ctx)
+    });
+    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_read"), 1, rtasr_read);
+
+    let rtasr_set_param_json = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let json = args
+            .get(1)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_string(ctx)?
+            .to_std_string_escaped();
+        spear_wasm::rtasr_set_param_json(spear_wasm::Fd::from_raw(fd), &json)
+            .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
+        Ok(JsValue::Undefined)
+    });
+    let _ = context.register_global_builtin_callable(
+        js_string!("__spear_rtasr_set_param_json"),
+        2,
+        rtasr_set_param_json,
+    );
+
+    let rtasr_set_param_string = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let key = args
+            .get(1)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_string(ctx)?
+            .to_std_string_escaped();
+        let value = args
+            .get(2)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_string(ctx)?
+            .to_std_string_escaped();
+        spear_wasm::rtasr_set_param_string(spear_wasm::Fd::from_raw(fd), &key, &value)
+            .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
+        Ok(JsValue::Undefined)
+    });
+    let _ = context.register_global_builtin_callable(
+        js_string!("__spear_rtasr_set_param_string"),
+        3,
+        rtasr_set_param_string,
+    );
+
+    let rtasr_connect = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        spear_wasm::rtasr_connect(spear_wasm::Fd::from_raw(fd))
+            .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
+        Ok(JsValue::Undefined)
+    });
+    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_connect"), 1, rtasr_connect);
+
+    let rtasr_flush = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        spear_wasm::rtasr_flush(spear_wasm::Fd::from_raw(fd))
+            .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
+        Ok(JsValue::Undefined)
+    });
+    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_flush"), 1, rtasr_flush);
+
+    let rtasr_clear = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        spear_wasm::rtasr_clear(spear_wasm::Fd::from_raw(fd))
+            .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
+        Ok(JsValue::Undefined)
+    });
+    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_clear"), 1, rtasr_clear);
+
+    let rtasr_set_autoflush_json = NativeFunction::from_fn_ptr(|_this, args, ctx| {
+        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let json = args
+            .get(1)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_string(ctx)?
+            .to_std_string_escaped();
+        spear_wasm::rtasr_set_autoflush_json(spear_wasm::Fd::from_raw(fd), &json)
+            .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
+        Ok(JsValue::Undefined)
+    });
+    let _ = context.register_global_builtin_callable(
+        js_string!("__spear_rtasr_set_autoflush_json"),
+        2,
+        rtasr_set_autoflush_json,
+    );
     let _ = context.register_global_builtin_callable(js_string!("__spear_cchat_completion"), 1, f);
 
     let print = NativeFunction::from_fn_ptr(|_this, args, ctx| {
@@ -403,10 +577,7 @@ pub fn install_native_bindings(context: &mut Context) {
         let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined);
         let data = args.get(1).cloned().unwrap_or(JsValue::Undefined);
         let fd = fd.to_number(ctx)? as i32;
-        let s = data.to_string(ctx)?.to_std_string().map_err(|e| {
-            JsNativeError::error().with_message(format!("invalid string: {e}"))
-        })?;
-        let bytes = s.encode_utf16().map(|u| (u & 0xFF) as u8).collect::<Vec<u8>>();
+        let bytes = js_value_to_bytes(&data, ctx)?;
         spear_wasm::user_stream_write(spear_wasm::Fd::from_raw(fd), &bytes)
             .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
         Ok(JsValue::Undefined)
@@ -421,9 +592,7 @@ pub fn install_native_bindings(context: &mut Context) {
         let Some(bytes) = bytes else {
             return Ok(JsValue::Null);
         };
-        let u16s = bytes.into_iter().map(|b| b as u16).collect::<Vec<u16>>();
-        let s = String::from_utf16_lossy(&u16s);
-        Ok(JsValue::from(js_string!(s)))
+        js_bytes_to_value(bytes, ctx)
     });
     let _ = context.register_global_builtin_callable(js_string!("__spear_user_stream_read"), 1, user_stream_read);
 
@@ -451,31 +620,20 @@ pub fn install_native_bindings(context: &mut Context) {
     let _ = context.register_global_builtin_callable(js_string!("__spear_user_stream_ctl_read_event"), 1, ctl_read);
 
     let ssf_parse_v1 = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let bin = args
-            .get(0)
-            .cloned()
-            .unwrap_or(JsValue::Undefined)
-            .to_string(ctx)?
-            .to_std_string()
-            .map_err(|e| JsNativeError::error().with_message(format!("invalid string: {e}")))?;
-
-        let bytes = bin
-            .encode_utf16()
-            .map(|u| (u & 0xFF) as u8)
-            .collect::<Vec<u8>>();
+        let bytes = js_value_to_bytes(
+            &args.get(0).cloned().unwrap_or(JsValue::Undefined),
+            ctx,
+        )?;
 
         let (hdr, meta, data) = match spear_ssf::split_v1(&bytes) {
             Ok(v) => v,
             Err(_) => return Ok(JsValue::Null),
         };
 
-        let meta_u16s = meta.iter().map(|b| *b as u16).collect::<Vec<u16>>();
-        let data_u16s = data.iter().map(|b| *b as u16).collect::<Vec<u16>>();
-        let meta_bin = String::from_utf16_lossy(&meta_u16s);
-        let data_bin = String::from_utf16_lossy(&data_u16s);
-
         let seq_lo = (hdr.seq & 0xFFFF_FFFF) as u32;
         let seq_hi = (hdr.seq >> 32) as u32;
+        let meta_value = js_bytes_to_value(meta.to_vec(), ctx)?;
+        let data_value = js_bytes_to_value(data.to_vec(), ctx)?;
 
         let obj = ObjectInitializer::new(ctx)
             .property(js_string!("streamId"), hdr.stream_id as i32, Attribute::all())
@@ -483,8 +641,8 @@ pub fn install_native_bindings(context: &mut Context) {
             .property(js_string!("flags"), hdr.flags as i32, Attribute::all())
             .property(js_string!("seqLo"), seq_lo as i32, Attribute::all())
             .property(js_string!("seqHi"), seq_hi as i32, Attribute::all())
-            .property(js_string!("metaBin"), js_string!(meta_bin), Attribute::all())
-            .property(js_string!("dataBin"), js_string!(data_bin), Attribute::all())
+            .property(js_string!("metaBin"), meta_value, Attribute::all())
+            .property(js_string!("dataBin"), data_value, Attribute::all())
             .build();
         Ok(obj.into())
     });
@@ -498,34 +656,11 @@ pub fn install_native_bindings(context: &mut Context) {
         let seq_hi = args.get(4).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as u32;
         let seq = ((seq_hi as u64) << 32) | (seq_lo as u64);
 
-        let meta_bin = args
-            .get(5)
-            .cloned()
-            .unwrap_or(JsValue::Undefined)
-            .to_string(ctx)?
-            .to_std_string()
-            .map_err(|e| JsNativeError::error().with_message(format!("invalid string: {e}")))?;
-        let data_bin = args
-            .get(6)
-            .cloned()
-            .unwrap_or(JsValue::Undefined)
-            .to_string(ctx)?
-            .to_std_string()
-            .map_err(|e| JsNativeError::error().with_message(format!("invalid string: {e}")))?;
-
-        let meta = meta_bin
-            .encode_utf16()
-            .map(|u| (u & 0xFF) as u8)
-            .collect::<Vec<u8>>();
-        let data = data_bin
-            .encode_utf16()
-            .map(|u| (u & 0xFF) as u8)
-            .collect::<Vec<u8>>();
+        let meta = js_value_to_bytes(&args.get(5).cloned().unwrap_or(JsValue::Undefined), ctx)?;
+        let data = js_value_to_bytes(&args.get(6).cloned().unwrap_or(JsValue::Undefined), ctx)?;
 
         let frame = spear_ssf::build_v1_frame(stream_id, msg_type, flags, seq, &meta, &data);
-        let u16s = frame.into_iter().map(|b| b as u16).collect::<Vec<u16>>();
-        let s = String::from_utf16_lossy(&u16s);
-        Ok(JsValue::from(js_string!(s)))
+        js_bytes_to_value(frame, ctx)
     });
     let _ = context.register_global_builtin_callable(js_string!("__spear_ssf_build_v1"), 7, ssf_build_v1);
 
@@ -538,26 +673,15 @@ pub fn install_native_bindings(context: &mut Context) {
             .to_std_string()
             .map_err(|e| JsNativeError::error().with_message(format!("invalid string: {e}")))?;
 
-        let bytes = s.as_bytes();
-        let u16s = bytes.iter().map(|b| *b as u16).collect::<Vec<u16>>();
-        let bin = String::from_utf16_lossy(&u16s);
-        Ok(JsValue::from(js_string!(bin)))
+        js_bytes_to_value(s.into_bytes(), ctx)
     });
     let _ = context.register_global_builtin_callable(js_string!("__spear_utf8_encode"), 1, utf8_encode);
 
     let utf8_decode = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let bin = args
-            .get(0)
-            .cloned()
-            .unwrap_or(JsValue::Undefined)
-            .to_string(ctx)?
-            .to_std_string()
-            .map_err(|e| JsNativeError::error().with_message(format!("invalid string: {e}")))?;
-
-        let bytes = bin
-            .encode_utf16()
-            .map(|u| (u & 0xFF) as u8)
-            .collect::<Vec<u8>>();
+        let bytes = js_value_to_bytes(
+            &args.get(0).cloned().unwrap_or(JsValue::Undefined),
+            ctx,
+        )?;
         let s = String::from_utf8_lossy(&bytes).to_string();
         Ok(JsValue::from(js_string!(s)))
     });
@@ -591,7 +715,7 @@ fn cchat_completion_impl(options_json: &str) -> Result<String, String> {
         .cloned()
         .unwrap_or_default();
 
-    let mut sess = spear_wasm::ChatSession::create().map_err(|e| e.to_string())?;
+    let mut sess = spear_wasm::ChatRequestContext::create().map_err(|e| e.to_string())?;
 
     for m in messages {
         let role = m

@@ -1,6 +1,4 @@
 //! SMS Service Implementation / SMS服务实现
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, RwLock};
@@ -11,26 +9,40 @@ use uuid::Uuid;
 use crate::sms::config::SmsConfig;
 use crate::sms::events::TaskEventBus;
 use crate::sms::instance_execution_index::InstanceExecutionIndex;
+use crate::sms::placement::outcome::normalize_outcome_class;
+use crate::sms::placement::policy::{
+    build_candidate, is_candidate_node, score_node, select_top_candidates,
+};
+use crate::sms::placement::state::PlacementState;
+use crate::sms::registry::mcp::{delete_mcp_record, list_mcp_records, upsert_mcp_record};
+use crate::sms::registry::model_deployments::{
+    delete_model_deployment_record, list_model_deployments_page,
+    report_model_deployment_status_update, upsert_model_deployment_record,
+    watch_model_deployments_filtered,
+};
+use crate::sms::registry::state::{
+    BackendRegistryState, McpRegistryState, ModelDeploymentRegistryState,
+};
 use crate::sms::services::{
     node_service::NodeService, resource_service::ResourceService,
     task_service::TaskService as TaskServiceImpl,
 };
 use crate::sms::unified_events::UnifiedEventBus;
 use crate::storage::kv::{
-    create_kv_store_from_config, get_kv_store_factory, serialization, KvStore, KvStoreConfig,
+    create_kv_store_from_config, get_kv_store_factory, KvStoreConfig,
 };
 use anyhow::Context;
-use dashmap::DashMap;
-use futures::stream::unfold;
+use futures::{stream::unfold, StreamExt};
 use tokio::time::Duration;
-use tokio_stream::StreamExt;
 use tracing::{debug, warn};
 
-use crate::sms::registry_watch::RegistryWatchHub;
+use crate::sms::admin_backends::AdminBackendsState;
+use crate::sms::admin_credentials::AdminCredentialsState;
 
 // Import proto types / 导入proto类型
 use crate::proto::sms::{
-    admin_llm_config_service_server::AdminLlmConfigService as AdminLlmConfigServiceTrait,
+    admin_credential_service_server::AdminCredentialService as AdminCredentialServiceTrait,
+    admin_ai_config_service_server::AdminAiConfigService as AdminAiConfigServiceTrait,
     backend_registry_service_server::BackendRegistryService as BackendRegistryServiceTrait,
     events_service_server::EventsService as EventsServiceTrait,
     execution_index_service_server::ExecutionIndexService as ExecutionIndexServiceTrait,
@@ -45,6 +57,8 @@ use crate::proto::sms::{
     AppendExecutionLogsRequest,
     AppendExecutionLogsResponse,
     BackendStatus,
+    DeleteCredentialRequest,
+    DeleteCredentialResponse,
     DeleteMcpServerRequest,
     DeleteMcpServerResponse,
     DeleteModelDeploymentRequest,
@@ -58,6 +72,8 @@ use crate::proto::sms::{
     Execution,
     FinalizeExecutionLogsRequest,
     FinalizeExecutionLogsResponse,
+    GetInstanceRequest,
+    GetInstanceResponse,
     GetExecutionRequest,
     GetExecutionResponse,
     GetNodeBackendsRequest,
@@ -73,7 +89,10 @@ use crate::proto::sms::{
     HeartbeatRequest,
     HeartbeatResponse,
     Instance,
-    InvocationOutcomeClass,
+    ListCredentialMaterialsRequest,
+    ListCredentialMaterialsResponse,
+    ListCredentialsRequest,
+    ListCredentialsResponse,
     ListInstanceExecutionsRequest,
     ListInstanceExecutionsResponse,
     ListMcpServersRequest,
@@ -92,12 +111,8 @@ use crate::proto::sms::{
     ListTaskInstancesResponse,
     ListTasksRequest,
     ListTasksResponse,
-    McpRegistryEvent,
     McpServerRecord,
     McpTransport,
-    ModelDeploymentEvent,
-    ModelDeploymentRecord,
-    ModelDeploymentStatus,
     NodeBackendSnapshot,
     NodeCandidate,
     PlaceInvocationRequest,
@@ -108,7 +123,6 @@ use crate::proto::sms::{
     // Task service messages / 任务服务消息
     RegisterTaskRequest,
     RegisterTaskResponse,
-    RemoteBackendConfig,
     ReportExecutionResponse,
     ReportInstanceResponse,
     ReportInvocationOutcomeRequest,
@@ -134,223 +148,27 @@ use crate::proto::sms::{
     UpsertMcpServerResponse,
     UpsertModelDeploymentRequest,
     UpsertModelDeploymentResponse,
+    UpsertCredentialRequest,
+    UpsertCredentialResponse,
     UpsertRemoteBackendRequest,
     UpsertRemoteBackendResponse,
+    WatchCredentialMaterialsRequest,
+    WatchCredentialMaterialsResponse,
+    WatchCredentialsRequest,
+    WatchCredentialsResponse,
     WatchMcpServersRequest,
     WatchMcpServersResponse,
     WatchModelDeploymentsRequest,
     WatchModelDeploymentsResponse,
+    BackendSpec,
+    WatchRemoteBackendsRequest,
+    WatchRemoteBackendsResponse,
 };
 
 use crate::proto::spearlet::router_filter_service_server::RouterFilterService as RouterFilterServiceTrait;
 use crate::proto::spearlet::{
     FilterRequest as RouterFilterRequest, FilterResponse as RouterFilterResponse,
 };
-
-#[derive(Debug)]
-struct McpRegistryState {
-    records: RwLock<HashMap<String, McpServerRecord>>,
-    watch: RegistryWatchHub<McpRegistryEvent>,
-}
-
-#[derive(Debug)]
-struct ModelDeploymentRegistryState {
-    records: RwLock<HashMap<String, ModelDeploymentRecord>>,
-    watch: RegistryWatchHub<ModelDeploymentEvent>,
-    id_to_node: RwLock<HashMap<String, String>>,
-}
-
-impl ModelDeploymentRegistryState {
-    fn new(event_buffer_size: usize, broadcast_buffer_size: usize) -> Self {
-        Self {
-            records: RwLock::new(HashMap::new()),
-            watch: RegistryWatchHub::new(event_buffer_size, broadcast_buffer_size),
-            id_to_node: RwLock::new(HashMap::new()),
-        }
-    }
-}
-
-#[derive(Debug)]
-struct BackendRegistryState {
-    snapshots: RwLock<HashMap<String, NodeBackendSnapshot>>,
-}
-
-impl BackendRegistryState {
-    fn new() -> Self {
-        Self {
-            snapshots: RwLock::new(HashMap::new()),
-        }
-    }
-}
-
-const ADMIN_REMOTE_BACKENDS_KEY: &str = "admin:llm:remote_backends:v1";
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
-struct RemoteBackendConfigRecord {
-    name: String,
-    kind: String,
-    base_url: String,
-    model: String,
-    credential_ref: String,
-    weight: u32,
-    priority: i32,
-    operations: Vec<String>,
-    features: Vec<String>,
-    transports: Vec<String>,
-    provider: String,
-}
-
-impl From<RemoteBackendConfig> for RemoteBackendConfigRecord {
-    fn from(v: RemoteBackendConfig) -> Self {
-        Self {
-            name: v.name,
-            kind: v.kind,
-            base_url: v.base_url,
-            model: v.model,
-            credential_ref: v.credential_ref,
-            weight: v.weight,
-            priority: v.priority,
-            operations: v.operations,
-            features: v.features,
-            transports: v.transports,
-            provider: v.provider,
-        }
-    }
-}
-
-impl From<RemoteBackendConfigRecord> for RemoteBackendConfig {
-    fn from(v: RemoteBackendConfigRecord) -> Self {
-        Self {
-            name: v.name,
-            kind: v.kind,
-            base_url: v.base_url,
-            model: v.model,
-            credential_ref: v.credential_ref,
-            weight: v.weight,
-            priority: v.priority,
-            operations: v.operations,
-            features: v.features,
-            transports: v.transports,
-            provider: v.provider,
-        }
-    }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
-struct RemoteBackendConfigSnapshot {
-    revision: u64,
-    backends: Vec<RemoteBackendConfigRecord>,
-}
-
-#[derive(Debug)]
-struct AdminLlmConfigState {
-    kv: Arc<dyn KvStore>,
-    snapshot: RwLock<RemoteBackendConfigSnapshot>,
-}
-
-impl AdminLlmConfigState {
-    async fn new(kv: Arc<dyn KvStore>) -> Self {
-        let snapshot = match kv.get(&ADMIN_REMOTE_BACKENDS_KEY.to_string()).await {
-            Ok(Some(bytes)) => serialization::deserialize::<RemoteBackendConfigSnapshot>(&bytes)
-                .unwrap_or_default(),
-            _ => RemoteBackendConfigSnapshot::default(),
-        };
-        Self {
-            kv,
-            snapshot: RwLock::new(snapshot),
-        }
-    }
-
-    async fn list(&self) -> RemoteBackendConfigSnapshot {
-        self.snapshot.read().await.clone()
-    }
-
-    async fn upsert(&self, backend: RemoteBackendConfig) -> Result<u64, Status> {
-        if backend.name.trim().is_empty() {
-            return Err(Status::invalid_argument("missing name"));
-        }
-        if backend.kind.trim().is_empty() {
-            return Err(Status::invalid_argument("missing kind"));
-        }
-        if backend.base_url.trim().is_empty() {
-            return Err(Status::invalid_argument("missing base_url"));
-        }
-        if backend.operations.is_empty() {
-            return Err(Status::invalid_argument("missing operations"));
-        }
-
-        let backend: RemoteBackendConfigRecord = backend.into();
-        let mut snap = self.snapshot.write().await;
-        let mut replaced = false;
-        for b in snap.backends.iter_mut() {
-            if b.name == backend.name {
-                *b = backend.clone();
-                replaced = true;
-                break;
-            }
-        }
-        if !replaced {
-            snap.backends.push(backend);
-        }
-        snap.backends.sort_by(|a, b| {
-            a.name
-                .to_ascii_lowercase()
-                .cmp(&b.name.to_ascii_lowercase())
-        });
-        snap.revision = snap.revision.saturating_add(1);
-
-        let bytes =
-            serialization::serialize(&*snap).map_err(|e| Status::internal(e.to_string()))?;
-        self.kv
-            .put(&ADMIN_REMOTE_BACKENDS_KEY.to_string(), &bytes)
-            .await
-            .map_err(|e| Status::internal(e.to_string()))?;
-
-        Ok(snap.revision)
-    }
-
-    async fn delete(&self, name: &str) -> Result<(u64, bool), Status> {
-        let n = name.trim();
-        if n.is_empty() {
-            return Err(Status::invalid_argument("missing name"));
-        }
-        let mut snap = self.snapshot.write().await;
-        let before = snap.backends.len();
-        snap.backends.retain(|b| b.name != n);
-        let deleted = snap.backends.len() != before;
-        if deleted {
-            snap.revision = snap.revision.saturating_add(1);
-            let bytes =
-                serialization::serialize(&*snap).map_err(|e| Status::internal(e.to_string()))?;
-            self.kv
-                .put(&ADMIN_REMOTE_BACKENDS_KEY.to_string(), &bytes)
-                .await
-                .map_err(|e| Status::internal(e.to_string()))?;
-        }
-        Ok((snap.revision, deleted))
-    }
-}
-
-impl McpRegistryState {
-    fn new(event_buffer_size: usize, broadcast_buffer_size: usize) -> Self {
-        Self {
-            records: RwLock::new(HashMap::new()),
-            watch: RegistryWatchHub::new(event_buffer_size, broadcast_buffer_size),
-        }
-    }
-
-    fn current_revision(&self) -> u64 {
-        self.watch.current_revision()
-    }
-
-    fn bump_revision(&self) -> u64 {
-        self.watch.bump_revision()
-    }
-
-    async fn push_event(&self, event: McpRegistryEvent) {
-        self.watch.push_event(event).await;
-    }
-}
 
 // Note: SpearletRegistrationService is not defined in current proto files
 // use crate::proto::spearlet::{
@@ -374,7 +192,8 @@ pub struct SmsServiceImpl {
     mcp_registry: Arc<McpRegistryState>,
     backend_registry: Arc<BackendRegistryState>,
     model_deployment_registry: Arc<ModelDeploymentRegistryState>,
-    admin_llm_config: Arc<AdminLlmConfigState>,
+    admin_backends: Arc<AdminBackendsState>,
+    admin_credentials: Arc<AdminCredentialsState>,
     router_filter_engine: Arc<RouterFilterEngine>,
 }
 
@@ -415,60 +234,8 @@ impl RouterFilterEngine {
 }
 
 impl SmsServiceImpl {
-    async fn upsert_mcp_record_inner(&self, mut record: McpServerRecord) -> Result<u64, Status> {
-        if record.server_id.is_empty() {
-            return Err(Status::invalid_argument("server_id is required"));
-        }
-        let server_id = record.server_id.clone();
-        if record.tool_namespace.is_empty() {
-            record.tool_namespace = format!("mcp.{}", record.server_id);
-        }
-
-        match record.transport {
-            x if x == McpTransport::Stdio as i32 => {
-                let stdio = record
-                    .stdio
-                    .as_ref()
-                    .ok_or_else(|| Status::invalid_argument("stdio config is required"))?;
-                if stdio.command.is_empty() {
-                    return Err(Status::invalid_argument("stdio.command is required"));
-                }
-            }
-            x if x == McpTransport::StreamableHttp as i32 => {
-                let http = record
-                    .http
-                    .as_ref()
-                    .ok_or_else(|| Status::invalid_argument("http config is required"))?;
-                if http.url.is_empty() {
-                    return Err(Status::invalid_argument("http.url is required"));
-                }
-            }
-            _ => {
-                return Err(Status::invalid_argument("invalid transport"));
-            }
-        }
-
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        record.updated_at_ms = now_ms;
-
-        {
-            let mut records = self.mcp_registry.records.write().await;
-            records.insert(server_id.clone(), record);
-        }
-
-        let revision = self.mcp_registry.bump_revision();
-        self.mcp_registry
-            .push_event(McpRegistryEvent {
-                revision,
-                upserts: vec![server_id],
-                deletes: vec![],
-            })
-            .await;
-
-        Ok(revision)
+    async fn upsert_mcp_record_inner(&self, record: McpServerRecord) -> Result<u64, Status> {
+        upsert_mcp_record(&self.mcp_registry, record).await
     }
 
     pub async fn bootstrap_mcp_from_dir(&self, dir: &str) -> anyhow::Result<usize> {
@@ -677,21 +444,18 @@ impl SmsServiceImpl {
             .expect("Failed to create admin KV store"),
         };
         let admin_kv: Arc<dyn crate::storage::kv::KvStore> = Arc::from(admin_kv_box);
-        let admin_llm_config = Arc::new(AdminLlmConfigState::new(admin_kv).await);
+        let admin_backends = Arc::new(AdminBackendsState::new(admin_kv.clone()).await);
+        let admin_credentials = Arc::new(
+            AdminCredentialsState::new(admin_kv)
+                .await
+                .expect("Failed to create admin credential state"),
+        );
 
         {
-            let idx = instance_execution_index.clone();
-            let bus = unified_events.clone();
-            tokio::spawn(async move {
-                run_instance_projector(idx, bus).await;
-            });
-        }
-        {
-            let idx = instance_execution_index.clone();
-            let bus = unified_events.clone();
-            tokio::spawn(async move {
-                run_execution_projector(idx, bus).await;
-            });
+            crate::sms::projectors::start_index_projectors(
+                instance_execution_index.clone(),
+                unified_events.clone(),
+            );
         }
 
         let cleanup_node_service = node_service.clone();
@@ -745,7 +509,8 @@ impl SmsServiceImpl {
             mcp_registry: Arc::new(McpRegistryState::new(1024, 1024)),
             backend_registry: Arc::new(BackendRegistryState::new()),
             model_deployment_registry: Arc::new(ModelDeploymentRegistryState::new(1024, 1024)),
-            admin_llm_config,
+            admin_backends,
+            admin_credentials,
             router_filter_engine: Arc::new(RouterFilterEngine::Builtin(
                 BuiltinRouterFilterEngine::default(),
             )),
@@ -857,9 +622,7 @@ impl McpRegistryServiceTrait for SmsServiceImpl {
         &self,
         _request: Request<ListMcpServersRequest>,
     ) -> Result<Response<ListMcpServersResponse>, Status> {
-        let revision = self.mcp_registry.current_revision();
-        let records = self.mcp_registry.records.read().await;
-        let servers = records.values().cloned().collect::<Vec<_>>();
+        let (revision, servers) = list_mcp_records(&self.mcp_registry).await;
         Ok(Response::new(ListMcpServersResponse { revision, servers }))
     }
 
@@ -895,28 +658,7 @@ impl McpRegistryServiceTrait for SmsServiceImpl {
         &self,
         request: Request<DeleteMcpServerRequest>,
     ) -> Result<Response<DeleteMcpServerResponse>, Status> {
-        let server_id = request.into_inner().server_id;
-        if server_id.is_empty() {
-            return Err(Status::invalid_argument("server_id is required"));
-        }
-
-        let existed = {
-            let mut records = self.mcp_registry.records.write().await;
-            records.remove(&server_id).is_some()
-        };
-        if !existed {
-            return Err(Status::not_found("server not found"));
-        }
-
-        let revision = self.mcp_registry.bump_revision();
-        self.mcp_registry
-            .push_event(McpRegistryEvent {
-                revision,
-                upserts: vec![],
-                deletes: vec![server_id],
-            })
-            .await;
-
+        let revision = delete_mcp_record(&self.mcp_registry, request.into_inner().server_id).await?;
         Ok(Response::new(DeleteMcpServerResponse { revision }))
     }
 }
@@ -935,283 +677,61 @@ impl ModelDeploymentRegistryServiceTrait for SmsServiceImpl {
         &self,
         request: Request<ListModelDeploymentsRequest>,
     ) -> Result<Response<ListModelDeploymentsResponse>, Status> {
-        let req = request.into_inner();
-        let limit = if req.limit == 0 {
-            200
-        } else {
-            req.limit.min(500)
-        };
-        let offset = req.offset;
-        let filter_node = req.target_node_uuid.trim().to_string();
-        let filter_provider = req.provider.trim().to_string();
-
-        let registry_revision = self.model_deployment_registry.watch.current_revision();
-        let guard = self.model_deployment_registry.records.read().await;
-        let mut list = guard
-            .values()
-            .cloned()
-            .filter(|r| {
-                if !filter_node.is_empty() {
-                    r.spec
-                        .as_ref()
-                        .map(|s| s.target_node_uuid == filter_node)
-                        .unwrap_or(false)
-                } else {
-                    true
-                }
-            })
-            .filter(|r| {
-                if !filter_provider.is_empty() {
-                    r.spec
-                        .as_ref()
-                        .map(|s| s.provider == filter_provider)
-                        .unwrap_or(false)
-                } else {
-                    true
-                }
-            })
-            .collect::<Vec<_>>();
-        list.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
-
-        let total_count = list.len() as u32;
-        let start = offset as usize;
-        let end = start.saturating_add(limit as usize);
-        let page = if start >= list.len() {
-            Vec::new()
-        } else {
-            list[start..list.len().min(end)].to_vec()
-        };
-
-        Ok(Response::new(ListModelDeploymentsResponse {
-            revision: registry_revision,
-            records: page,
-            total_count,
-        }))
+        Ok(Response::new(
+            list_model_deployments_page(&self.model_deployment_registry, request.into_inner()).await,
+        ))
     }
 
     async fn watch_model_deployments(
         &self,
         request: Request<WatchModelDeploymentsRequest>,
     ) -> Result<Response<Self::WatchModelDeploymentsStream>, Status> {
-        let req = request.into_inner();
-        if req.target_node_uuid.trim().is_empty() {
-            return Err(Status::invalid_argument("target_node_uuid is required"));
-        }
-        let node_filter = req.target_node_uuid.clone();
-        let registry = self.model_deployment_registry.clone();
-        let watch_cursor_revision = req.since_revision;
-
-        let base = self
-            .model_deployment_registry
-            .watch
-            .watch(watch_cursor_revision, |e| e.revision)
-            .await?;
-        let stream = base
-            .then(move |r| {
-                let node_filter = node_filter.clone();
-                let registry = registry.clone();
-                async move {
-                    match r {
-                        Ok(mut event) => {
-                            let map = registry.id_to_node.read().await;
-                            event.upserts.retain(|id| {
-                                map.get(id).map(|n| n == &node_filter).unwrap_or(false)
-                            });
-                            event.deletes.retain(|id| {
-                                map.get(id).map(|n| n == &node_filter).unwrap_or(true)
-                            });
-                            if event.upserts.is_empty() && event.deletes.is_empty() {
-                                None
-                            } else {
-                                Some(Ok(WatchModelDeploymentsResponse { event: Some(event) }))
-                            }
-                        }
-                        Err(e) => Some(Err(e)),
-                    }
-                }
-            })
-            .filter_map(|x| x);
-
-        Ok(Response::new(Box::pin(stream)))
+        Ok(Response::new(
+            watch_model_deployments_filtered(
+                self.model_deployment_registry.clone(),
+                request.into_inner(),
+            )
+            .await?,
+        ))
     }
 
     async fn upsert_model_deployment(
         &self,
         request: Request<UpsertModelDeploymentRequest>,
     ) -> Result<Response<UpsertModelDeploymentResponse>, Status> {
-        let mut record = request
+        let record = request
             .into_inner()
             .record
             .ok_or_else(|| Status::invalid_argument("record is required"))?;
-        let target_node_uuid = {
-            let spec = record
-                .spec
-                .as_ref()
-                .ok_or_else(|| Status::invalid_argument("spec is required"))?;
-            if spec.target_node_uuid.trim().is_empty() {
-                return Err(Status::invalid_argument(
-                    "spec.target_node_uuid is required",
-                ));
-            }
-            if spec.provider.trim().is_empty() {
-                return Err(Status::invalid_argument("spec.provider is required"));
-            }
-            if spec.model.trim().is_empty() {
-                return Err(Status::invalid_argument("spec.model is required"));
-            }
-            spec.target_node_uuid.clone()
-        };
-
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        let deployment_id = if record.deployment_id.trim().is_empty() {
-            uuid::Uuid::new_v4().to_string()
-        } else {
-            record.deployment_id.clone()
-        };
-
-        let mut guard = self.model_deployment_registry.records.write().await;
-        let created_at_ms = guard
-            .get(&deployment_id)
-            .map(|r| r.created_at_ms)
-            .filter(|v| *v > 0)
-            .unwrap_or(now_ms);
-
-        let new_registry_revision = self.model_deployment_registry.watch.bump_revision();
-        record.deployment_id = deployment_id.clone();
-        record.revision = new_registry_revision;
-        record.created_at_ms = created_at_ms;
-        record.updated_at_ms = now_ms;
-        if record.status.is_none() {
-            record.status = Some(ModelDeploymentStatus {
-                phase: crate::proto::sms::ModelDeploymentPhase::Pending as i32,
-                message: String::new(),
-                updated_at_ms: now_ms,
-            });
-        }
-
-        guard.insert(deployment_id.clone(), record);
-        drop(guard);
-
-        self.model_deployment_registry
-            .id_to_node
-            .write()
-            .await
-            .insert(deployment_id.clone(), target_node_uuid);
-
-        self.model_deployment_registry
-            .watch
-            .push_event(ModelDeploymentEvent {
-                revision: new_registry_revision,
-                upserts: vec![deployment_id.clone()],
-                deletes: Vec::new(),
-            })
-            .await;
-
-        Ok(Response::new(UpsertModelDeploymentResponse {
-            revision: new_registry_revision,
-            deployment_id,
-        }))
+        Ok(Response::new(
+            upsert_model_deployment_record(&self.model_deployment_registry, record).await?,
+        ))
     }
 
     async fn delete_model_deployment(
         &self,
         request: Request<DeleteModelDeploymentRequest>,
     ) -> Result<Response<DeleteModelDeploymentResponse>, Status> {
-        let deployment_id = request.into_inner().deployment_id;
-        if deployment_id.trim().is_empty() {
-            return Err(Status::invalid_argument("deployment_id is required"));
-        }
-        let existed = {
-            let mut guard = self.model_deployment_registry.records.write().await;
-            guard.remove(&deployment_id).is_some()
-        };
-        if !existed {
-            return Err(Status::not_found("deployment not found"));
-        }
-
-        {
-            let mut map = self.model_deployment_registry.id_to_node.write().await;
-            map.remove(&deployment_id);
-        }
-
-        let new_registry_revision = self.model_deployment_registry.watch.bump_revision();
-        self.model_deployment_registry
-            .watch
-            .push_event(ModelDeploymentEvent {
-                revision: new_registry_revision,
-                upserts: Vec::new(),
-                deletes: vec![deployment_id],
-            })
-            .await;
-
-        Ok(Response::new(DeleteModelDeploymentResponse {
-            revision: new_registry_revision,
-        }))
+        Ok(Response::new(
+            delete_model_deployment_record(
+                &self.model_deployment_registry,
+                request.into_inner().deployment_id,
+            )
+            .await?,
+        ))
     }
 
     async fn report_model_deployment_status(
         &self,
         request: Request<ReportModelDeploymentStatusRequest>,
     ) -> Result<Response<ReportModelDeploymentStatusResponse>, Status> {
-        let req = request.into_inner();
-        if req.deployment_id.trim().is_empty() {
-            return Err(Status::invalid_argument("deployment_id is required"));
-        }
-        if req.node_uuid.trim().is_empty() {
-            return Err(Status::invalid_argument("node_uuid is required"));
-        }
-        let mut status = req
-            .status
-            .ok_or_else(|| Status::invalid_argument("status is required"))?;
-        if status.updated_at_ms == 0 {
-            status.updated_at_ms = chrono::Utc::now().timestamp_millis();
-        }
-
-        let mut guard = self.model_deployment_registry.records.write().await;
-        let Some(mut rec) = guard.get(&req.deployment_id).cloned() else {
-            return Err(Status::not_found("deployment not found"));
-        };
-        let target_node_uuid = {
-            let Some(spec) = rec.spec.as_ref() else {
-                return Err(Status::failed_precondition("spec missing"));
-            };
-            if spec.target_node_uuid != req.node_uuid {
-                return Err(Status::permission_denied("node_uuid mismatch"));
-            }
-            spec.target_node_uuid.clone()
-        };
-        let observed_record_revision = req.observed_revision;
-        let current_record_revision = rec.revision;
-        if observed_record_revision > 0 && observed_record_revision < current_record_revision {
-            return Ok(Response::new(ReportModelDeploymentStatusResponse {
-                success: false,
-            }));
-        }
-
-        let new_registry_revision = self.model_deployment_registry.watch.bump_revision();
-        rec.updated_at_ms = status.updated_at_ms;
-        rec.status = Some(status);
-        guard.insert(req.deployment_id.clone(), rec);
-        drop(guard);
-
-        self.model_deployment_registry
-            .id_to_node
-            .write()
-            .await
-            .insert(req.deployment_id.clone(), target_node_uuid);
-
-        self.model_deployment_registry
-            .watch
-            .push_event(ModelDeploymentEvent {
-                revision: new_registry_revision,
-                upserts: vec![req.deployment_id],
-                deletes: Vec::new(),
-            })
-            .await;
-
-        Ok(Response::new(ReportModelDeploymentStatusResponse {
-            success: true,
-        }))
+        Ok(Response::new(
+            report_model_deployment_status_update(
+                &self.model_deployment_registry,
+                request.into_inner(),
+            )
+            .await?,
+        ))
     }
 }
 
@@ -1237,10 +757,13 @@ impl BackendRegistryServiceTrait for SmsServiceImpl {
                 .as_millis() as i64;
         }
 
-        snapshot.backends.retain(|b| !b.name.trim().is_empty());
+        snapshot
+            .backends
+            .retain(|b| b.spec.as_ref().is_some_and(|s| !s.name.trim().is_empty()));
         snapshot.backends.iter_mut().for_each(|b| {
-            if b.kind.trim().is_empty() {
-                b.kind = "unknown".to_string();
+            let spec = b.spec.get_or_insert_with(BackendSpec::default);
+            if spec.kind.trim().is_empty() {
+                spec.kind = "unknown".to_string();
             }
             if b.status == BackendStatus::Unspecified as i32 {
                 b.status = BackendStatus::Unavailable as i32;
@@ -1312,17 +835,92 @@ impl BackendRegistryServiceTrait for SmsServiceImpl {
 }
 
 #[tonic::async_trait]
-impl AdminLlmConfigServiceTrait for SmsServiceImpl {
+impl AdminCredentialServiceTrait for SmsServiceImpl {
+    type WatchCredentialsStream = crate::sms::registry_watch::WatchStream<WatchCredentialsResponse>;
+    type WatchCredentialMaterialsStream =
+        crate::sms::registry_watch::WatchStream<WatchCredentialMaterialsResponse>;
+
+    async fn list_credentials(
+        &self,
+        _request: Request<ListCredentialsRequest>,
+    ) -> Result<Response<ListCredentialsResponse>, Status> {
+        let (revision, credentials) = self.admin_credentials.list_infos().await?;
+        Ok(Response::new(ListCredentialsResponse {
+            revision,
+            credentials,
+        }))
+    }
+
+    async fn upsert_credential(
+        &self,
+        request: Request<UpsertCredentialRequest>,
+    ) -> Result<Response<UpsertCredentialResponse>, Status> {
+        let req = request.into_inner();
+        let revision = self
+            .admin_credentials
+            .upsert(&req.name, &req.secret, &req.description, req.disabled)
+            .await?;
+        Ok(Response::new(UpsertCredentialResponse { revision }))
+    }
+
+    async fn delete_credential(
+        &self,
+        request: Request<DeleteCredentialRequest>,
+    ) -> Result<Response<DeleteCredentialResponse>, Status> {
+        let req = request.into_inner();
+        let (revision, deleted) = self.admin_credentials.delete(&req.name).await?;
+        Ok(Response::new(DeleteCredentialResponse { revision, deleted }))
+    }
+
+    async fn watch_credentials(
+        &self,
+        request: Request<WatchCredentialsRequest>,
+    ) -> Result<Response<Self::WatchCredentialsStream>, Status> {
+        let req = request.into_inner();
+        let stream = self.admin_credentials.watch_infos(req.since_revision).await?;
+        Ok(Response::new(stream))
+    }
+
+    async fn list_credential_materials(
+        &self,
+        _request: Request<ListCredentialMaterialsRequest>,
+    ) -> Result<Response<ListCredentialMaterialsResponse>, Status> {
+        let (revision, credentials) = self.admin_credentials.list_materials().await?;
+        Ok(Response::new(ListCredentialMaterialsResponse {
+            revision,
+            credentials,
+        }))
+    }
+
+    async fn watch_credential_materials(
+        &self,
+        request: Request<WatchCredentialMaterialsRequest>,
+    ) -> Result<Response<Self::WatchCredentialMaterialsStream>, Status> {
+        let req = request.into_inner();
+        let stream = self
+            .admin_credentials
+            .watch_materials(req.since_revision)
+            .await?;
+        Ok(Response::new(stream))
+    }
+}
+
+#[tonic::async_trait]
+impl AdminAiConfigServiceTrait for SmsServiceImpl {
+    type WatchRemoteBackendsStream = std::pin::Pin<
+        Box<
+            dyn tokio_stream::Stream<Item = Result<WatchRemoteBackendsResponse, Status>>
+                + Send
+                + 'static,
+        >,
+    >;
+
     async fn list_remote_backends(
         &self,
         _request: Request<ListRemoteBackendsRequest>,
     ) -> Result<Response<ListRemoteBackendsResponse>, Status> {
-        let snap = self.admin_llm_config.list().await;
-        let backends = snap
-            .backends
-            .into_iter()
-            .map(RemoteBackendConfig::from)
-            .collect();
+        let snap = self.admin_backends.list().await;
+        let backends = snap.backends;
         Ok(Response::new(ListRemoteBackendsResponse {
             revision: snap.revision,
             backends,
@@ -1337,7 +935,7 @@ impl AdminLlmConfigServiceTrait for SmsServiceImpl {
             .into_inner()
             .backend
             .ok_or_else(|| Status::invalid_argument("backend is required"))?;
-        let revision = self.admin_llm_config.upsert(backend).await?;
+        let revision = self.admin_backends.upsert(backend).await?;
         Ok(Response::new(UpsertRemoteBackendResponse { revision }))
     }
 
@@ -1346,11 +944,24 @@ impl AdminLlmConfigServiceTrait for SmsServiceImpl {
         request: Request<DeleteRemoteBackendRequest>,
     ) -> Result<Response<DeleteRemoteBackendResponse>, Status> {
         let name = request.into_inner().name;
-        let (revision, deleted) = self.admin_llm_config.delete(&name).await?;
+        let (revision, deleted) = self.admin_backends.delete(&name).await?;
         Ok(Response::new(DeleteRemoteBackendResponse {
             revision,
             deleted,
         }))
+    }
+
+    async fn watch_remote_backends(
+        &self,
+        request: Request<WatchRemoteBackendsRequest>,
+    ) -> Result<Response<Self::WatchRemoteBackendsStream>, Status> {
+        let since_revision = request.into_inner().since_revision;
+        let stream = self
+            .admin_backends
+            .watch_remote_backends(since_revision)
+            .await?
+            .map(|r| r.map(|event| WatchRemoteBackendsResponse { event: Some(event) }));
+        Ok(Response::new(Box::pin(stream)))
     }
 }
 
@@ -2242,6 +1853,35 @@ impl ExecutionIndexServiceTrait for SmsServiceImpl {
         }))
     }
 
+    async fn get_instance(
+        &self,
+        request: Request<GetInstanceRequest>,
+    ) -> Result<Response<GetInstanceResponse>, Status> {
+        let req = request.into_inner();
+        if req.instance_id.is_empty() {
+            return Err(Status::invalid_argument("instance_id is required"));
+        }
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let inst = self
+            .instance_execution_index
+            .get_instance(&req.instance_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        let active = inst.as_ref().is_some_and(|instance| {
+            crate::sms::instance_execution_index::is_instance_active_and_fresh(
+                instance.status,
+                instance.last_seen_ms,
+                now_ms,
+                self.instance_execution_index.stale_after_ms(),
+            )
+        });
+        Ok(Response::new(GetInstanceResponse {
+            found: inst.is_some(),
+            active,
+            instance: inst,
+        }))
+    }
+
     async fn get_execution(
         &self,
         request: Request<GetExecutionRequest>,
@@ -2259,122 +1899,6 @@ impl ExecutionIndexServiceTrait for SmsServiceImpl {
             found: exe.is_some(),
             execution: exe,
         }))
-    }
-}
-
-#[derive(Debug, Clone)]
-struct NodePenalty {
-    // Consecutive retryable failures to drive exponential backoff.
-    // 连续可重试失败次数，用于指数退避。
-    consecutive_failures: u32,
-    // If now < blocked_until, the node is temporarily removed from candidate set.
-    // 若 now < blocked_until，则节点被临时熔断，不参与候选。
-    blocked_until: i64,
-    // Timestamp of last failure.
-    // 最近一次失败的时间戳。
-    last_failure_at: i64,
-}
-
-#[derive(Debug)]
-struct PlacementState {
-    node_penalties: DashMap<String, NodePenalty>,
-    penalty_ops: AtomicU64,
-}
-
-impl PlacementState {
-    fn new() -> Self {
-        Self {
-            node_penalties: DashMap::new(),
-            penalty_ops: AtomicU64::new(0),
-        }
-    }
-
-    fn maybe_prune_node_penalties(&self, now: i64) {
-        const PENALTY_TTL_SECS: i64 = 3600;
-
-        let op = self.penalty_ops.fetch_add(1, Ordering::Relaxed);
-        if op % 256 != 0 {
-            return;
-        }
-
-        let mut to_remove: Vec<String> = Vec::new();
-        for item in self.node_penalties.iter() {
-            let p = item.value();
-            if p.blocked_until > now {
-                continue;
-            }
-            if p.last_failure_at == 0 {
-                to_remove.push(item.key().clone());
-                continue;
-            }
-            if now - p.last_failure_at > PENALTY_TTL_SECS {
-                to_remove.push(item.key().clone());
-            }
-        }
-        for k in to_remove {
-            self.node_penalties.remove(&k);
-        }
-    }
-
-    fn is_blocked(&self, node_uuid: &str, now: i64) -> bool {
-        self.node_penalties
-            .get(node_uuid)
-            .map(|p| p.blocked_until > now)
-            .unwrap_or(false)
-    }
-
-    fn penalty_score(&self, node_uuid: &str, now: i64) -> f64 {
-        self.node_penalties
-            .get(node_uuid)
-            .map(|p| {
-                if p.blocked_until > now {
-                    10.0
-                } else {
-                    (p.consecutive_failures as f64).min(10.0)
-                }
-            })
-            .unwrap_or(0.0)
-    }
-
-    fn apply_outcome(&self, node_uuid: String, outcome_class: InvocationOutcomeClass) {
-        let now = chrono::Utc::now().timestamp();
-        match outcome_class {
-            InvocationOutcomeClass::Success => {
-                // Success clears penalty state.
-                // 成功会清空惩罚状态。
-                self.node_penalties.remove(&node_uuid);
-            }
-            InvocationOutcomeClass::Overloaded
-            | InvocationOutcomeClass::Unavailable
-            | InvocationOutcomeClass::Timeout => {
-                // Retryable failures trigger exponential backoff with a hard cap.
-                // 可重试失败触发指数退避，并设置硬上限。
-                self.node_penalties
-                    .entry(node_uuid)
-                    .and_modify(|p| {
-                        p.consecutive_failures = p.consecutive_failures.saturating_add(1);
-                        p.last_failure_at = now;
-                        let base = 10i64;
-                        let backoff = base * (1i64 << (p.consecutive_failures.min(5)));
-                        p.blocked_until = (now + backoff).min(now + 300);
-                    })
-                    .or_insert(NodePenalty {
-                        consecutive_failures: 1,
-                        blocked_until: (now + 20).min(now + 300),
-                        last_failure_at: now,
-                    });
-            }
-            _ => {}
-        }
-
-        self.maybe_prune_node_penalties(now);
-    }
-
-    #[cfg(test)]
-    fn get_node_penalty_snapshot(&self, node_uuid: &str) -> Option<(u32, i64, i64)> {
-        self.node_penalties
-            .get(node_uuid)
-            .map(|p| (p.consecutive_failures, p.blocked_until, p.last_failure_at))
     }
 }
 
@@ -2490,19 +2014,9 @@ impl PlacementServiceTrait for SmsServiceImpl {
                 .map_err(|e| Status::internal(e.to_string()))?
         };
         let heartbeat_timeout = self.config.heartbeat_timeout as i64;
-        let mut candidates: Vec<(NodeCandidate, f64)> = Vec::new();
+        let mut candidates: Vec<NodeCandidate> = Vec::new();
         for node in nodes {
-            // Filter nodes by liveness and heartbeat freshness.
-            // 先按存活状态与心跳新鲜度过滤。
-            if node.status.to_ascii_lowercase() != "online" {
-                continue;
-            }
-            if now - node.last_heartbeat > heartbeat_timeout {
-                continue;
-            }
-            // Skip nodes in temporary circuit-break.
-            // 熔断中的节点不参与候选。
-            if self.placement_state.is_blocked(&node.uuid, now) {
+            if !is_candidate_node(&node, now, heartbeat_timeout, &self.placement_state) {
                 continue;
             }
 
@@ -2512,43 +2026,20 @@ impl PlacementServiceTrait for SmsServiceImpl {
             } else {
                 None
             };
-            let (cpu, mem, disk, load) = if let Some(r) = resource {
-                (
-                    r.cpu_usage_percent,
-                    r.memory_usage_percent,
-                    r.disk_usage_percent,
-                    r.load_average_1m,
-                )
-            } else {
-                (0.0, 0.0, 0.0, 0.0)
-            };
-            let mut score = 100.0;
-            // Simple weighted scoring: lower usage/load => higher score.
-            // 简单加权评分：资源占用/负载越低，分数越高。
-            score -= cpu.min(100.0) * 0.5;
-            score -= mem.min(100.0) * 0.3;
-            score -= disk.min(100.0) * 0.1;
-            score -= (load.min(16.0) / 16.0) * 10.0;
-            // Apply penalty score derived from historical retryable failures.
-            // 基于历史可重试失败的惩罚项。
-            score -= self.placement_state.penalty_score(&node.uuid, now) * 5.0;
-            let candidate = NodeCandidate {
-                node_uuid: node.uuid.clone(),
-                ip_address: node.ip_address.clone(),
-                port: node.port,
-                score,
-            };
-            candidates.push((candidate, score));
+            let score = score_node(
+                resource.as_ref(),
+                self.placement_state.penalty_score(&node.uuid, now),
+            );
+            candidates.push(build_candidate(&node, score));
         }
 
-        candidates.sort_by(|a, b| b.1.total_cmp(&a.1));
-        candidates.truncate(max_candidates as usize);
+        let candidates = select_top_candidates(candidates, max_candidates);
 
         let decision_id = Uuid::new_v4().to_string();
 
         let resp = PlaceInvocationResponse {
             decision_id,
-            candidates: candidates.into_iter().map(|(c, _)| c).collect(),
+            candidates,
         };
         Ok(Response::new(resp))
     }
@@ -2566,8 +2057,7 @@ impl PlacementServiceTrait for SmsServiceImpl {
         if req.node_uuid.is_empty() {
             return Err(Status::invalid_argument("node_uuid is required"));
         }
-        let outcome_class = InvocationOutcomeClass::try_from(req.outcome_class)
-            .unwrap_or(InvocationOutcomeClass::Unknown);
+        let outcome_class = normalize_outcome_class(req.outcome_class);
         // Feedback loop: update penalty state to influence subsequent placements.
         // 反馈闭环：更新惩罚状态，影响后续 placement。
         self.placement_state
@@ -2575,100 +2065,6 @@ impl PlacementServiceTrait for SmsServiceImpl {
         Ok(Response::new(ReportInvocationOutcomeResponse {
             accepted: true,
         }))
-    }
-}
-
-async fn run_instance_projector(idx: Arc<InstanceExecutionIndex>, bus: Arc<UnifiedEventBus>) {
-    let stream = "type.instance";
-    let checkpoint_name = "type.instance";
-    let replay_limit = 1000usize;
-    let mut last_seq = idx.load_checkpoint(checkpoint_name).await.unwrap_or(0);
-    loop {
-        let batch = bus.replay_since(stream, last_seq, replay_limit).await;
-        let Ok(events) = batch else {
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            continue;
-        };
-        if events.is_empty() {
-            break;
-        }
-        for env in events {
-            if env.seq <= last_seq {
-                continue;
-            }
-            if let Some(any) = env.payload {
-                let now_ms = chrono::Utc::now().timestamp_millis();
-                let _ = idx.apply_instance_event(env.op, &any, now_ms).await;
-            }
-            last_seq = env.seq;
-            let _ = idx.store_checkpoint(checkpoint_name, last_seq).await;
-        }
-    }
-
-    let mut rx = bus.subscribe(stream).await;
-    loop {
-        match rx.recv().await {
-            Ok(env) => {
-                if env.seq <= last_seq {
-                    continue;
-                }
-                if let Some(any) = env.payload {
-                    let now_ms = chrono::Utc::now().timestamp_millis();
-                    let _ = idx.apply_instance_event(env.op, &any, now_ms).await;
-                }
-                last_seq = env.seq;
-                let _ = idx.store_checkpoint(checkpoint_name, last_seq).await;
-            }
-            Err(broadcast::error::RecvError::Lagged(_)) => {}
-            Err(broadcast::error::RecvError::Closed) => break,
-        }
-    }
-}
-
-async fn run_execution_projector(idx: Arc<InstanceExecutionIndex>, bus: Arc<UnifiedEventBus>) {
-    let stream = "type.execution";
-    let checkpoint_name = "type.execution";
-    let replay_limit = 1000usize;
-    let mut last_seq = idx.load_checkpoint(checkpoint_name).await.unwrap_or(0);
-    loop {
-        let batch = bus.replay_since(stream, last_seq, replay_limit).await;
-        let Ok(events) = batch else {
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            continue;
-        };
-        if events.is_empty() {
-            break;
-        }
-        for env in events {
-            if env.seq <= last_seq {
-                continue;
-            }
-            if let Some(any) = env.payload {
-                let now_ms = chrono::Utc::now().timestamp_millis();
-                let _ = idx.apply_execution_event(env.op, &any, now_ms).await;
-            }
-            last_seq = env.seq;
-            let _ = idx.store_checkpoint(checkpoint_name, last_seq).await;
-        }
-    }
-
-    let mut rx = bus.subscribe(stream).await;
-    loop {
-        match rx.recv().await {
-            Ok(env) => {
-                if env.seq <= last_seq {
-                    continue;
-                }
-                if let Some(any) = env.payload {
-                    let now_ms = chrono::Utc::now().timestamp_millis();
-                    let _ = idx.apply_execution_event(env.op, &any, now_ms).await;
-                }
-                last_seq = env.seq;
-                let _ = idx.store_checkpoint(checkpoint_name, last_seq).await;
-            }
-            Err(broadcast::error::RecvError::Lagged(_)) => {}
-            Err(broadcast::error::RecvError::Closed) => break,
-        }
     }
 }
 

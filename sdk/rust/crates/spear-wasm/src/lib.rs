@@ -10,12 +10,14 @@
 //! - 所有 hostcall 都通过 32 位指针访问 WASM 线性内存。
 
 #![deny(unsafe_op_in_unsafe_fn)]
+#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use thiserror::Error;
 
 pub use spear_wasm_sys::constants;
 
 pub mod ssf;
+pub mod ssf_meta;
 
 #[derive(Debug, Clone, Error)]
 #[error("{op}: {code} (errno={errno})")]
@@ -116,6 +118,27 @@ pub fn log_error(msg: &str) -> Result<(), SpearError> {
     log_write(LOG_ERROR, msg)
 }
 
+pub fn time_now_ms() -> Result<i64, SpearError> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        Ok(unsafe { spear_wasm_sys::time_now_ms() })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let duration = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| SpearError {
+                code: "internal",
+                errno: -constants::SPEAR_EIO,
+                op: "time_now_ms",
+            })?;
+        Ok(duration.as_millis() as i64)
+    }
+}
+
 pub fn sleep_ms(ms: u32) {
     #[cfg(target_arch = "wasm32")]
     unsafe {
@@ -175,6 +198,147 @@ impl Fd {
 
     pub fn raw(self) -> i32 {
         self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EpollFd(i32);
+
+impl EpollFd {
+    pub fn from_raw(raw: i32) -> Self {
+        Self(raw)
+    }
+
+    pub fn raw(self) -> i32 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EpollEvent {
+    pub fd: i32,
+    pub events: i32,
+}
+
+fn invalid_epoll_buffer(op: &'static str) -> SpearError {
+    SpearError {
+        code: "invalid_epoll_buffer",
+        errno: -constants::SPEAR_EINVAL,
+        op,
+    }
+}
+
+fn parse_epoll_events(bytes: &[u8]) -> Result<Vec<EpollEvent>, SpearError> {
+    if bytes.len() % 8 != 0 {
+        return Err(invalid_epoll_buffer("epoll_wait"));
+    }
+
+    let mut events = Vec::with_capacity(bytes.len() / 8);
+    for chunk in bytes.chunks_exact(8) {
+        let fd = i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        let mask = i32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
+        events.push(EpollEvent { fd, events: mask });
+    }
+    Ok(events)
+}
+
+pub fn epoll_create() -> Result<EpollFd, SpearError> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let fd = rc_to_result(unsafe { spear_wasm_sys::spear_epoll_create() }, "epoll_create")?;
+        Ok(EpollFd(fd))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        Err(SpearError {
+            code: "unsupported_target",
+            errno: -libc::ENOSYS,
+            op: "epoll_create",
+        })
+    }
+}
+
+pub fn epoll_ctl(epfd: EpollFd, op: i32, fd: i32, events: i32) -> Result<(), SpearError> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let rc = unsafe { spear_wasm_sys::spear_epoll_ctl(epfd.raw(), op, fd, events) };
+        rc_to_unit(rc, "epoll_ctl")
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (epfd, op, fd, events);
+        Err(SpearError {
+            code: "unsupported_target",
+            errno: -libc::ENOSYS,
+            op: "epoll_ctl",
+        })
+    }
+}
+
+pub fn epoll_wait(
+    epfd: EpollFd,
+    timeout_ms: i32,
+    initial_capacity: usize,
+) -> Result<Vec<EpollEvent>, SpearError> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut capacity = initial_capacity.max(1) * 8;
+        for _ in 0..4 {
+            let mut out = vec![0u8; capacity];
+            let mut out_len = out.len() as u32;
+            let out_ptr_i32 = out.as_mut_ptr() as usize as i32;
+            let out_len_ptr_i32 = (&mut out_len as *mut u32) as usize as i32;
+            let rc = unsafe {
+                spear_wasm_sys::spear_epoll_wait(epfd.raw(), out_ptr_i32, out_len_ptr_i32, timeout_ms)
+            };
+            if rc >= 0 {
+                out.truncate(out_len as usize);
+                return parse_epoll_events(&out);
+            }
+            if rc != -constants::SPEAR_ENOSPC {
+                return Err(SpearError {
+                    code: errno_to_code(rc),
+                    errno: rc,
+                    op: "epoll_wait",
+                });
+            }
+            capacity = (out_len as usize).max(capacity.saturating_mul(2)).max(8);
+        }
+        Err(SpearError {
+            code: "buffer_too_small",
+            errno: -constants::SPEAR_ENOSPC,
+            op: "epoll_wait",
+        })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (epfd, timeout_ms, initial_capacity);
+        Err(SpearError {
+            code: "unsupported_target",
+            errno: -libc::ENOSYS,
+            op: "epoll_wait",
+        })
+    }
+}
+
+pub fn epoll_close(epfd: EpollFd) -> Result<(), SpearError> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let rc = unsafe { spear_wasm_sys::spear_epoll_close(epfd.raw()) };
+        rc_to_unit(rc, "epoll_close")
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = epfd;
+        Err(SpearError {
+            code: "unsupported_target",
+            errno: -libc::ENOSYS,
+            op: "epoll_close",
+        })
     }
 }
 
@@ -390,13 +554,193 @@ pub fn cchat_close(fd: Fd) -> Result<(), SpearError> {
     }
 }
 
-/// Chat session wrapper / Chat 会话封装
-pub struct ChatSession {
+fn rtasr_ctl_json(fd: Fd, cmd: i32, json: &str, op: &'static str) -> Result<(), SpearError> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let json_b = json.as_bytes();
+        let (json_ptr, _json_len) = cast_ptr_len(json_b);
+        let mut len_u32: u32 = json_b.len() as u32;
+        let len_ptr = (&mut len_u32 as *mut u32) as usize as i32;
+        let rc = unsafe { spear_wasm_sys::rtasr_ctl(fd.0, cmd, json_ptr, len_ptr) };
+        return rc_to_unit(rc, op);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (fd, cmd, json);
+        Err(SpearError {
+            code: "unsupported_target",
+            errno: -libc::ENOSYS,
+            op,
+        })
+    }
+}
+
+fn rtasr_ctl_no_arg(fd: Fd, cmd: i32, op: &'static str) -> Result<(), SpearError> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut len_u32: u32 = 0;
+        let len_ptr = (&mut len_u32 as *mut u32) as usize as i32;
+        let rc = unsafe { spear_wasm_sys::rtasr_ctl(fd.0, cmd, 0, len_ptr) };
+        return rc_to_unit(rc, op);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (fd, cmd);
+        Err(SpearError {
+            code: "unsupported_target",
+            errno: -libc::ENOSYS,
+            op,
+        })
+    }
+}
+
+/// Create a real-time ASR session / 创建实时语音识别会话
+pub fn rtasr_create() -> Result<Fd, SpearError> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let fd = unsafe { spear_wasm_sys::rtasr_create() };
+        let fd = rc_to_result(fd, "rtasr_create")?;
+        Ok(Fd(fd))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        Err(SpearError {
+            code: "unsupported_target",
+            errno: -libc::ENOSYS,
+            op: "rtasr_create",
+        })
+    }
+}
+
+/// Close one RTASR session FD / 关闭 RTASR 会话 FD
+pub fn rtasr_close(fd: Fd) -> Result<(), SpearError> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let rc = unsafe { spear_wasm_sys::rtasr_close(fd.0) };
+        rc_to_unit(rc, "rtasr_close")
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = fd;
+        Err(SpearError {
+            code: "unsupported_target",
+            errno: -libc::ENOSYS,
+            op: "rtasr_close",
+        })
+    }
+}
+
+/// Write one audio chunk into RTASR / 向 RTASR 写入一段音频
+pub fn rtasr_write(fd: Fd, bytes: &[u8]) -> Result<(), SpearError> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let (ptr, len) = cast_ptr_len(bytes);
+        let rc = unsafe { spear_wasm_sys::rtasr_write(fd.0, ptr, len) };
+        rc_to_unit(rc, "rtasr_write")
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (fd, bytes);
+        Err(SpearError {
+            code: "unsupported_target",
+            errno: -libc::ENOSYS,
+            op: "rtasr_write",
+        })
+    }
+}
+
+/// Read one RTASR event payload, or `None` on EAGAIN.
+/// 读取一条 RTASR 事件；遇到 EAGAIN 返回 `None`。
+pub fn rtasr_read_alloc(fd: Fd) -> Result<Option<Vec<u8>>, SpearError> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut cap = 64 * 1024;
+        for _ in 0..3 {
+            let mut buf = vec![0u8; cap.max(1)];
+            let mut len_u32: u32 = buf.len() as u32;
+            let rc = unsafe {
+                let out_ptr_i32 = buf.as_mut_ptr() as usize as i32;
+                let out_len_ptr_i32 = (&mut len_u32 as *mut u32) as usize as i32;
+                spear_wasm_sys::rtasr_read(fd.0, out_ptr_i32, out_len_ptr_i32)
+            };
+            if rc >= 0 {
+                buf.truncate(len_u32 as usize);
+                return Ok(Some(buf));
+            }
+            if rc == -constants::SPEAR_EAGAIN {
+                return Ok(None);
+            }
+            if rc != -constants::SPEAR_ENOSPC {
+                return Err(SpearError {
+                    code: errno_to_code(rc),
+                    errno: rc,
+                    op: "rtasr_read",
+                });
+            }
+            cap = (len_u32 as usize).max(cap.saturating_mul(2));
+        }
+        Err(SpearError {
+            code: "buffer_too_small",
+            errno: -constants::SPEAR_ENOSPC,
+            op: "rtasr_read",
+        })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = fd;
+        Err(SpearError {
+            code: "unsupported_target",
+            errno: -libc::ENOSYS,
+            op: "rtasr_read",
+        })
+    }
+}
+
+/// Set one RTASR parameter by JSON (`{"key":...,"value":...}`)
+/// 通过 JSON 设置一个 RTASR 参数（`{"key":...,"value":...}`）
+pub fn rtasr_set_param_json(fd: Fd, json: &str) -> Result<(), SpearError> {
+    rtasr_ctl_json(fd, constants::SPEAR_RTA_CTL_SET_PARAM, json, "rtasr_ctl")
+}
+
+/// Set one string RTASR parameter / 设置字符串类型 RTASR 参数
+pub fn rtasr_set_param_string(fd: Fd, key: &str, value: &str) -> Result<(), SpearError> {
+    let json = serde_json::json!({ "key": key, "value": value }).to_string();
+    rtasr_set_param_json(fd, &json)
+}
+
+/// Connect RTASR to the configured backend / 连接 RTASR 到已配置后端
+pub fn rtasr_connect(fd: Fd) -> Result<(), SpearError> {
+    rtasr_ctl_no_arg(fd, constants::SPEAR_RTA_CTL_CONNECT, "rtasr_ctl")
+}
+
+/// Flush the current utterance into RTASR / 刷新当前 utterance 到 RTASR
+pub fn rtasr_flush(fd: Fd) -> Result<(), SpearError> {
+    rtasr_ctl_no_arg(fd, constants::SPEAR_RTA_CTL_FLUSH, "rtasr_ctl")
+}
+
+/// Clear RTASR utterance-local state / 清除 RTASR 当前 utterance 状态
+pub fn rtasr_clear(fd: Fd) -> Result<(), SpearError> {
+    rtasr_ctl_no_arg(fd, constants::SPEAR_RTA_CTL_CLEAR, "rtasr_ctl")
+}
+
+/// Configure RTASR autoflush policy / 配置 RTASR 自动 flush 策略
+pub fn rtasr_set_autoflush_json(fd: Fd, json: &str) -> Result<(), SpearError> {
+    rtasr_ctl_json(fd, constants::SPEAR_RTA_CTL_SET_AUTOFLUSH, json, "rtasr_ctl")
+}
+
+/// Chat request context wrapper / Chat 请求上下文封装
+pub struct ChatRequestContext {
     fd: Fd,
 }
 
-impl ChatSession {
-    /// Create a new chat session / 创建新的 chat 会话
+impl ChatRequestContext {
+    /// Create a new chat request context / 创建新的 chat 请求上下文
     pub fn create() -> Result<Self, SpearError> {
         #[cfg(target_arch = "wasm32")]
         {
@@ -419,7 +763,7 @@ impl ChatSession {
         self.fd
     }
 
-    /// Write one message into the session / 写入一条消息
+    /// Write one message into the request context / 向请求上下文写入一条消息
     pub fn write_message(&mut self, role: &str, content: &str) -> Result<(), SpearError> {
         #[cfg(target_arch = "wasm32")]
         {
@@ -518,8 +862,8 @@ impl ChatSession {
         }
     }
 
-    /// Close the session FD
-    /// 关闭会话 FD
+    /// Close the request-context FD
+    /// 关闭请求上下文 FD
     pub fn close(self) -> Result<(), SpearError> {
         cchat_close(self.fd)
     }
@@ -589,5 +933,32 @@ mod tests {
 
         assert_eq!(called, 2);
         assert_eq!(out, payload);
+    }
+
+    #[test]
+    fn test_parse_epoll_events() {
+        let bytes = [
+            1u8, 0, 0, 0, 0x01, 0, 0, 0, 2, 0, 0, 0, 0x18, 0, 0, 0,
+        ];
+        let events = parse_epoll_events(&bytes).unwrap();
+        assert_eq!(
+            events,
+            vec![
+                EpollEvent {
+                    fd: 1,
+                    events: 0x01,
+                },
+                EpollEvent {
+                    fd: 2,
+                    events: 0x18,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_epoll_events_rejects_partial_record() {
+        let err = parse_epoll_events(&[1, 2, 3]).unwrap_err();
+        assert_eq!(err.code, "invalid_epoll_buffer");
     }
 }

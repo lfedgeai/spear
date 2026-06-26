@@ -1,5 +1,6 @@
 use crate::spearlet::execution::ai::router::Router;
 use crate::spearlet::execution::ai::AiEngine;
+use crate::spearlet::execution::ai::engine_holder::{global as global_engine_holder, EngineHolder};
 use crate::spearlet::execution::host_api::iface::{HttpCallResult, SpearHostApi};
 use crate::spearlet::execution::hostcall::fd_table::FdTable;
 use crate::spearlet::execution::ExecutionError;
@@ -199,7 +200,7 @@ pub fn clear_wasm_logs_by_execution(execution_id: &str) {
 pub struct DefaultHostApi {
     pub(super) runtime_config: super::super::runtime::RuntimeConfig,
     pub(super) fd_table: Arc<FdTable>,
-    pub(super) ai_engine: Arc<AiEngine>,
+    pub(super) ai_engine_holder: Arc<EngineHolder>,
     pub(super) mcp_registry_sync: Option<Arc<McpRegistrySyncService>>,
     pub(super) task_id: Option<String>,
     pub(super) mcp_task_policy: Option<Arc<McpTaskPolicy>>,
@@ -211,26 +212,28 @@ pub struct DefaultHostApi {
 
 impl DefaultHostApi {
     pub fn new(runtime_config: super::super::runtime::RuntimeConfig) -> Self {
-        let (registry, policy) =
-            super::registry::build_registry_from_runtime_config(&runtime_config);
-        let grpc_filter_stream = runtime_config
-            .spearlet_config
-            .as_ref()
-            .and_then(|cfg| {
-                cfg.llm.router_grpc_filter_stream.clone().map(|mut f| {
-                    if f.enabled && f.addr.trim().is_empty() {
-                        f.addr = cfg.sms_grpc_addr.clone();
-                    }
-                    f
+        let ai_engine_holder = global_engine_holder().unwrap_or_else(|| {
+            let (registry, policy) = crate::spearlet::execution::ai::router::builder::build_registry_from_runtime_config(&runtime_config);
+            let grpc_filter_stream = runtime_config
+                .spearlet_config
+                .as_ref()
+                .and_then(|cfg| {
+                    cfg.ai.router_grpc_filter_stream.clone().map(|mut f| {
+                        if f.enabled && f.addr.trim().is_empty() {
+                            f.addr = cfg.sms_grpc_addr.clone();
+                        }
+                        f
+                    })
                 })
-            })
-            .map(
-                crate::spearlet::execution::ai::router::grpc_filter_stream::RouterFilterStreamHub::init_global,
-            )
-            .or_else(crate::spearlet::execution::ai::router::grpc_filter_stream::RouterFilterStreamHub::global)
-            .filter(|h| h.config.enabled);
-        let router = Router::new_with_filter(registry, policy, grpc_filter_stream);
-        let ai_engine = Arc::new(AiEngine::new(router));
+                .map(
+                    crate::spearlet::execution::ai::router::grpc_filter_stream::RouterFilterStreamHub::init_global,
+                )
+                .or_else(crate::spearlet::execution::ai::router::grpc_filter_stream::RouterFilterStreamHub::global)
+                .filter(|h| h.config.enabled);
+            let router = Router::new_with_filter(registry, policy, grpc_filter_stream);
+            let engine = Arc::new(AiEngine::new(router));
+            Arc::new(EngineHolder::new(engine, 0))
+        });
 
         let mcp_registry_sync = runtime_config
             .spearlet_config
@@ -239,7 +242,7 @@ impl DefaultHostApi {
         Self {
             runtime_config,
             fd_table: Arc::new(FdTable::new(1000)),
-            ai_engine,
+            ai_engine_holder,
             mcp_registry_sync,
             task_id: None,
             mcp_task_policy: None,

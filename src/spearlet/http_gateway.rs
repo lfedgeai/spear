@@ -27,6 +27,8 @@ use crate::proto::spearlet::{
     TerminateExecutionRequest, UnpinObjectRequest,
 };
 use crate::spearlet::config::SpearletConfig;
+use crate::spearlet::ai::credential_sync::global_credential_sync_status_snapshot;
+use crate::spearlet::execution::ai::engine_holder;
 use crate::spearlet::function_service::FunctionServiceImpl;
 use crate::spearlet::grpc_server::HealthService;
 
@@ -97,6 +99,8 @@ pub(crate) fn build_router(state: AppState, swagger_enabled: bool) -> Router {
         .route("/tasks/{task_id}/executions", get(get_task_executions))
         .route("/monitoring/stats", get(get_stats))
         .route("/monitoring/health", get(get_health_status))
+        .route("/monitoring/ai/backends", get(get_ai_backends))
+        .route("/monitoring/ai/credentials", get(get_ai_credentials))
         .route(
             "/api/v1/executions/{execution_id}/streams/ws",
             get(user_stream_ws),
@@ -140,7 +144,7 @@ async fn user_stream_ws_loop(execution_id: String, socket: WebSocket) {
         }
     });
 
-    loop {
+    let exit_reason = loop {
         if !had_hub
             && crate::spearlet::execution::host_api::user_stream::ExecutionUserStreamHub::get(
                 &execution_id,
@@ -155,13 +159,16 @@ async fn user_stream_ws_loop(execution_id: String, socket: WebSocket) {
             .is_none()
         {
             let _ = out_tx.send(Message::Close(None));
-            break;
+            break "execution_user_stream_hub_disappeared".to_string();
         }
 
         tokio::select! {
             msg = ws_rx.next() => {
-                let Some(Ok(msg)) = msg else {
-                    break;
+                let Some(msg) = msg else {
+                    break "browser_ws_eof".to_string();
+                };
+                let Ok(msg) = msg else {
+                    break "browser_ws_error".to_string();
                 };
                 match msg {
                     Message::Binary(frame) => {
@@ -171,10 +178,12 @@ async fn user_stream_ws_loop(execution_id: String, socket: WebSocket) {
                         );
                         if rc < 0 {
                             let _ = out_tx.send(Message::Close(None));
-                            break;
+                            break format!("ws_push_frame_error:{rc}");
                         }
                     }
-                    Message::Close(_) => break,
+                    Message::Close(_) => {
+                        break "browser_ws_close_frame".to_string()
+                    },
                     Message::Ping(p) => {
                         let _ = out_tx.send(Message::Pong(p));
                     }
@@ -191,8 +200,13 @@ async fn user_stream_ws_loop(execution_id: String, socket: WebSocket) {
                 }
             }
         }
-    }
+    };
 
+    info!(
+        execution_id = %execution_id,
+        exit_reason = %exit_reason,
+        "user_stream_ws_loop stopping"
+    );
     drop(out_tx);
     let _ = writer.await;
     crate::spearlet::execution::host_api::user_stream::map_ws_close_to_channels(&execution_id);
@@ -256,7 +270,7 @@ async fn e2e_llm_router_filter(
     };
 
     let (registry, _policy) =
-        crate::spearlet::execution::host_api::registry::build_registry_from_runtime_config(
+        crate::spearlet::execution::ai::router::builder::build_registry_from_runtime_config(
             &runtime_config,
         );
     let mut candidates = registry.candidates(&req);
@@ -283,34 +297,14 @@ async fn e2e_llm_router_filter(
 
     let mut kept: Vec<&crate::spearlet::execution::ai::router::registry::BackendInstance> =
         candidates;
-    if let Some(final_action) = resp.final_action.as_ref() {
-        if !final_action.force_backend.trim().is_empty() {
-            let forced = final_action.force_backend.trim();
-            kept.retain(|c| c.name == forced);
-        }
-    }
+    let outcome =
+        crate::spearlet::execution::ai::router::filter_decision::apply_filter_response(
+            &resp,
+            &mut kept,
+        );
 
-    let mut decision_by_name: HashMap<&str, &crate::proto::spearlet::CandidateDecision> =
-        HashMap::new();
-    for d in resp.decisions.iter() {
-        decision_by_name.insert(d.name.as_str(), d);
-    }
-
-    kept.retain(|c| {
-        let Some(d) = decision_by_name.get(c.name.as_str()) else {
-            return true;
-        };
-        d.action != crate::proto::spearlet::DecisionAction::Drop as i32
-    });
-
-    let kept_names: Vec<String> = kept.iter().map(|c| c.name.clone()).collect();
-    let mut dropped_names: Vec<String> = Vec::new();
-    for (name, d) in decision_by_name {
-        if d.action == crate::proto::spearlet::DecisionAction::Drop as i32 {
-            dropped_names.push(name.to_string());
-        }
-    }
-    dropped_names.sort();
+    let kept_names: Vec<String> = kept.iter().map(|c| c.spec.name.clone()).collect();
+    let dropped_names = outcome.dropped_names;
 
     if kept.len() != 1 {
         return (
@@ -328,7 +322,7 @@ async fn e2e_llm_router_filter(
     (
         StatusCode::OK,
         Json(serde_json::json!({
-            "selected_backend": kept[0].name,
+            "selected_backend": kept[0].spec.name,
             "kept": kept_names,
             "dropped": dropped_names,
             "debug": resp.debug,
@@ -1139,6 +1133,34 @@ async fn get_stats(State(state): State<AppState>) -> Result<Json<serde_json::Val
         "artifact_count": stats.artifact_count,
         "instance_count": stats.instance_count,
         "average_response_time_ms": stats.average_response_time_ms
+    })))
+}
+
+/// Get current in-process AI backend registry snapshot / 获取当前进程内 AI backend registry 快照
+/// GET /monitoring/ai/backends
+async fn get_ai_backends(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let holder = engine_holder::global().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let engine = holder.get();
+    let snap = engine.debug_snapshot();
+    Ok(Json(serde_json::json!({
+        "engine_revision": holder.revision(),
+        "remote_backend_sync": {
+            "enabled": state.config.ai.remote_backend_sync.enabled,
+            "poll_interval_ms": state.config.ai.remote_backend_sync.poll_interval_ms,
+            "merge_policy": state.config.ai.remote_backend_sync.merge_policy,
+        },
+        "router": snap,
+    })))
+}
+
+/// Get current in-process credential sync snapshot / 获取当前进程内 credential 同步快照
+/// GET /monitoring/ai/credentials
+async fn get_ai_credentials() -> Result<Json<serde_json::Value>, StatusCode> {
+    let snapshot = global_credential_sync_status_snapshot();
+    Ok(Json(serde_json::json!({
+        "credential_sync": snapshot,
     })))
 }
 

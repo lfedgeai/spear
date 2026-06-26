@@ -40,7 +40,7 @@ static int32_t sp_cchat_set_param_string_array2(int32_t fd, const char *key, con
 }
 
 int main() {
-    // Create chat session.
+    // Create chat request context.
     // 创建 chat 会话。
     int32_t fd = sp_cchat_create();
     if (fd < 0) {

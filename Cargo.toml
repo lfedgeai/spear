@@ -69,6 +69,7 @@ sha2 = "0.10"
 
 # Base64 encoding/decoding / Base64编码解码
 base64 = "0.21"
+aes-gcm = "0.10"
 
 # Database / 数据库
 sled = { version = "0.34", optional = true }
@@ -79,6 +80,7 @@ async-trait = "0.1"
 
 # High-performance synchronization primitives / 高性能同步原语
 parking_lot = "0.12"
+arc-swap = "1"
 
 # Concurrent hash map / 并发哈希映射
 dashmap = "5.5"
@@ -137,3 +139,4 @@ rocksdb = ["dep:rocksdb"]
 evmap = ["dep:evmap"]
 wasmedge = ["dep:wasmedge-sdk", "dep:wasmedge-sys"]
 mic-device = ["dep:cpal"]
+debug-reporter = []

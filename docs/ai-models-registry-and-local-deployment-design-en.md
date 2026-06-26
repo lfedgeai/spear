@@ -2,7 +2,7 @@
 
 ## 1. Background and Goals
 
-The system currently uses “Backends” as the primary runtime and Web Admin abstraction for routing and observability: Spearlet builds an in-process registry from `spearlet.llm.backends[]` (plus optional discovery, e.g. Ollama import), and periodically reports per-node backend snapshots to SMS (see [backend_registry.proto](../proto/sms/backend_registry.proto) and the Spearlet reporter).
+The system currently uses “Backends” as the primary runtime and Web Admin abstraction for routing and observability: Spearlet builds an in-process registry from `spearlet.ai.backends[]` (plus optional discovery, e.g. Ollama import), and periodically reports per-node backend snapshots to SMS (see [backend_registry.proto](../proto/sms/backend_registry.proto) and the Spearlet reporter).
 
 You want to:
 
@@ -96,7 +96,7 @@ Each row is an aggregated AI Model:
 - Provider (OpenAI/Ollama/vLLM/…)
 - Model (model name; if backend is not fixed-bound, display “(dynamic)” or aggregate at provider level)
 - Hosting (Remote/Local)
-- Operations (chat_completions, realtime_voice, embeddings, …)
+- Operations (chat_completions, speech_to_text, embeddings, ...; only show currently implemented or registered capabilities)
 - Available nodes / Total nodes (mainly relevant for Local or multi-endpoint Remote)
 - Status (aggregate: e.g. available/partial/unavailable)
 
@@ -476,7 +476,7 @@ impl LocalModelController {
 
 Integration with backend registry:
 
-- After a deployment becomes ready, produce a `LlmBackendConfig` (or equivalent runtime backend spec) and inject it into the runtime registry. For long-term correctness, use a dynamic registry handle approach (see the registry hot-update notes in [ollama-model-import-design-zh.md](./ollama-model-import-design-zh.md)).
+- After a deployment becomes ready, produce an `AiBackendConfig` (or equivalent runtime backend spec) and inject it into the runtime registry. For long-term correctness, use a dynamic registry handle approach (see the registry hot-update notes in [ollama-model-import-design-zh.md](./ollama-model-import-design-zh.md)).
 
 ## 7. Web Admin API Design (BFF)
 

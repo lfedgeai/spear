@@ -52,8 +52,10 @@ Client (browser/service) connects to the stream gateway and binds to an executio
 
 ### 2.3 Rust SDK and Boa JS usage
 
-- Rust: `sdk/rust/crates/spear-wasm` provides safe wrappers for `user_stream_*` and `user_stream_ctl_*`.
+- Rust: `sdk/rust/crates/spear-wasm` provides safe wrappers for `user_stream_*`, `user_stream_ctl_*`, and `spear_epoll_*`.
+- Rust helper layer: `sdk/rust/crates/spear-wasm-helper` provides reusable `ManagedStream`, SSF/user-stream protocol parsing, and text-output buffering for Rust-first guest apps.
 - Boa JS: `sdk/rust/crates/spear-boa` exposes `Spear.userStream` so JS code can open/read/write streams without manually dealing with raw pointers.
+- Boa JS helper modules: `spear/time_format`, `spear/rtasr_event`, and `spear/stream_gate` provide reusable timestamp, RTASR-event, and user-stream gating helpers for JS-first guest apps.
 
 Two options exist for delivering inbound data to a WASM instance:
 

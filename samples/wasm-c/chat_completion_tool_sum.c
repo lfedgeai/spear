@@ -81,8 +81,8 @@ int32_t sum(int32_t args_ptr, int32_t args_len, int32_t out_ptr, int32_t out_len
 }
 
 int main() {
-    // Create a chat session fd.
-    // 创建 chat session fd。
+    // Create a chat request context fd.
+    // 创建 chat 请求上下文 fd。
     int32_t fd = sp_cchat_create();
     if (fd < 0) {
         printf("cchat_create failed: %d\n", fd);

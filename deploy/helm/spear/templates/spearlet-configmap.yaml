@@ -39,13 +39,13 @@ data:
     file = {{ .Values.spearlet.config.logging.file | quote }}
     {{- end }}
 
-    {{- with .Values.spearlet.config.llm }}
+    {{- with .Values.spearlet.config.ai }}
 
-    [spearlet.llm]
+    [spearlet.ai]
     default_policy = {{ .defaultPolicy | quote }}
 
     {{- with .discovery.ollama }}
-    [spearlet.llm.discovery.ollama]
+    [spearlet.ai.discovery.ollama]
     enabled = {{ .enabled }}
     scope = {{ .scope | quote }}
     base_url = {{ .baseUrl | quote }}
@@ -64,14 +64,14 @@ data:
     {{- end }}
 
     {{- range .credentials }}
-    [[spearlet.llm.credentials]]
+    [[spearlet.ai.credentials]]
     name = {{ .name | quote }}
     kind = {{ default "env" .kind | quote }}
     api_key_env = {{ .apiKeyEnv | quote }}
     {{- end }}
 
     {{- range .backends }}
-    [[spearlet.llm.backends]]
+    [[spearlet.ai.backends]]
     name = {{ .name | quote }}
     kind = {{ .kind | quote }}
     base_url = {{ default "" .baseUrl | quote }}
@@ -95,7 +95,7 @@ data:
 
     {{- if .Values.routerFilter.enabled }}
 
-    [spearlet.llm.router_grpc_filter_stream]
+    [spearlet.ai.router_grpc_filter_stream]
     enabled = true
     addr = {{ .Values.routerFilter.addr | quote }}
     decision_timeout_ms = {{ default 2000 .Values.routerFilter.decisionTimeoutMs }}
@@ -106,7 +106,7 @@ data:
 
     {{- if .Values.e2e.enabled }}
 
-    [[spearlet.llm.backends]]
+    [[spearlet.ai.backends]]
     name = "stub_local"
     kind = "stub"
     base_url = ""
@@ -117,7 +117,7 @@ data:
     features = []
     transports = ["in_process"]
 
-    [[spearlet.llm.backends]]
+    [[spearlet.ai.backends]]
     name = "stub_remote"
     kind = "stub"
     base_url = ""

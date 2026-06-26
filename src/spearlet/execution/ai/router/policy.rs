@@ -24,11 +24,11 @@ fn select_weighted_random<'a>(
     req: &CanonicalRequestEnvelope,
     candidates: Vec<&'a BackendInstance>,
 ) -> Result<&'a BackendInstance, CanonicalError> {
-    let total: u32 = candidates.iter().map(|c| c.weight.max(1)).sum();
+    let total: u32 = candidates.iter().map(|c| c.spec.weight.max(1)).sum();
     let mut rng = rand::thread_rng();
     let mut pick = rng.gen_range(0..total);
     for c in candidates {
-        let w = c.weight.max(1);
+        let w = c.spec.weight.max(1);
         if pick < w {
             return Ok(c);
         }

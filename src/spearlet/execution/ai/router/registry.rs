@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::spearlet::execution::ai::backends::BackendAdapter;
 use crate::spearlet::execution::ai::ir::CanonicalRequestEnvelope;
 use crate::spearlet::execution::ai::router::capabilities::Capabilities;
+use crate::proto::sms::BackendSpec;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hosting {
@@ -13,13 +14,8 @@ pub enum Hosting {
 
 #[derive(Clone)]
 pub struct BackendInstance {
-    pub name: String,
-    pub kind: String,
-    pub base_url: String,
+    pub spec: BackendSpec,
     pub hosting: Hosting,
-    pub model: Option<String>,
-    pub weight: u32,
-    pub priority: i32,
     pub capabilities: Capabilities,
     pub adapter: Arc<dyn BackendAdapter>,
 }

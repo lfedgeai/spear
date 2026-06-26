@@ -11,3 +11,5 @@ spear-wasm-sys = { path = "../spear-wasm-sys" }
 spear-ssf = { path = "../spear-ssf" }
 thiserror = "1"
 libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -1,3 +1,4 @@
+pub mod http_json;
 pub mod ollama_chat;
 pub mod openai_chat_completion;
 pub mod openai_realtime_ws;

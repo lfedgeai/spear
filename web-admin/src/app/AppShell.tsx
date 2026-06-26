@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { HashRouter, Link, NavLink, Route, Routes, Navigate } from 'react-router-dom'
+import { HashRouter, Link, NavLink, Route, Routes } from 'react-router-dom'
 import { LayoutDashboard, Moon, Server, Settings, Sun, FileBox, ListTodo, Plug, Boxes } from 'lucide-react'
 import { Toaster } from 'sonner'
 
@@ -15,6 +15,7 @@ import FilesPage from '@/features/files/FilesPage'
 import FileDetailPage from '@/features/files/FileDetailPage'
 import AiModelsPage from '@/features/ai-models/AiModelsPage'
 import AiModelDetailPage from '@/features/ai-models/AiModelDetailPage'
+import CredentialsPanel from '@/features/ai-models/CredentialsPanel'
 import McpPage from '@/features/mcp/McpPage'
 import McpServerDetailPage from '@/features/mcp/McpServerDetailPage'
 import SettingsPage from '@/features/settings/SettingsPage'
@@ -42,6 +43,7 @@ function Shell() {
         children: [
           { to: '/ai-models/remote', label: 'Remote', icon: Boxes },
           { to: '/ai-models/local', label: 'Local', icon: Boxes },
+          { to: '/ai-models/credentials', label: 'Credentials', icon: Boxes },
         ],
       },
       { to: '/mcp', label: 'MCP', icon: Plug },
@@ -177,11 +179,11 @@ function Shell() {
                 <Route path="/files/:id" element={<FileDetailPage />} />
                 <Route path="/ai-models/remote" element={<AiModelsPage hosting="remote" />} />
                 <Route path="/ai-models/local" element={<AiModelsPage hosting="local" />} />
+                <Route path="/ai-models/credentials" element={<CredentialsPanel />} />
                 <Route
                   path="/ai-models/:hosting/:provider/:model"
                   element={<AiModelDetailPage />}
                 />
-                <Route path="/backends" element={<Navigate to="/ai-models/remote" replace />} />
                 <Route path="/mcp" element={<McpPage />} />
                 <Route path="/mcp/:serverId" element={<McpServerDetailPage />} />
                 <Route path="/settings" element={<SettingsPage />} />

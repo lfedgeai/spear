@@ -51,20 +51,20 @@ Two recommended surfaces:
 TOML (matches current `spearlet` config schema):
 
 ```toml
-[spearlet.llm]
+[spearlet.ai]
 default_policy = "weighted_random"
 
-[[spearlet.llm.credentials]]
+[[spearlet.ai.credentials]]
 name = "openai_chat"
 kind = "env"
 api_key_env = "OPENAI_CHAT_API_KEY"
 
-[[spearlet.llm.credentials]]
+[[spearlet.ai.credentials]]
 name = "openai_realtime"
 kind = "env"
 api_key_env = "OPENAI_REALTIME_API_KEY"
 
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-us"
 kind = "openai_chat_completion"
 base_url = "https://api.openai.com/v1"
@@ -77,7 +77,7 @@ ops = ["chat_completions", "text_to_speech"]
 features = ["supports_stream", "supports_tools", "supports_json_schema"]
 transports = ["http"]
 
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-realtime"
 kind = "openai_realtime_ws"
 base_url = "https://api.openai.com/v1"
@@ -97,7 +97,7 @@ If some backend instances declare `model` (for example, one Ollama backend per i
 - when the candidate set contains any `backend.model != None`, further filter by `backend.model == request.model`
 - guests don’t need to set an explicit `backend` name; setting `model` is sufficient
 
-Recommended: manage API keys centrally in `spearlet.llm.credentials[]` and reference them from backends via `credential_ref`.
+Recommended: manage API keys centrally in `spearlet.ai.credentials[]` and reference them from backends via `credential_ref`.
 
 Hosting:
 
@@ -107,15 +107,15 @@ Detailed design and implementation notes: [llm-credentials-implementation-en.md]
 
 ## 6. Secrets and network policy
 
-- `llm.credentials[].api_key_env`, `llm.backends[].credential_ref`, and `base_url` must be host-configured; WASM cannot inject them.
+- `ai.credentials[].api_key_env`, `ai.backends[].credential_ref`, and `base_url` must be host-configured; WASM cannot inject them.
 - Host-config allowlist/denylist is authoritative; request-side hints can only restrict further.
 
 ### 6.1 API key storage (recommended)
 
 Store only the “environment variable name” in config; do not store plaintext keys in config files.
 
-- In `[[llm.credentials]]`, set `api_key_env = "OPENAI_API_KEY"`
-- In `[[llm.backends]]`, set `credential_ref = "<credential_name>"`
+- In `[[spearlet.ai.credentials]]`, set `api_key_env = "OPENAI_API_KEY"`
+- In `[[spearlet.ai.backends]]`, set `credential_ref = "<credential_name>"`
 - Inject `OPENAI_API_KEY=...` into the spearlet process environment at startup
 
 Benefits:

@@ -14,8 +14,10 @@ use tokio::time::timeout;
 use tracing::warn;
 use url::Url;
 
-use crate::proto::sms::{BackendHosting, BackendInfo, BackendStatus};
+use crate::proto::sms::{BackendInfo, BackendStatus};
+use crate::spearlet::ai::backend_assembly::{backend_spec_from_parts, BackendSpecParts};
 use crate::spearlet::config::SpearletConfig;
+use crate::spearlet::execution::ai::router::registry::Hosting;
 use crate::spearlet::local_models::DEFAULT_LOCAL_MODELS_DIR;
 
 #[derive(Clone)]
@@ -184,20 +186,24 @@ impl LlamaCppSupervisor {
         }
 
         let backend = BackendInfo {
-            name: format!("managed/llamacpp/{}", sanitize_name(model)),
-            kind: "openai_chat_completion".to_string(),
-            operations: vec!["chat_completions".to_string()],
-            features: Vec::new(),
-            transports: vec!["http".to_string()],
-            weight: 100,
-            priority: 0,
-            base_url: base_url.clone(),
+            spec: Some(backend_spec_from_parts(BackendSpecParts {
+                name: format!("managed/llamacpp/{}", sanitize_name(model)),
+                kind: "openai_chat_completion".to_string(),
+                operations: vec!["chat_completions".to_string()],
+                features: Vec::new(),
+                transports: vec!["http".to_string()],
+                weight: 100,
+                priority: 0,
+                base_url: base_url.clone(),
+                provider: Some("llamacpp".to_string()),
+                model: Some(model.to_string()),
+                hosting: Hosting::Local,
+                credential_ref: None,
+                origin: crate::proto::sms::BackendOrigin::LocalController,
+                deployment_id: Some(deployment_id.to_string()),
+            })),
             status: BackendStatus::Available as i32,
             status_reason: String::new(),
-            provider: "llamacpp".to_string(),
-            model: model.to_string(),
-            hosting: BackendHosting::NodeLocal as i32,
-            credential_ref: String::new(),
         };
 
         let mut inner = self.inner.lock().await;

@@ -3,8 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 
 import { destroyInstance } from '@/api/control'
-import { listInstanceExecutions } from '@/api/instanceExecution'
-import { getExecution } from '@/api/instanceExecution'
+import { getInstance, listInstanceExecutions } from '@/api/instanceExecution'
 import type { ExecutionSummary } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -46,6 +45,14 @@ export default function InstanceDetailPage() {
   const [destroyLoading, setDestroyLoading] = useState(false)
   const [destroyError, setDestroyError] = useState('')
 
+  const instanceQuery = useQuery({
+    queryKey: ['instance-detail', id],
+    queryFn: () => getInstance(id),
+    enabled: !!id,
+    retry: false,
+    refetchInterval: 15_000,
+  })
+
   const executionsQuery = useInfiniteQuery({
     queryKey: ['instance-executions', id],
     queryFn: ({ pageParam }) =>
@@ -73,23 +80,16 @@ export default function InstanceDetailPage() {
   }, [executionsQuery.data])
 
   const inferredTaskId = useMemo(() => rows[0]?.task_id || '', [rows])
-  const primaryExecutionId = useMemo(() => {
-    const running = rows.find((r) => String(r.status).toLowerCase() === 'running')
-    return running?.execution_id || rows[0]?.execution_id || ''
-  }, [rows])
 
-  const resolveNodeQuery = useQuery({
-    queryKey: ['execution-detail-for-instance', primaryExecutionId],
-    queryFn: () => getExecution(primaryExecutionId),
-    enabled: !!primaryExecutionId,
-    retry: false,
-  })
+  const liveInstance = useMemo(() => {
+    const data = instanceQuery.data
+    if (!data || !data.success || !data.found || !data.instance) return null
+    return data.instance
+  }, [instanceQuery.data])
 
-  const resolvedNodeUuid = useMemo(() => {
-    const d = resolveNodeQuery.data
-    if (!d || !d.success || !d.found || !d.execution) return ''
-    return d.execution.node_uuid || ''
-  }, [resolveNodeQuery.data])
+  const isInstanceActive = Boolean(instanceQuery.data?.success && instanceQuery.data?.active)
+  const resolvedNodeUuid = liveInstance?.node_uuid || ''
+  const currentStatus = liveInstance?.status || (instanceQuery.data?.found ? 'terminated' : 'absent')
 
   return (
     <div className="space-y-4">
@@ -112,7 +112,7 @@ export default function InstanceDetailPage() {
               setDestroyReason('')
               setDestroyOpen(true)
             }}
-            disabled={!resolvedNodeUuid}
+            disabled={!isInstanceActive || !resolvedNodeUuid}
           >
             Destroy
           </Button>
@@ -121,11 +121,46 @@ export default function InstanceDetailPage() {
               <Button variant="secondary">View task</Button>
             </Link>
           ) : null}
-          <Button variant="secondary" onClick={() => executionsQuery.refetch()}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              void instanceQuery.refetch()
+              void executionsQuery.refetch()
+            }}
+          >
             Refresh
           </Button>
         </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Current state</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <div className="text-xs text-[hsl(var(--muted-foreground))]">Status</div>
+              <div className="text-sm">{currentStatus}</div>
+            </div>
+            <div>
+              <div className="text-xs text-[hsl(var(--muted-foreground))]">Node</div>
+              <div className="font-mono text-xs">{resolvedNodeUuid || '-'}</div>
+            </div>
+            <div>
+              <div className="text-xs text-[hsl(var(--muted-foreground))]">Last seen</div>
+              <div className="text-sm">
+                {liveInstance ? formatMs(liveInstance.last_seen_ms) : '-'}
+              </div>
+            </div>
+          </div>
+          {!isInstanceActive ? (
+            <div className="mt-3 text-sm text-[hsl(var(--muted-foreground))]">
+              This instance is no longer active on the node. Historical executions may still be available below.
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -258,8 +293,9 @@ export default function InstanceDetailPage() {
               </Button>
               <Button
                 variant="destructive"
-                disabled={destroyLoading || !resolvedNodeUuid}
+                disabled={destroyLoading || !isInstanceActive || !resolvedNodeUuid}
                 onClick={async () => {
+                  if (!isInstanceActive || !resolvedNodeUuid) return
                   setDestroyError('')
                   setDestroyLoading(true)
                   try {
@@ -273,6 +309,7 @@ export default function InstanceDetailPage() {
                       return
                     }
                     setDestroyOpen(false)
+                    void instanceQuery.refetch()
                     void executionsQuery.refetch()
                   } catch (err) {
                     setDestroyError(

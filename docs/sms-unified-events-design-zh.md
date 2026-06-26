@@ -4,9 +4,9 @@
 
 现状：SMS 已经具备一套 **Task 事件** 机制：按 `node_uuid` 订阅、先 durable replay（KV scan）再 broadcast live。相关实现：
 
-- Durable + broadcast：`TaskEventBus`（KV outbox + broadcast）[events.rs](file:///Users/bytedance/Documents/GitHub/bge/spear/src/sms/events.rs)
-- 订阅 RPC：`SubscribeTaskEvents(node_uuid, last_event_id)` [service.rs](file:///Users/bytedance/Documents/GitHub/bge/spear/src/sms/service.rs)
-- Spearlet 消费侧：`TaskEventSubscriber`（本地 cursor + 断线重连）[task_events.rs](file:///Users/bytedance/Documents/GitHub/bge/spear/src/spearlet/task_events.rs)
+- Durable + broadcast：`TaskEventBus`（KV outbox + broadcast）[events.rs](../src/sms/events.rs)
+- 订阅 RPC：`SubscribeTaskEvents(node_uuid, last_event_id)` [service.rs](../src/sms/service.rs)
+- Spearlet 消费侧：`TaskEventSubscriber`（本地 cursor + 断线重连）[task_events.rs](../src/spearlet/task_events.rs)
 
 问题：未来不仅是 task，artifact/instance/execution/backend registry 等对象的创建/更新/删除也需要事件。继续为每个对象手写一套 “outbox+订阅+游标” 会造成协议碎片化与重复实现，也不利于后续接入 Kafka/RabbitMQ/Pulsar/NATS 等消息中间件。
 

@@ -51,11 +51,11 @@ format = "pretty"
 # Log output file (optional) / 日志输出文件（可选）
 file = "./logs/spearlet.log"
 
-[spearlet.llm]
+[spearlet.ai]
 # Backend routing policy / 后端路由策略
 default_policy = "weighted_random"
 
-[spearlet.llm.router_grpc_filter_stream]
+[spearlet.ai.router_grpc_filter_stream]
 # Enable router filter / 是否启用 router filter
 enabled = false
 # Router filter server address (host:port); empty means using sms_grpc_addr / Router filter 服务端地址（host:port）；为空表示使用 sms_grpc_addr
@@ -78,7 +78,7 @@ content_fetch_enabled = false
 # Max payload bytes forwarded / 透传的最大 payload 字节数
 content_fetch_max_bytes = 65536
 
-[spearlet.llm.discovery.ollama]
+[spearlet.ai.discovery.ollama]
 # Enable importing Ollama currently serving models / 是否导入 Ollama 当前正在 serve 的模型
 enabled = true
 # Discovery scope: serving|installed / 导入范围：serving|installed
@@ -110,7 +110,7 @@ default_features = []
 # Default transports / 默认传输方式
 default_transports = ["http"]
 
-[[spearlet.llm.credentials]]
+[[spearlet.ai.credentials]]
 # Credential name / 凭据名称
 name = "openai_chat"
 # v1: env only / v1 仅支持 env
@@ -118,12 +118,12 @@ kind = "env"
 # Environment variable name that holds the API key / 存放 API key 的环境变量名
 api_key_env = "OPENAI_API_KEY"
 
-[[spearlet.llm.credentials]]
+[[spearlet.ai.credentials]]
 name = "openai_realtime"
 kind = "env"
 api_key_env = "OPENAI_API_KEY"
 
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-chat"
 kind = "openai_chat_completion"
 base_url = "https://api.openai.com/v1"
@@ -136,7 +136,7 @@ transports = ["http"]
 weight = 100
 priority = 0
 
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-realtime-asr"
 kind = "openai_realtime_ws"
 base_url = "https://api.openai.com/v1"

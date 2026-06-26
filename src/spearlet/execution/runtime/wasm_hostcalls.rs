@@ -55,6 +55,11 @@ fn guard_termination(host_data: &DefaultHostApi) -> Result<(), CoreError> {
                 None,
             ) => "Destroy instance".to_string(),
         };
+        crate::spearlet::debug_reporter::report_termination(
+            "wasm_hostcalls.rs:guard_termination",
+            &s,
+            format!("[DEBUG] termination observed: {}", msg),
+        );
         host_data.wasm_log_write("warn", &msg);
         return Err(CoreError::Common(
             wasmedge_sdk::error::CoreCommonError::UserDefError,

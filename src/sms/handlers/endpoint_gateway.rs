@@ -23,6 +23,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::common::ErrorResponse;
+use crate::sms::placement::outcome::build_outcome_request;
 use crate::proto::sms::{
     ExecutionStatus, GetExecutionRequest, GetNodeRequest, InstanceStatus,
     ListInstanceExecutionsRequest, ListTaskInstancesRequest, ResolveEndpointRequest,
@@ -300,15 +301,14 @@ async fn start_execution_for_task(
                     "endpoint gateway invoke failed, trying next candidate"
                 );
                 let _ = placement
-                    .report_invocation_outcome(crate::proto::sms::ReportInvocationOutcomeRequest {
-                        decision_id: placement_resp.decision_id.clone(),
-                        request_id: request_id.clone(),
-                        task_id: task_id.to_string(),
-                        node_uuid: c.node_uuid.clone(),
-                        outcome_class: crate::proto::sms::InvocationOutcomeClass::Unavailable
-                            as i32,
-                        error_message: e,
-                    })
+                    .report_invocation_outcome(build_outcome_request(
+                        &placement_resp.decision_id,
+                        &request_id,
+                        task_id,
+                        &c.node_uuid,
+                        crate::proto::sms::InvocationOutcomeClass::Unavailable as i32,
+                        e,
+                    ))
                     .await;
             }
         }

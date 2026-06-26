@@ -2,6 +2,7 @@ import { fetchJson } from '@/api/client'
 import type {
   ListInstanceExecutionsResponse,
   ListTaskInstancesResponse,
+  GetInstanceResponse,
   GetExecutionResponse,
 } from '@/api/types'
 
@@ -30,6 +31,12 @@ export function listInstanceExecutions(input: {
   const suffix = qs.toString() ? `?${qs.toString()}` : ''
   return fetchJson<ListInstanceExecutionsResponse>(
     `/admin/api/instances/${encodeURIComponent(input.instance_id)}/executions${suffix}`,
+  )
+}
+
+export function getInstance(instance_id: string) {
+  return fetchJson<GetInstanceResponse>(
+    `/admin/api/instances/${encodeURIComponent(instance_id)}`,
   )
 }
 

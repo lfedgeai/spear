@@ -57,6 +57,26 @@ export type NodeDetail = {
   resource?: NodeResource
 }
 
+export type CredentialSyncSnapshot = {
+  status: string
+  started: boolean
+  watch_connected: boolean
+  applied_revision: number
+  local_store_epoch: number
+  credential_count: number
+  last_success_at_ms?: number | null
+  last_error?: string | null
+}
+
+export type NodeCredentialSyncDetail = {
+  success: boolean
+  node_uuid?: string
+  monitoring?: {
+    credential_sync?: CredentialSyncSnapshot
+  }
+  message?: string
+}
+
 export type TaskSummary = {
   /** Task ID / 任务 ID */
   task_id: string
@@ -143,6 +163,18 @@ export type ExecutionDetail = {
   log_ref?: LogRef | null
 }
 
+export type InstanceDetail = {
+  instance_id: string
+  task_id: string
+  node_uuid: string
+  status: string
+  created_at_ms: number
+  updated_at_ms: number
+  last_seen_ms: number
+  current_execution_id: string
+  metadata: Record<string, string>
+}
+
 export type ListTaskInstancesResponse = {
   success: boolean
   message?: string
@@ -162,4 +194,12 @@ export type GetExecutionResponse = {
   message?: string
   found?: boolean
   execution?: ExecutionDetail
+}
+
+export type GetInstanceResponse = {
+  success: boolean
+  message?: string
+  found?: boolean
+  active?: boolean
+  instance?: InstanceDetail
 }

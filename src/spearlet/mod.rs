@@ -28,6 +28,9 @@
 //! ```
 
 pub mod backend_reporter;
+pub mod debug_reporter;
+pub mod ai;
+pub mod controller;
 pub mod config;
 pub mod execution;
 pub mod function_service;

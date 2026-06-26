@@ -68,7 +68,7 @@ fn make_spearlet_config(sms_grpc_addr: String) -> Arc<SpearletConfig> {
         sms_connect_timeout_ms: 3_000,
         sms_connect_retry_ms: 200,
         reconnect_total_timeout_ms: 30_000,
-        llm: spear_next::spearlet::config::LlmConfig::default(),
+        ai: spear_next::spearlet::config::AiConfig::default(),
     })
 }
 

@@ -28,7 +28,7 @@ legacy：WebSocket session + append audio + delta events（`legacy/spearlet/stre
 
 新设计：
 
-- `Operation::realtime_voice` + `Transport::websocket|grpc`
+- 规划项：`Operation::realtime_voice` + `Transport::websocket|grpc`（当前未实现）
 - stream 子系统与 router/registry 共用 capabilities
 
 ## 2. MVP 分阶段
@@ -47,7 +47,7 @@ legacy：WebSocket session + append audio + delta events（`legacy/spearlet/stre
 - 复用同一 router/registry/policy
 - 引入 `MediaRef`（图像/音频）并统一对象存储交互
 
-### Phase 3：Realtime Voice / Streaming（独立子系统）
+### Phase 3：Realtime Voice / Streaming（规划项，当前未实现）
 
 - 引入 stream 生命周期与事件模型
 - 能力约束（bidi stream、transport、会话上限）
@@ -58,4 +58,3 @@ legacy：WebSocket session + append audio + delta events（`legacy/spearlet/stre
 - 熔断/剔除
 - cost-aware routing
 - hedged/mirror（按 operation 与预算控制）
-

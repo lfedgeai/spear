@@ -8,6 +8,13 @@ pub struct ResolvedBackend {
     pub api_key: String,
 }
 
+fn live_tests_enabled() -> bool {
+    std::env::var("SPEAR_RUN_LIVE_TESTS")
+        .ok()
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 fn load_spearlet_config() -> Option<SpearletConfig> {
     let path = std::env::var("SPEAR_TEST_CONFIG")
         .ok()
@@ -22,17 +29,16 @@ fn load_spearlet_config() -> Option<SpearletConfig> {
 fn resolve_backend(op: &str, transport: &str, kinds: &[&str]) -> Option<ResolvedBackend> {
     let cfg = load_spearlet_config()?;
 
-    let backend = cfg.llm.backends.iter().find(|b| {
+    let backend = cfg.ai.backends.iter().find(|b| {
         b.ops.iter().any(|x| x == op)
             && b.transports.iter().any(|x| x == transport)
             && kinds.iter().any(|k| *k == b.kind)
     })?;
 
     let cred_name = backend.credential_ref.as_ref()?;
-    let cred =
-        cfg.llm.credentials.iter().find(|c| {
-            c.name == *cred_name && c.kind == "env" && !c.api_key_env.trim().is_empty()
-        })?;
+    let cred = cfg.ai.credentials.iter().find(|c| {
+        c.name == *cred_name && c.kind == "env" && !c.api_key_env.trim().is_empty()
+    })?;
 
     let env_name = cred.api_key_env.trim().to_string();
     let api_key = std::env::var(&env_name).ok()?.trim().to_string();
@@ -55,10 +61,16 @@ fn resolve_backend(op: &str, transport: &str, kinds: &[&str]) -> Option<Resolved
 
 #[allow(dead_code)]
 pub fn resolve_live_chat_backend() -> Option<ResolvedBackend> {
+    if !live_tests_enabled() {
+        return None;
+    }
     resolve_backend("chat_completions", "http", &["openai_chat_completion"])
 }
 
 #[allow(dead_code)]
 pub fn resolve_realtime_asr_backend() -> Option<ResolvedBackend> {
+    if !live_tests_enabled() {
+        return None;
+    }
     resolve_backend("speech_to_text", "websocket", &["openai_realtime_ws"])
 }

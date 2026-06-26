@@ -196,10 +196,10 @@ FinalAction 处理：
 
 ## 5. 配置（TOML）
 
-建议在 `spearlet.llm` 下新增：
+建议在 `spearlet.ai` 下新增：
 
 ```toml
-[spearlet.llm.router_grpc_filter_stream]
+[spearlet.ai.router_grpc_filter_stream]
 enabled = true
 addr = "127.0.0.1:50052"
 decision_timeout_ms = 5
@@ -212,7 +212,7 @@ per_agent_max_inflight = 512
 
 Rust 映射（规划）：
 
-- `SpearletConfig.llm.router_grpc_filter_stream: Option<RouterFilterStreamConfig>`
+- `SpearletConfig.ai.router_grpc_filter_stream: Option<RouterFilterStreamConfig>`
 
 ## 6. 工程化建议（best practices）
 

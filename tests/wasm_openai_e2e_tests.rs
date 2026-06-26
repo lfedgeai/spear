@@ -1,4 +1,4 @@
-use spear_next::spearlet::config::{LlmBackendConfig, LlmCredentialConfig, SpearletConfig};
+use spear_next::spearlet::config::{AiBackendConfig, AiCredentialConfig, SpearletConfig};
 use spear_next::spearlet::execution::runtime::wasm_hostcalls::build_spear_import_with_api;
 use spear_next::spearlet::execution::runtime::{ResourcePoolConfig, RuntimeConfig, RuntimeType};
 use std::collections::HashMap;
@@ -15,7 +15,7 @@ fn test_wasm_to_openai_chat_completion_e2e() {
         Some(v) => v,
         None => {
             eprintln!(
-                "skipped: missing llm backend config/env for wasm e2e (need chat_completions + http)"
+                "skipped: missing ai backend config/env for wasm e2e (need chat_completions + http)"
             );
             return;
         }
@@ -27,18 +27,21 @@ fn test_wasm_to_openai_chat_completion_e2e() {
     let model_param_len = model_param_json.as_bytes().len();
 
     let mut cfg = SpearletConfig::default();
-    cfg.llm.credentials.push(LlmCredentialConfig {
+    cfg.ai.credentials.push(AiCredentialConfig {
         name: "openai_default".to_string(),
         kind: "env".to_string(),
         api_key_env: resolved.api_key_env.clone(),
     });
-    cfg.llm.backends.push(LlmBackendConfig {
+    cfg.ai.backends.push(AiBackendConfig {
         name: "openai".to_string(),
         kind: "openai_chat_completion".to_string(),
         base_url: resolved.base_url,
         hosting: None,
         model: None,
         credential_ref: Some("openai_default".to_string()),
+        provider: None,
+        origin: None,
+        deployment_id: None,
         weight: 100,
         priority: 0,
         ops: vec!["chat_completions".to_string()],

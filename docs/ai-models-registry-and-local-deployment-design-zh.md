@@ -2,7 +2,7 @@
 
 ## 1. 背景与目标
 
-当前系统在运行时与 Web Admin 中主要以 “Backends” 作为可观测与路由的抽象：Spearlet 通过 `spearlet.llm.backends[]`（以及可选的 discovery，例如 Ollama 导入）构建运行时 registry，并周期性向 SMS 上报节点 backend 快照（见 [backend_registry.proto](../proto/sms/backend_registry.proto) 与 Spearlet 的 reporter 逻辑）。
+当前系统在运行时与 Web Admin 中主要以 “Backends” 作为可观测与路由的抽象：Spearlet 通过 `spearlet.ai.backends[]`（以及可选的 discovery，例如 Ollama 导入）构建运行时 registry，并周期性向 SMS 上报节点 backend 快照（见 [backend_registry.proto](../proto/sms/backend_registry.proto) 与 Spearlet 的 reporter 逻辑）。
 
 你希望：
 
@@ -96,7 +96,7 @@ UI 的 “AI Models” 推荐定义为对 backend 的聚合视图：
 - Provider（OpenAI/Ollama/vLLM/…）
 - Model（模型名；若 backend 未固定绑定，则显示 “(dynamic)” 或折叠为 Provider-level）
 - Hosting（Remote/Local）
-- Operations（chat_completions、realtime_voice、embeddings 等）
+- Operations（chat_completions、speech_to_text、embeddings 等；仅展示当前已实现或已注册能力）
 - Available nodes / Total nodes（仅对 Local 或多节点 remote 有意义）
 - Status（聚合：例如有任一 backend available 则 partial/available）
 
@@ -497,7 +497,7 @@ impl LocalModelController {
 
 与 backend registry 的联动：
 
-- reconcile 成功后，生成一个 `LlmBackendConfig`（或等价的运行时 backend spec）注入到 registry（建议用 “动态 registry handle” 的方式，见 [ollama-model-import-design-zh.md](./ollama-model-import-design-zh.md) 中关于 registry 热更新的建议），并确保 backend reporter 上报能看到该 backend。
+- reconcile 成功后，生成一个 `AiBackendConfig`（或等价的运行时 backend spec）注入到 registry（建议用 “动态 registry handle” 的方式，见 [ollama-model-import-design-zh.md](./ollama-model-import-design-zh.md) 中关于 registry 热更新的建议），并确保 backend reporter 上报能看到该 backend。
 
 ## 7. Web Admin API 设计（BFF）
 
@@ -571,7 +571,7 @@ Local provider 常通过 `base_url` 访问本机服务（Ollama）。必须保�
 ### Phase B：补齐协议字段（减少推断）
 
 - 扩展 `BackendInfo` 增加 `provider/model/hosting`
-- Spearlet 上报时填充这些字段（从 `LlmBackendConfig.kind/model/base_url` 映射）
+- Spearlet 上报时填充这些字段（从 `AiBackendConfig.kind/model/base_url` 映射）
 
 ### Phase C：Local（Ollama）“创建模型”MVP
 

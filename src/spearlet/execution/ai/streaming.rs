@@ -17,6 +17,12 @@ pub enum StreamingPrepareStep {
     HttpJson(HttpJsonPlan),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WebsocketFeatures {
+    #[serde(default)]
+    pub turn_detection: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebsocketPlan {
     pub url: String,
@@ -25,7 +31,7 @@ pub struct WebsocketPlan {
     #[serde(default)]
     pub client_events: Vec<serde_json::Value>,
     #[serde(default)]
-    pub supports_turn_detection: bool,
+    pub features: WebsocketFeatures,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

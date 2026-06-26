@@ -1,6 +1,6 @@
-# LLM Credentials / credential_ref 设计与落地方案（详细）
+# AI Credentials / credential_ref 设计与落地方案（详细）
 
-本文给出一套可直接落地到本仓库的设计：在 `spearlet.llm` 配置中引入 `credentials`（集中管理凭据），并让每个 backend 通过 `credential_ref` 引用凭据，从而支持：
+本文给出一套可直接落地到本仓库的设计：在 `spearlet.ai` 配置中引入 `credentials`（集中管理凭据），并让每个 backend 通过 `credential_ref` 引用凭据，从而支持：
 
 - 同一 provider（例如 OpenAI）下，不同 backend 使用不同 API Key（chat / realtime / embeddings 分开）
 - 多个 backend 复用同一凭据（避免重复配置）
@@ -14,15 +14,15 @@
 
 当前 `spearlet/config.rs`：
 
-- `LlmConfig` 包含 `credentials` 与 `backends`，见 [config.rs](../../src/spearlet/config.rs)
-- `LlmBackendConfig` **不再支持** `api_key_env`；API key 通过 `credential_ref` 引用凭据（可选）
-- `LlmBackendConfig.hosting` 为必填，只允许 `local` 或 `remote`
-- 为了彻底清理旧方式，`LlmConfig/LlmCredentialConfig/LlmBackendConfig` 已启用 `deny_unknown_fields`，配置里出现 `api_key_env` 会导致解析失败
+- `AiConfig` 包含 `credentials` 与 `backends`，见 [config.rs](../../src/spearlet/config.rs)
+- `AiBackendConfig` **不再支持** `api_key_env`；API key 通过 `credential_ref` 引用凭据（可选）
+- `AiBackendConfig.hosting` 为必填，只允许 `local` 或 `remote`
+- 已启用 `deny_unknown_fields`，配置里出现 `api_key_env` 会导致解析失败
 
 当前 registry 构建逻辑：
 
 - `credential_ref` 为可选：
-  - 若配置了 `credential_ref`（非空）：解析出 credential 对应的 `api_key_env`，并在 `RuntimeConfig.global_environment` 缺失/为空时过滤该 backend
+  - 若配置了 `credential_ref`（非空）：解析出 credential 对应的 `api_key_env`，并在运行时环境缺失/为空时过滤该 backend（优先 `RuntimeConfig.global_environment`，再回退到进程环境变量）
   - 若未配置 `credential_ref`：视为“无需鉴权”（不会附加 API key header）
 
 ### 0.2 核心痛点
@@ -36,8 +36,8 @@
 
 ### 1.1 目标
 
-- 引入 `spearlet.llm.credentials`：集中定义凭据（至少包含 `api_key_env`）
-- backend 引用凭据：`spearlet.llm.backends[].credential_ref = "..."`
+- 引入 `spearlet.ai.credentials`：集中定义凭据（至少包含 `api_key_env`）
+- backend 引用凭据：`spearlet.ai.backends[].credential_ref = "..."`
 - 移除旧字段：`backends[].api_key_env` 不再支持（配置出现即解析失败）
 - 在 registry 构建时做校验与过滤：引用不存在的 credential / env 缺失时，backend 不进入 registry，并输出清晰错误
 - 提供一套明确的“运行时注入 global_environment 的最佳实践实现路径”
@@ -55,20 +55,20 @@
 新增：
 
 ```toml
-[spearlet.llm]
+[spearlet.ai]
 default_policy = "weighted_random"
 
-[[spearlet.llm.credentials]]
+[[spearlet.ai.credentials]]
 name = "openai_chat"
 kind = "env"                # v1 固定为 env
 api_key_env = "OPENAI_CHAT_API_KEY"
 
-[[spearlet.llm.credentials]]
+[[spearlet.ai.credentials]]
 name = "openai_realtime"
 kind = "env"
 api_key_env = "OPENAI_REALTIME_API_KEY"
 
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-chat"
 kind = "openai_chat_completion"
 base_url = "https://api.openai.com/v1"
@@ -80,7 +80,7 @@ transports = ["http"]
 weight = 100
 priority = 0
 
-[[spearlet.llm.backends]]
+[[spearlet.ai.backends]]
 name = "openai-realtime-asr"
 kind = "openai_realtime_ws"
 base_url = "https://api.openai.com/v1"
@@ -99,15 +99,15 @@ priority = 0
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct LlmConfig {
+pub struct AiConfig {
     pub default_policy: Option<String>,
-    pub credentials: Vec<LlmCredentialConfig>,
-    pub backends: Vec<LlmBackendConfig>,
+    pub credentials: Vec<AiCredentialConfig>,
+    pub backends: Vec<AiBackendConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct LlmCredentialConfig {
+pub struct AiCredentialConfig {
     pub name: String,
     pub kind: String,                 // v1: "env"
     pub api_key_env: String,
@@ -115,7 +115,7 @@ pub struct LlmCredentialConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct LlmBackendConfig {
+pub struct AiBackendConfig {
     pub name: String,
     pub kind: String,
     pub base_url: String,
@@ -132,13 +132,13 @@ pub struct LlmBackendConfig {
 
 默认值：
 
-- `LlmConfig.credentials` 默认空数组
-- `LlmCredentialConfig.kind` 默认 `"env"`
+- `AiConfig.credentials` 默认空数组
+- `AiCredentialConfig.kind` 默认 `"env"`
 
 ### 2.3 兼容性（破坏性变更）
 
 - `backends[].api_key_env` 已移除，不再支持。
-- `spearlet.llm` 相关 struct 已启用 `deny_unknown_fields`：配置文件里出现 `api_key_env` 会直接解析失败。
+- `spearlet.ai` 相关 struct 已启用 `deny_unknown_fields`：配置文件里出现 `api_key_env` 会直接解析失败。
 - `hosting` 为必填，且仅允许 `local|remote`（启动期会直接报错）。
 - `credential_ref` 为可选：仅当配置了 `credential_ref`（非空）时才要求对应 credential/env 存在；未配置则视为“无需鉴权”。
 
@@ -152,10 +152,10 @@ pub struct LlmBackendConfig {
 
 ### 3.2 归一化：构建 Credential 索引
 
-新增一个纯函数（建议位置：`src/spearlet/config.rs` 或 `src/spearlet/execution/host_api/registry.rs` 附近的 helper）：
+新增一个纯函数（建议位置：`src/spearlet/config.rs` 或 `src/spearlet/execution/ai/router/builder.rs` 附近的 helper）：
 
 ```text
-fn build_credential_index(cfg: &LlmConfig) -> HashMap<String, LlmCredentialConfig>
+fn build_credential_index(cfg: &AiConfig) -> HashMap<String, AiCredentialConfig>
 ```
 
 校验规则：
@@ -175,8 +175,8 @@ fn build_credential_index(cfg: &LlmConfig) -> HashMap<String, LlmCredentialConfi
 
 ```text
 fn resolve_backend_api_key_env(
-  backend: &LlmBackendConfig,
-  cred_index: &HashMap<String, LlmCredentialConfig>
+  backend: &AiBackendConfig,
+  cred_index: &HashMap<String, AiCredentialConfig>
 ) -> Result<String, ResolveError>
 ```
 
@@ -189,10 +189,15 @@ fn resolve_backend_api_key_env(
 
 ### 4.1 问题
 
-当前默认启动路径里 `RuntimeConfig.global_environment` 通常为空（见 [function_service.rs](../../src/spearlet/function_service.rs)），这会导致（当 backend 配置了 `credential_ref` 时）：
+在沙箱/隔离运行时（例如 WASM hostcall）里，`RuntimeConfig.global_environment` 通常为空（见 [function_service.rs](../../src/spearlet/function_service.rs)），这会导致（当 backend 配置了 `credential_ref` 时）：
 
 - registry 过滤掉需要 key 的 backend
 - 或者 streaming websocket header 模板无法展开 `${env:...}`
+
+当前查找顺序：
+
+- 优先从 `RuntimeConfig.global_environment` 读取（适用于沙箱运行时）
+- 若未命中则回退到进程环境变量（适用于非沙箱运行时）
 
 ### 4.2 v1 推荐实现：按需从 OS env 收集
 
@@ -204,8 +209,8 @@ fn collect_required_env_vars(cfg: &SpearletConfig) -> HashSet<String>
 
 收集来源：
 
-- `llm.credentials[].api_key_env`
-- `llm.backends[].credential_ref` 所引用到的 credential
+- `ai.credentials[].api_key_env`
+- `ai.backends[].credential_ref` 所引用到的 credential
 
 在 runtime config 初始化阶段（建议位置：构造 RuntimeConfig 的地方，如 FunctionServiceImpl::new 或 RuntimeFactory 初始化路径）执行：
 
@@ -224,7 +229,7 @@ fn collect_required_env_vars(cfg: &SpearletConfig) -> HashSet<String>
 - `file`：从文件读取（K8s secret mount）
 - `kms/vault`：运行时拉取（需要异步与缓存策略）
 
-## 5. Registry 构建逻辑改造（host_api/registry.rs）
+## 5. Registry 构建逻辑改造（execution/ai/router/builder.rs）
 
 ### 5.1 变更点
 
@@ -232,7 +237,7 @@ fn collect_required_env_vars(cfg: &SpearletConfig) -> HashSet<String>
 
 改造后流程：
 
-1) `cred_index = build_credential_index(cfg.llm.credentials)`
+1) `cred_index = build_credential_index(cfg.ai.credentials)`
 2) 遍历 backends：
    - 解析 `ops`（保持不变）
    - 解析 `api_key_env_resolved = resolve_backend_api_key_env(backend, cred_index)`
@@ -267,7 +272,7 @@ best practice（更利于运维）：
 
 ### 7.1 配置示例
 
-- 更新 `config/spearlet/config.toml`：补充 `[spearlet.llm]`、`credentials` 与 `credential_ref` 示例
+- 更新 `config/spearlet/config.toml`：补充 `[spearlet.ai]`、`credentials` 与 `credential_ref` 示例
 
 ### 7.2 backend adapter 文档
 
@@ -285,11 +290,11 @@ best practice（更利于运维）：
 
 新增用例：
 
-- TOML 含 `[[spearlet.llm.credentials]]` 与 `[[spearlet.llm.backends]]`，能成功解析
+- TOML 含 `[[spearlet.ai.credentials]]` 与 `[[spearlet.ai.backends]]`，能成功解析
 - `credential_ref` 引用不存在：解析成功，但在 registry 构建时 backend 被过滤并产生错误
-- `[[spearlet.llm.backends]]` 中出现 `api_key_env`：解析失败（deny_unknown_fields）
+- `[[spearlet.ai.backends]]` 中出现 `api_key_env`：解析失败（deny_unknown_fields）
 
-### 8.2 registry 构建测试（host_api/registry.rs 或 host_api/tests.rs）
+### 8.2 registry 构建测试（execution/ai/router/builder.rs 或 host_api/tests.rs）
 
 新增用例：
 
@@ -317,8 +322,8 @@ best practice（更利于运维）：
 ## 10. 代码落地点（实现 checklist）
 
 - `src/spearlet/config.rs`
-  - 扩展 `LlmConfig`，新增 `LlmCredentialConfig` 与 `credential_ref`
-- `src/spearlet/execution/host_api/registry.rs`
+  - 扩展 `AiConfig`，新增 `AiCredentialConfig` 与 `credential_ref`
+- `src/spearlet/execution/ai/router/builder.rs`
   - 引入 credential index
   - backend→env 解析与冲突校验
   - env 缺失过滤逻辑改为使用 resolved env

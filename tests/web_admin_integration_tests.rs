@@ -92,8 +92,14 @@ async fn test_admin_list_nodes_empty() {
         )
         .await
         .unwrap();
-    let admin_llm_config_client =
-        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+    let admin_credential_client =
+        spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let admin_ai_config_client =
+        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -108,7 +114,8 @@ async fn test_admin_list_nodes_empty() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
-        admin_llm_config_client,
+        admin_credential_client,
+        admin_ai_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -206,14 +213,20 @@ async fn test_admin_list_nodes_filter_and_sort() {
         )
         .await
         .unwrap();
+    let admin_credential_client =
+        spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let model_deployment_registry_client =
         spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::connect(
             grpc_url.clone(),
         )
         .await
         .unwrap();
-    let admin_llm_config_client =
-        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+    let admin_ai_config_client =
+        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -228,7 +241,8 @@ async fn test_admin_list_nodes_filter_and_sort() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
-        admin_llm_config_client,
+        admin_credential_client,
+        admin_ai_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -345,8 +359,14 @@ async fn test_admin_stats() {
         )
         .await
         .unwrap();
-    let admin_llm_config_client =
-        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+    let admin_credential_client =
+        spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let admin_ai_config_client =
+        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -361,7 +381,8 @@ async fn test_admin_stats() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
-        admin_llm_config_client,
+        admin_credential_client,
+        admin_ai_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -437,8 +458,14 @@ async fn test_admin_nodes_stream() {
         )
         .await
         .unwrap();
-    let admin_llm_config_client =
-        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+    let admin_credential_client =
+        spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let admin_ai_config_client =
+        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -453,7 +480,8 @@ async fn test_admin_nodes_stream() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
-        admin_llm_config_client,
+        admin_credential_client,
+        admin_ai_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -565,8 +593,14 @@ async fn test_admin_node_detail_includes_resource() {
         )
         .await
         .unwrap();
-    let admin_llm_config_client =
-        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+    let admin_credential_client =
+        spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let admin_ai_config_client =
+        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -581,7 +615,8 @@ async fn test_admin_node_detail_includes_resource() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
-        admin_llm_config_client,
+        admin_credential_client,
+        admin_ai_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -603,6 +638,149 @@ async fn test_admin_node_detail_includes_resource() {
     assert_eq!(body["resource"]["cpu_usage_percent"], 12.0);
     assert_eq!(body["resource"]["memory_usage_percent"], 34.0);
     assert_eq!(body["resource"]["disk_usage_percent"], 56.0);
+}
+
+#[tokio::test]
+async fn test_admin_node_credential_sync_proxy() {
+    let monitoring_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let monitoring_addr = monitoring_listener.local_addr().unwrap();
+    let monitoring_handle = tokio::spawn(async move {
+        let app = axum::Router::new().route(
+            "/monitoring/ai/credentials",
+            axum::routing::get(|| async {
+                axum::Json(serde_json::json!({
+                    "credential_sync": {
+                        "status": "ready",
+                        "started": true,
+                        "watch_connected": true,
+                        "applied_revision": 7,
+                        "local_store_epoch": 3,
+                        "credential_count": 2,
+                        "last_success_at_ms": 123456789,
+                        "last_error": null
+                    }
+                }))
+            }),
+        );
+        axum::serve(monitoring_listener, app).await.unwrap();
+    });
+
+    let (_h, grpc_url) = start_test_grpc().await;
+    let mut node_client =
+        spear_next::proto::sms::node_service_client::NodeServiceClient::connect(grpc_url.clone())
+            .await
+            .unwrap();
+    let now = chrono::Utc::now().timestamp();
+    node_client
+        .register_node(RegisterNodeRequest {
+            node: Some(Node {
+                uuid: "node-cred-sync".into(),
+                ip_address: "127.0.0.1".into(),
+                port: 5001,
+                http_port: monitoring_addr.port() as i32,
+                status: "online".into(),
+                last_heartbeat: now,
+                registered_at: now,
+                metadata: Default::default(),
+            }),
+        })
+        .await
+        .unwrap();
+
+    let task_client =
+        spear_next::proto::sms::task_service_client::TaskServiceClient::connect(grpc_url.clone())
+            .await
+            .unwrap();
+    let placement_client =
+        spear_next::proto::sms::placement_service_client::PlacementServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let mcp_registry_client =
+        spear_next::proto::sms::mcp_registry_service_client::McpRegistryServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let backend_registry_client =
+        spear_next::proto::sms::backend_registry_service_client::BackendRegistryServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let instance_registry_client =
+        spear_next::proto::sms::instance_registry_service_client::InstanceRegistryServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let execution_registry_client =
+        spear_next::proto::sms::execution_registry_service_client::ExecutionRegistryServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let execution_index_client =
+        spear_next::proto::sms::execution_index_service_client::ExecutionIndexServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let model_deployment_registry_client =
+        spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let admin_credential_client =
+        spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let admin_ai_config_client =
+        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let state = GatewayState {
+        config: Arc::new(SmsConfig::default()),
+        node_client,
+        task_client,
+        placement_client,
+        instance_registry_client,
+        execution_registry_client,
+        execution_index_client,
+        mcp_registry_client,
+        backend_registry_client,
+        admin_credential_client,
+        admin_ai_config_client,
+        model_deployment_registry_client,
+        stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
+        execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
+        cancel_token: CancellationToken::new(),
+        max_upload_bytes: 64 * 1024 * 1024,
+        files_dir: std::env::temp_dir()
+            .join(format!("spear-sms-files-{}", Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string(),
+    };
+    let app = create_admin_router(state);
+    let server = TestServer::new(app.into_make_service()).unwrap();
+
+    let resp = server
+        .get("/admin/api/nodes/node-cred-sync/ai/credentials")
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["success"], true);
+    assert_eq!(body["node_uuid"], "node-cred-sync");
+    assert_eq!(body["monitoring"]["credential_sync"]["status"], "ready");
+    assert_eq!(body["monitoring"]["credential_sync"]["credential_count"], 2);
+
+    monitoring_handle.abort();
 }
 
 #[tokio::test]
@@ -659,8 +837,14 @@ async fn test_admin_mcp_servers_crud() {
         )
         .await
         .unwrap();
-    let admin_llm_config_client =
-        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+    let admin_credential_client =
+        spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let admin_ai_config_client =
+        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -676,7 +860,8 @@ async fn test_admin_mcp_servers_crud() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
-        admin_llm_config_client,
+        admin_credential_client,
+        admin_ai_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
@@ -782,8 +967,14 @@ async fn test_admin_mcp_servers_validation() {
         )
         .await
         .unwrap();
-    let admin_llm_config_client =
-        spear_next::proto::sms::admin_llm_config_service_client::AdminLlmConfigServiceClient::connect(
+    let admin_credential_client =
+        spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
+    let admin_ai_config_client =
+        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -799,7 +990,8 @@ async fn test_admin_mcp_servers_validation() {
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
-        admin_llm_config_client,
+        admin_credential_client,
+        admin_ai_config_client,
         model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),

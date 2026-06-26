@@ -148,16 +148,16 @@ Repo-shipped examples:
 
 ### Secrets
 
-Do not put secrets into config files. Use `spearlet.llm.credentials[].api_key_env` to reference environment variables and bind them from backends via `credential_ref`.
+Do not put secrets into config files. Use `spearlet.ai.credentials[].api_key_env` to reference environment variables and bind them from backends via `credential_ref`.
 
-LLM backend notes:
+AI backend notes:
 
-- `[[spearlet.llm.backends]] hosting` is required and must be `local` or `remote`.
+- `[[spearlet.ai.backends]] hosting` is required and must be `local` or `remote`.
 - `credential_ref` is optional. If set, the referenced env var must exist (otherwise the backend is filtered). If not set, the backend is treated as “no-auth” (useful for self-hosted proxies).
 
 ### Ollama discovery
 
-SPEARlet can import models from a local Ollama on startup and materialize them as LLM backends.
+SPEARlet can import models from a local Ollama on startup and materialize them as AI backends.
 
 - Docs: `docs/ollama-discovery-en.md`
 
@@ -195,11 +195,17 @@ Docs:
 make samples
 ```
 
-Artifacts are written to `samples/build/` (C) and `samples/build/js/` (WASM-JS, compat: `samples/build/rust/`).
+Artifacts are written to `samples/build/` (WASM-C), `samples/build/js/` (WASM-JS), and `samples/build/rust/` (WASM-Rust).
 
 Docs:
 
 - `docs/samples-build-guide-en.md`
+- `samples/README-en.md`
+- `samples/wasm-js/README-en.md`
+- `samples/wasm-rust/README-en.md`
+- `sdk/rust/crates/spear-boa/README.md`
+- `sdk/rust/crates/spear-wasm-helper/README.md`
+- `docs/spear-console-voice-input-design-en.md`
 
 ## Development
 

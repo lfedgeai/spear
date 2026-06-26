@@ -115,13 +115,23 @@ async fn protocol_keyword_filter_server_drops_remote_candidates() {
     hub.start_background();
 
     let local = BackendInstance {
-        name: "stub".to_string(),
-        kind: "stub".to_string(),
-        base_url: String::new(),
+        spec: spear_next::proto::sms::BackendSpec {
+            name: "stub".to_string(),
+            kind: "stub".to_string(),
+            operations: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+            weight: 100,
+            priority: 0,
+            base_url: String::new(),
+            provider: "internal".to_string(),
+            model: "gpt".to_string(),
+            hosting: spear_next::proto::sms::BackendHosting::NodeLocal as i32,
+            credential_ref: String::new(),
+            origin: spear_next::proto::sms::BackendOrigin::StaticConfig as i32,
+            deployment_id: String::new(),
+        },
         hosting: Hosting::Local,
-        model: Some("gpt".to_string()),
-        weight: 100,
-        priority: 0,
         capabilities: Capabilities {
             ops: vec![Operation::ChatCompletions],
             features: vec![],
@@ -130,13 +140,23 @@ async fn protocol_keyword_filter_server_drops_remote_candidates() {
         adapter: Arc::new(StubBackendAdapter::new("stub")),
     };
     let remote = BackendInstance {
-        name: "openai".to_string(),
-        kind: "stub".to_string(),
-        base_url: "https://api.openai.com/v1".to_string(),
+        spec: spear_next::proto::sms::BackendSpec {
+            name: "openai".to_string(),
+            kind: "stub".to_string(),
+            operations: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+            weight: 100,
+            priority: 0,
+            base_url: "https://api.openai.com/v1".to_string(),
+            provider: "openai".to_string(),
+            model: "gpt".to_string(),
+            hosting: spear_next::proto::sms::BackendHosting::Remote as i32,
+            credential_ref: String::new(),
+            origin: spear_next::proto::sms::BackendOrigin::StaticConfig as i32,
+            deployment_id: String::new(),
+        },
         hosting: Hosting::Remote,
-        model: Some("gpt".to_string()),
-        weight: 100,
-        priority: 0,
         capabilities: Capabilities {
             ops: vec![Operation::ChatCompletions],
             features: vec![],
@@ -181,7 +201,7 @@ async fn protocol_keyword_filter_server_drops_remote_candidates() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(inst.name, local.name);
+    assert_eq!(inst.spec.name, local.spec.name);
 
     server.abort();
 }

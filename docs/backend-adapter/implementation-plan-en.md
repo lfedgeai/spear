@@ -142,7 +142,7 @@ And add `pub mod ai;` to `src/spearlet/execution/mod.rs`.
 ### 2.1 IR type definitions
 
 - File: `src/spearlet/execution/ai/ir.rs`
-  - `enum Operation { ChatCompletions, Embeddings, ImageGeneration, SpeechToText, TextToSpeech, RealtimeVoice }`
+  - `enum Operation { ChatCompletions, Embeddings, ImageGeneration, SpeechToText, TextToSpeech }`
   - `struct CanonicalRequestEnvelope { version, request_id, task_id, operation, meta, routing, requirements, policy, timeout_ms, payload, extra }`
   - `enum Payload { ChatCompletions(ChatCompletionsPayload), ... }`
   - `struct CanonicalResponseEnvelope { version, request_id, operation, backend, result, raw }`
@@ -266,8 +266,8 @@ For MVP, keep the router as a field in `DefaultHostApi` (e.g., `ai_engine: Arc<A
 ### 5.3 Config integration
 
 - File: `src/spearlet/config.rs`
-  - add `llm: LlmConfig` to `SpearletConfig` (`#[serde(default)]`)
-  - `struct LlmConfig { backends: Vec<BackendConfig>, default_policy_by_operation: ... }`
+  - add `ai: AiConfig` to `SpearletConfig` (`#[serde(default)]`)
+  - `struct AiConfig { backends: Vec<BackendConfig>, default_policy_by_operation: ... }`
   - `struct BackendConfig { name, kind, base_url, credential_ref, weight, priority, ops, features, transports }`
 - File: `src/spearlet/execution/runtime/mod.rs`
   - `RuntimeConfig.spearlet_config` already holds a full config snapshot; use it to init the AI engine in `DefaultHostApi::new`.
@@ -304,20 +304,20 @@ Goals:
     - reject any `api_key`/`secret_value` fields
     - restrict `credential_ref` to a reference name format (e.g., `[a-zA-Z0-9_-]+`)
 
-### 7.2 SMS: Web Admin APIs (`/admin/api/llm/*`)
+### 7.2 SMS: Web Admin APIs (`/admin/api/ai/*`)
 
 - File: `src/sms/web_admin.rs`
   - extend `create_admin_router(...)` with routes:
-    - `GET /admin/api/llm/backends`: list backend instances (env var names only, never values)
-    - `PUT /admin/api/llm/backends`: replace all (simple “Save” UX)
-    - `POST /admin/api/llm/backends`: upsert one (optional)
-    - `DELETE /admin/api/llm/backends/{name}`: delete one (optional)
-    - `GET /admin/api/llm/secret-refs`: list secret references (derived or stored) (optional)
+    - `GET /admin/api/ai/backends`: list backend instances (env var names only, never values)
+    - `PUT /admin/api/ai/backends`: replace all (simple “Save” UX)
+    - `POST /admin/api/ai/backends`: upsert one (optional)
+    - `DELETE /admin/api/ai/backends/{name}`: delete one (optional)
+    - `GET /admin/api/ai/secret-refs`: list secret references (derived or stored) (optional)
   - add handler functions:
-    - `list_llm_backends(...)`
-    - `replace_llm_backends(...)`
-    - `upsert_llm_backend(...)` (optional)
-    - `delete_llm_backend(...)` (optional)
+    - `list_ai_backends(...)`
+    - `replace_ai_backends(...)`
+    - `upsert_ai_backend(...)` (optional)
+    - `delete_ai_backend(...)` (optional)
   - state injection (pick one for MVP):
     - Option A: extend `GatewayState` (`src/sms/gateway.rs`) with `admin_kv: Arc<dyn KvStore>` and initialize it in `WebAdminServer::prepare_with_token`
     - Option B: introduce a dedicated `AdminState` for Web Admin (gRPC clients + kv store) to avoid impacting the SMS HTTP gateway
@@ -338,8 +338,8 @@ MVP implementation:
     - `web-admin/src/features/backends/*`: editable table for backend instances (`name/kind/base_url/weight/priority/ops/features/transports/credential_ref`)
     - `web-admin/src/features/credentials/*`: list credentials (and their env-var names) and show per-node presence
   - data flow:
-    - load from `GET /admin/api/llm/backends`
-    - save via `PUT /admin/api/llm/backends`
+    - load from `GET /admin/api/ai/backends`
+    - save via `PUT /admin/api/ai/backends`
 - Build output: use `web-admin` build to generate/overwrite `assets/admin/*` (do not manually edit the bundle files).
 - Observability: reuse existing `GET /admin/api/nodes` response `metadata` to read `HAS_ENV:<ENV_NAME>` (no extra secret-status API needed).
 

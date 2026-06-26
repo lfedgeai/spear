@@ -6,7 +6,8 @@ use std::sync::Arc;
 use tonic::transport::Channel;
 
 use crate::proto::sms::{
-    admin_llm_config_service_client::AdminLlmConfigServiceClient,
+    admin_credential_service_client::AdminCredentialServiceClient,
+    admin_ai_config_service_client::AdminAiConfigServiceClient,
     backend_registry_service_client::BackendRegistryServiceClient,
     execution_index_service_client::ExecutionIndexServiceClient,
     execution_registry_service_client::ExecutionRegistryServiceClient,
@@ -39,7 +40,8 @@ async fn create_mock_gateway_state() -> GatewayState {
         execution_index_client: ExecutionIndexServiceClient::new(channel.clone()),
         mcp_registry_client: McpRegistryServiceClient::new(channel.clone()),
         backend_registry_client: BackendRegistryServiceClient::new(channel.clone()),
-        admin_llm_config_client: AdminLlmConfigServiceClient::new(channel.clone()),
+        admin_credential_client: AdminCredentialServiceClient::new(channel.clone()),
+        admin_ai_config_client: AdminAiConfigServiceClient::new(channel.clone()),
         model_deployment_registry_client: ModelDeploymentRegistryServiceClient::new(
             channel.clone(),
         ),
@@ -113,7 +115,7 @@ async fn test_gateway_state_memory_usage() {
 
     // Gateway state should not use excessive memory / 网关状态不应使用过多内存
     assert!(
-        state_size < 2048,
+        state_size <= 2304,
         "Gateway state uses too much memory: {} bytes",
         state_size
     );
@@ -171,7 +173,8 @@ async fn test_gateway_state_with_different_endpoints() {
         let execution_index_client = ExecutionIndexServiceClient::new(channel.clone());
         let mcp_registry_client = McpRegistryServiceClient::new(channel.clone());
         let backend_registry_client = BackendRegistryServiceClient::new(channel.clone());
-        let admin_llm_config_client = AdminLlmConfigServiceClient::new(channel.clone());
+        let admin_credential_client = AdminCredentialServiceClient::new(channel.clone());
+        let admin_ai_config_client = AdminAiConfigServiceClient::new(channel.clone());
         let model_deployment_registry_client =
             ModelDeploymentRegistryServiceClient::new(channel.clone());
 
@@ -185,7 +188,8 @@ async fn test_gateway_state_with_different_endpoints() {
             execution_index_client,
             mcp_registry_client,
             backend_registry_client,
-            admin_llm_config_client,
+            admin_credential_client,
+            admin_ai_config_client,
             model_deployment_registry_client,
             stream_sessions: crate::sms::gateway::StreamSessionStore::new(),
             execution_stream_pool: crate::sms::gateway::ExecutionStreamPool::new(),

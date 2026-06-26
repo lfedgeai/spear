@@ -195,10 +195,10 @@ To prevent the external service from expanding power beyond allowed constraints:
 
 ## 5. Configuration (TOML)
 
-Proposed config fields under `spearlet.llm`:
+Proposed config fields under `spearlet.ai`:
 
 ```toml
-[spearlet.llm.router_grpc_filter_stream]
+[spearlet.ai.router_grpc_filter_stream]
 enabled = true
 addr = "127.0.0.1:50052"
 decision_timeout_ms = 5
@@ -211,7 +211,7 @@ per_agent_max_inflight = 512
 
 Mapping to Rust:
 
-- `SpearletConfig.llm.router_grpc_filter_stream: Option<RouterFilterStreamConfig>`
+- `SpearletConfig.ai.router_grpc_filter_stream: Option<RouterFilterStreamConfig>`
 
 ## 6. Operational Guidance (best practices)
 

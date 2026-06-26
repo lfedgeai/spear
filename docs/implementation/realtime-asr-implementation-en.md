@@ -189,7 +189,7 @@ Security:
 
 ## 7. Config and routing
 
-Align with `SpearletConfig.llm.backends` (`ops/features/transports`), and introduce a dedicated op name for realtime ASR (e.g. `speech_to_text` + `websocket` transport or a separate op).
+Align with `SpearletConfig.ai.backends` (`ops/features/transports`), and introduce a dedicated op name for realtime ASR (e.g. `speech_to_text` + `websocket` transport or a separate op).
 
 Must support:
 
@@ -198,7 +198,7 @@ Must support:
 
 Config notes:
 
-- `[[spearlet.llm.backends]] hosting` is required and must be `local` or `remote`.
+- `[[spearlet.ai.backends]] hosting` is required and must be `local` or `remote`.
 - `credential_ref` is optional; if omitted, the backend is treated as “no-auth”.
 
 ## 8. Control plane: rtasr_ctl commands (v1)

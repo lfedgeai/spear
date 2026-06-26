@@ -68,7 +68,7 @@
 - `image_generation`：`priority + fallback`（默认不 hedged）
 - `speech_to_text`：`least_inflight` 或 `weighted_rr`
 - `text_to_speech`：`weighted_rr`
-- `realtime_voice`：`least_inflight`（并发控制优先）
+- 规划项：若未来恢复 `realtime_voice`，优先考虑 `least_inflight`（当前运行时未实现）
 
 ## 6. 输出与可解释性
 
@@ -78,4 +78,3 @@
 - `rejected_reasons`
 - `selected_instance(s)`
 - `policy` 与关键打分信号
-

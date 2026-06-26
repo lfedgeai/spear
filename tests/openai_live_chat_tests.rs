@@ -24,8 +24,10 @@ fn test_openai_live_chat_completion() {
     let adapter = OpenAIChatCompletionBackendAdapter::new(
         "openai-live",
         resolved.base_url,
-        Some(resolved.api_key),
+        None,
+        None,
     );
+    let adapter = adapter.with_static_api_key(resolved.api_key);
 
     let req = CanonicalRequestEnvelope {
         version: 1,
