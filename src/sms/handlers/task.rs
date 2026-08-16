@@ -16,8 +16,8 @@ use tracing::{debug, error, info};
 
 use super::common::ErrorResponse;
 use crate::proto::sms::{
-    ExecutableType, GetTaskRequest, ListTasksRequest, RegisterTaskRequest, TaskExecutable,
-    TaskPriority, UnregisterTaskRequest,
+    DeleteTaskRequest, ExecutableType, GetTaskRequest, ListTasksRequest, RegisterTaskRequest,
+    TaskExecutable, TaskPriority, TaskSchedulingStrategy,
 };
 use crate::sms::gateway::GatewayState;
 use crate::sms::{
@@ -32,7 +32,8 @@ pub struct RegisterTaskParams {
     pub name: String,
     pub description: Option<String>,
     pub priority: Option<String>, // "low", "normal", "high"
-    pub node_uuid: Option<String>,
+    pub desired_replicas: Option<u32>,
+    pub scheduling_strategy: Option<String>,
     pub endpoint: String,
     pub version: String,
     pub capabilities: Option<Vec<String>>,
@@ -53,16 +54,16 @@ pub struct TaskExecutableParams {
 
 #[derive(Debug, Deserialize)]
 pub struct ListTasksParams {
-    pub node_uuid: Option<String>,
-    pub status: Option<String>, // "unknown", "registered", "active", "inactive"
+    pub status: Option<String>, // "unknown", "registered", "active", "inactive", "deleting"
     pub priority: Option<String>, // "low", "normal", "high"
     pub limit: Option<i32>,
     pub offset: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct UnregisterTaskParams {
+pub struct DeleteTaskParams {
     pub reason: Option<String>,
+    pub force: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -72,7 +73,8 @@ pub struct TaskResponse {
     pub description: String,
     pub status: String,
     pub priority: String,
-    pub node_uuid: String,
+    pub desired_replicas: u32,
+    pub scheduling_strategy: String,
     pub endpoint: String,
     pub version: String,
     pub capabilities: Vec<String>,
@@ -114,7 +116,13 @@ fn task_to_response(task: crate::proto::sms::Task) -> TaskResponse {
         description: task.description,
         status: task_status_to_public_str(task.status).to_string(),
         priority: task_priority_to_public_str(task.priority).to_string(),
-        node_uuid: task.node_uuid,
+        desired_replicas: task.desired_replicas,
+        scheduling_strategy: match TaskSchedulingStrategy::try_from(task.scheduling_strategy)
+            .unwrap_or(TaskSchedulingStrategy::Spread)
+        {
+            TaskSchedulingStrategy::Spread => "spread".to_string(),
+            TaskSchedulingStrategy::Unknown => "unknown".to_string(),
+        },
         endpoint: task.endpoint,
         version: task.version,
         capabilities: task.capabilities,
@@ -146,13 +154,16 @@ pub async fn register_task(
         .unwrap_or(TaskPriority::Normal as i32);
 
     let meta = params.metadata.clone().unwrap_or_default();
+    let scheduling_strategy = match params.scheduling_strategy.as_deref() {
+        Some("spread") | None => TaskSchedulingStrategy::Spread as i32,
+        _ => TaskSchedulingStrategy::Unknown as i32,
+    };
     let request = Request::new(RegisterTaskRequest {
         name: params.name.clone(),
         description: params
             .description
             .unwrap_or_else(|| format!("Task: {}", params.name)),
         priority,
-        node_uuid: params.node_uuid.unwrap_or_default(),
         endpoint: params.endpoint,
         version: params.version,
         capabilities: params.capabilities.unwrap_or_default(),
@@ -173,6 +184,8 @@ pub async fn register_task(
             args: e.args.clone().unwrap_or_default(),
             env: e.env.clone().unwrap_or_default(),
         }),
+        desired_replicas: params.desired_replicas.unwrap_or(1),
+        scheduling_strategy,
     });
 
     match gateway_state
@@ -227,7 +240,6 @@ pub async fn list_tasks(
         .to_i32();
 
     let request = Request::new(ListTasksRequest {
-        node_uuid: params.node_uuid.unwrap_or_default(),
         status_filter,
         priority_filter,
         limit: params.limit.unwrap_or(100),
@@ -294,25 +306,21 @@ pub async fn get_task(
     }
 }
 
-/// Unregister a task / 注销任务
-pub async fn unregister_task(
+/// Delete a task / 删除任务
+pub async fn delete_task(
     State(gateway_state): State<GatewayState>,
     Path(task_id): Path<String>,
-    Json(params): Json<UnregisterTaskParams>,
+    Json(params): Json<DeleteTaskParams>,
 ) -> Result<Json<TaskActionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    info!("HTTP: Unregistering task: {}", task_id);
+    info!("HTTP: Deleting task: {}", task_id);
 
-    let request = Request::new(UnregisterTaskRequest {
+    let request = Request::new(DeleteTaskRequest {
         task_id,
         reason: params.reason.unwrap_or_default(),
+        force: params.force.unwrap_or(false),
     });
 
-    match gateway_state
-        .task_client
-        .clone()
-        .unregister_task(request)
-        .await
-    {
+    match gateway_state.task_client.clone().delete_task(request).await {
         Ok(response) => {
             let resp = response.into_inner();
             Ok(Json(TaskActionResponse {
@@ -321,12 +329,12 @@ pub async fn unregister_task(
             }))
         }
         Err(e) => {
-            error!("Failed to unregister task: {}", e);
+            error!("Failed to delete task: {}", e);
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: "UNREGISTER_TASK_FAILED".to_string(),
-                    message: format!("Failed to unregister task: {}", e),
+                    error: "DELETE_TASK_FAILED".to_string(),
+                    message: format!("Failed to delete task: {}", e),
                 }),
             ))
         }

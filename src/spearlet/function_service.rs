@@ -18,6 +18,7 @@ use crate::proto::spearlet::{
 };
 
 use crate::spearlet::execution::{
+    execution_status::ExecutionPublicStatus,
     runtime::{ResourcePoolConfig, RuntimeConfig, RuntimeFactory, RuntimeManager},
     ExecutionError, InstancePool, InstancePoolConfig, InstanceScheduler, SchedulingPolicy,
     TaskExecutionManager, TaskExecutionManagerConfig, DEFAULT_ENTRY_FUNCTION_NAME,
@@ -108,15 +109,7 @@ impl FunctionServiceImpl {
     }
 
     fn to_proto_status(status: &str) -> i32 {
-        match status {
-            "pending" => ExecutionStatus::Pending as i32,
-            "running" => ExecutionStatus::Running as i32,
-            "completed" => ExecutionStatus::Completed as i32,
-            "failed" => ExecutionStatus::Failed as i32,
-            "terminated" => ExecutionStatus::Terminated as i32,
-            "timeout" => ExecutionStatus::Timeout as i32,
-            _ => ExecutionStatus::Unspecified as i32,
-        }
+        ExecutionPublicStatus::from_public_str(status).to_spearlet_proto()
     }
 
     fn system_time_to_timestamp(t: SystemTime) -> Option<prost_types::Timestamp> {
@@ -227,12 +220,7 @@ impl ExecutionService for FunctionServiceImpl {
         request: Request<GetExecutionRequest>,
     ) -> Result<Response<Execution>, Status> {
         let req = request.into_inner();
-        let Some(resp) = self
-            .execution_manager
-            .get_execution_status(&req.execution_id)
-            .await
-            .map_err(|e| Status::internal(e.to_string()))?
-        else {
+        let Some(resp) = self.execution_manager.get_execution_status(&req.execution_id) else {
             return Err(Status::not_found("execution not found"));
         };
 
@@ -288,7 +276,7 @@ impl ExecutionService for FunctionServiceImpl {
             Some(req.reason)
         };
         self.execution_manager
-            .terminate_execution(&req.execution_id, reason)
+            .request_execution_termination(&req.execution_id, reason)
             .await
             .map_err(|e| match e {
                 ExecutionError::InvalidRequest { message }

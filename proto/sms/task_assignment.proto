@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package sms;
+
+message TaskPlacementAssignment {
+  string task_id = 1;
+  string node_uuid = 2;
+  uint32 desired_instances = 3;
+  uint64 generation = 4;
+  int64 updated_at_ms = 5;
+}
+
+message ListNodeTaskAssignmentsRequest {
+  string node_uuid = 1;
+}
+
+message ListNodeTaskAssignmentsResponse {
+  repeated TaskPlacementAssignment assignments = 1;
+}
+
+message ListTaskAssignmentsRequest {
+  string task_id = 1;
+}
+
+message ListTaskAssignmentsResponse {
+  repeated TaskPlacementAssignment assignments = 1;
+}
+
+service TaskPlacementAssignmentService {
+  rpc ListNodeTaskAssignments(ListNodeTaskAssignmentsRequest) returns (ListNodeTaskAssignmentsResponse);
+  rpc ListTaskAssignments(ListTaskAssignmentsRequest) returns (ListTaskAssignmentsResponse);
+}

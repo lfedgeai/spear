@@ -109,29 +109,28 @@ mod task_test_utils {
             spear_next::proto::sms::backend_registry_service_client::BackendRegistryServiceClient::new(
                 channel.clone(),
             );
-        let admin_ai_config_client =
-            spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::new(
+        let ai_backend_control_plane_client =
+            spear_next::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::new(
                 channel.clone(),
             );
         let admin_credential_client =
             spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::new(
                 channel.clone(),
             );
-        let model_deployment_registry_client = spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::new(channel.clone());
 
         let state = GatewayState {
             config: Arc::new(SmsConfig::default()),
             node_client: sms_client,
             task_client,
+            task_assignment_client: spear_next::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(channel.clone()),
             placement_client,
             instance_registry_client,
             execution_registry_client,
             execution_index_client,
             mcp_registry_client,
             backend_registry_client,
+            ai_backend_control_plane_client,
             admin_credential_client,
-            admin_ai_config_client,
-            model_deployment_registry_client,
             stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
             execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
             cancel_token: CancellationToken::new(),
@@ -231,11 +230,13 @@ async fn test_task_lifecycle() {
 
     response.assert_status_ok();
 
-    // Test 5: Verify task is unregistered / 测试5：验证任务已注销
+    // Test 5: Verify task enters deleting state / 测试5：验证任务进入删除中状态
     let response = server.get(&format!("/api/v1/tasks/{}", task_id)).await;
 
-    // Task should be not found / 任务应该不存在
-    assert_eq!(response.status_code(), 404);
+    response.assert_status_ok();
+    let deleting_task: serde_json::Value = response.json();
+    assert_eq!(deleting_task["task_id"], task_id);
+    assert_eq!(deleting_task["status"], "deleting");
 }
 
 #[tokio::test]

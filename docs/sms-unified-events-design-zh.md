@@ -2,17 +2,17 @@
 
 ## 背景与目标
 
-现状：SMS 已经具备一套 **Task 事件** 机制：按 `node_uuid` 订阅、先 durable replay（KV scan）再 broadcast live。相关实现：
+现状：SMS 的 task 消费链路已经完成收敛，Spearlet 直接消费统一事件流中的 `sms.TaskEvent` payload。相关实现：
 
-- Durable + broadcast：`TaskEventBus`（KV outbox + broadcast）[events.rs](../src/sms/events.rs)
-- 订阅 RPC：`SubscribeTaskEvents(node_uuid, last_event_id)` [service.rs](../src/sms/service.rs)
+- Durable + broadcast：`UnifiedEventBus` [unified_events.rs](../src/sms/unified_events.rs)
+- 订阅 RPC：`EventsService.SubscribeEvents(selector, after_seq)` [service.rs](../src/sms/service.rs)
 - Spearlet 消费侧：`TaskEventSubscriber`（本地 cursor + 断线重连）[task_events.rs](../src/spearlet/task_events.rs)
 
 问题：未来不仅是 task，artifact/instance/execution/backend registry 等对象的创建/更新/删除也需要事件。继续为每个对象手写一套 “outbox+订阅+游标” 会造成协议碎片化与重复实现，也不利于后续接入 Kafka/RabbitMQ/Pulsar/NATS 等消息中间件。
 
 本设计目标：
 
-- **统一**：抽象出通用事件模型与通用订阅接口，TaskEvents 成为一个兼容层（adapter）。
+- **统一**：抽象出通用事件模型与通用订阅接口，Task 只是统一事件流中的一种 payload。
 - **可回放**：服务端 durable 存储，客户端基于游标/序号稳定恢复。
 - **可扩展**：支持未来的消息中间件分发（Outbox/Relay/Publisher 模式），且不破坏现有消费语义。
 - **优雅**：协议简洁、字段语义清晰、演进路径可控、对现网影响最小。
@@ -42,7 +42,7 @@
 - **必需字段**
   - `event_id`：全局唯一 ID，推荐 ULID（可排序 + 低协调成本），字符串形式。
   - `ts_ms`：毫秒时间戳（UTC epoch ms）。
-  - `stream`：事件流名称（string），例如 `task.node.{node_uuid}`、`execution.node.{node_uuid}`。
+  - `stream`：事件流名称（string），例如 `type.task`、`node.{node_uuid}`、`resource.task.{task_id}`。
   - `seq`：stream 内序号（uint64），用于客户端 resume。
   - `resource_type`：枚举或 string（推荐 enum + 保留 unknown），例如 TASK/EXECUTION/ARTIFACT/NODE。
   - `resource_id`：资源主键（string），例如 task_id、execution_id。
@@ -82,7 +82,7 @@ payload 选型建议：
 
 建议 selector 不做复杂表达式，保持结构化过滤：
 
-- `by_stream_prefix`：订阅某些 stream 前缀（例如 `task.node.`）。
+- `by_stream_prefix`：订阅某些 stream 前缀（例如 `type.task` 或 `resource.task.`）。
 - `by_node_uuid`：订阅特定 node 的所有事件（等价于多个 stream）。
 - `by_resource_type` + 可选 `resource_id_prefix`：订阅特定资源类型事件。
 
@@ -175,7 +175,7 @@ RabbitMQ：
 ### Phase 1：发布新 gRPC（Unified Events Service）
 
 - 新增 `EventsService.SubscribeEvents`
-- Task 相关事件同时通过新服务可见（例如 stream 命名为 `task.node.{node_uuid}`）
+- Task 相关事件同时通过新服务可见（例如 stream 命名为 `type.task` 与 `resource.task.{task_id}`）
 - 旧 RPC 保留一段时间（兼容期），并在文档中标注 deprecate
 
 ### Phase 2：扩展到其他资源

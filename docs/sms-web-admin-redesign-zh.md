@@ -101,19 +101,20 @@
   - 创建 task（映射到 gRPC RegisterTask）
   - 返回：`{ success, task_id, message }`
   - 重要语义：
-    - `node_uuid=<uuid>`：任务被固定在该节点（pinned node，用于归属/过滤/运维；不等同于“本次/最近一次执行落点”）；执行由 `POST /admin/api/executions` 触发。
-    - `node_uuid` 为空字符串：任务不固定节点；执行由 `POST /admin/api/executions` 触发并由 SMS placement 选择节点。
+    - task 不再绑定单一 `node_uuid`
+    - 请求体表达 workload spec，至少包括 `desired_replicas` 与 `scheduling_strategy`
+    - 执行仍由 `POST /admin/api/invocations` 触发，并只落到已有 ready replica 的节点；若 assignment 尚未收敛，则返回 warming up
 
 - `GET /admin/api/tasks/{task_id}`
   - 返回 task 详情（结构化 JSON）
 
 #### 2.2.4 Executions
 
-- `POST /admin/api/executions`
+- `POST /admin/api/invocations`
   - BFF 行为：
     - 若请求体携带 `node_uuid=<uuid>`：直接对该节点执行（不走 placement）
-    - 否则：调用 SMS placement 获取候选节点，对候选节点进行 spillback 调用 Spearlet invoke
-    - 将每次失败原因通过 `report_invocation_outcome` 回写给 SMS placement
+    - 否则：只在当前已有 ready replica 的节点上发起 invoke
+    - 若当前没有 ready replica：best-effort 触发 assignment reconcile，然后返回 warming up / no ready replicas
   - 返回：`{ success, ... }`（当前偏“执行结果 JSON”，没有统一 schema）
 
 #### 2.2.5 Files
@@ -455,19 +456,18 @@ type ApiResponse<T> =
 
 ### 4.3 Executions API 建议
 
-当前 `/admin/api/executions` 是“发起执行并返回一次结果”的 BFF。
+当前 `/admin/api/invocations` 是“发起一次 invoke 并返回结果/状态”的 BFF。
 
 建议补齐：
 
-- `POST /admin/api/executions`
+- `POST /admin/api/invocations`
   - request：
     - task_id
     - mode(sync/async/stream)
-    - max_candidates
     - labels/metadata
   - response：
-    - decision_id / request_id / execution_id
-    - attempted_candidates[]（每次 spillback 的 node + outcome + latency + error）
+    - request_id / execution_id / node_uuid
+    - warming_up / no_ready_replicas（当 assignment 尚未收敛）
     - final_result（成功时）
 
 后续可扩展：

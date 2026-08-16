@@ -18,13 +18,14 @@ async fn test_update_task_status_persists_and_returns_updated_task() {
         name: "t".to_string(),
         description: "d".to_string(),
         priority: 2,
-        node_uuid: "node-1".to_string(),
         endpoint: "t".to_string(),
         version: "v1".to_string(),
         capabilities: vec![],
         metadata: std::collections::HashMap::new(),
         config: std::collections::HashMap::new(),
         executable: None,
+        desired_replicas: 1,
+        scheduling_strategy: spear_next::proto::sms::TaskSchedulingStrategy::Spread as i32,
     };
     let resp = svc
         .register_task(Request::new(req))

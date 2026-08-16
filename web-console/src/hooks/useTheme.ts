@@ -1,21 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
+import {
+  useSharedThemeMode,
+  type ThemeMode,
+} from '../../../web-admin/src/shared/theme-mode'
 
-export type Theme = 'dark' | 'light'
-
-function initialTheme(): Theme {
-  const saved = window.localStorage.getItem('cw-theme')
-  if (saved === 'dark' || saved === 'light') return saved
-  if (window.matchMedia?.('(prefers-color-scheme: light)')?.matches) return 'light'
-  return 'dark'
-}
+export type Theme = ThemeMode
 
 export function useTheme() {
-  const [theme, setTheme] = useState<Theme>(() => initialTheme())
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    window.localStorage.setItem('cw-theme', theme)
-  }, [theme])
+  const { mode: theme, setMode: setTheme } = useSharedThemeMode('light')
 
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === 'dark' ? 'light' : 'dark'))
@@ -25,4 +17,3 @@ export function useTheme() {
 
   return { theme, setTheme, toggleTheme, label }
 }
-

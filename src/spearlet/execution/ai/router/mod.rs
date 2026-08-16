@@ -108,8 +108,7 @@ impl Router {
         }
 
         let merged = self.dynamic_backends.list_merged_sorted(&[
-            DynamicBackendSource::LocalController,
-            DynamicBackendSource::Sms,
+            DynamicBackendSource::AiControlPlane,
         ]);
         let mut out: Vec<BackendInstance> = Vec::new();
         for b in merged.into_iter() {

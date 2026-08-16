@@ -222,7 +222,8 @@ curl -X DELETE http://localhost:8080/api/v1/nodes/93f9a7ca-e033-4bb7-8b5a-c0899f
 {
   "name": "image-processing-task",
   "description": "Process images using AI models",
-  "node_uuid": "93f9a7ca-e033-4bb7-8b5a-c0899f9a52b8",
+  "desired_replicas": 2,
+  "scheduling_strategy": "spread",
   "endpoint": "http://127.0.0.1:8081/process",
   "version": "1.0.0",
   "capabilities": ["image-processing", "ai-inference"],
@@ -236,7 +237,6 @@ curl -X DELETE http://localhost:8080/api/v1/nodes/93f9a7ca-e033-4bb7-8b5a-c0899f
 
 **可选查询参数**:
 - `status`: 按状态过滤
-- `node_uuid`: 按节点过滤
 - `priority`: 按优先级过滤
 
 ## 集群统计 API
@@ -347,7 +347,8 @@ curl -X POST http://localhost:8080/api/v1/tasks \
   -d '{
     "name": "test-task",
     "description": "Test task",
-    "node_uuid": "'$NODE_UUID'",
+    "desired_replicas": 1,
+    "scheduling_strategy": "spread",
     "endpoint": "http://127.0.0.1:8081/test",
     "version": "1.0.0",
     "capabilities": ["test"],

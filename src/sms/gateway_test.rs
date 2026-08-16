@@ -7,13 +7,11 @@ use tonic::transport::Channel;
 
 use crate::proto::sms::{
     admin_credential_service_client::AdminCredentialServiceClient,
-    admin_ai_config_service_client::AdminAiConfigServiceClient,
     backend_registry_service_client::BackendRegistryServiceClient,
     execution_index_service_client::ExecutionIndexServiceClient,
     execution_registry_service_client::ExecutionRegistryServiceClient,
     instance_registry_service_client::InstanceRegistryServiceClient,
     mcp_registry_service_client::McpRegistryServiceClient,
-    model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient,
     node_service_client::NodeServiceClient, placement_service_client::PlacementServiceClient,
     task_service_client::TaskServiceClient,
 };
@@ -34,17 +32,16 @@ async fn create_mock_gateway_state() -> GatewayState {
         config: Arc::new(crate::sms::config::SmsConfig::default()),
         node_client: NodeServiceClient::new(channel.clone()),
         task_client: TaskServiceClient::new(channel.clone()),
+        task_assignment_client: crate::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(channel.clone()),
         placement_client: PlacementServiceClient::new(channel.clone()),
         instance_registry_client: InstanceRegistryServiceClient::new(channel.clone()),
         execution_registry_client: ExecutionRegistryServiceClient::new(channel.clone()),
         execution_index_client: ExecutionIndexServiceClient::new(channel.clone()),
         mcp_registry_client: McpRegistryServiceClient::new(channel.clone()),
         backend_registry_client: BackendRegistryServiceClient::new(channel.clone()),
+        ai_backend_control_plane_client:
+            crate::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::new(channel.clone()),
         admin_credential_client: AdminCredentialServiceClient::new(channel.clone()),
-        admin_ai_config_client: AdminAiConfigServiceClient::new(channel.clone()),
-        model_deployment_registry_client: ModelDeploymentRegistryServiceClient::new(
-            channel.clone(),
-        ),
         stream_sessions: crate::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: crate::sms::gateway::ExecutionStreamPool::new(),
         cancel_token: CancellationToken::new(),
@@ -167,6 +164,7 @@ async fn test_gateway_state_with_different_endpoints() {
         let channel = Channel::from_static(endpoint).connect_lazy();
         let node_client = NodeServiceClient::new(channel.clone());
         let task_client = TaskServiceClient::new(channel.clone());
+        let task_assignment_client = crate::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(channel.clone());
         let placement_client = PlacementServiceClient::new(channel.clone());
         let instance_registry_client = InstanceRegistryServiceClient::new(channel.clone());
         let execution_registry_client = ExecutionRegistryServiceClient::new(channel.clone());
@@ -174,23 +172,21 @@ async fn test_gateway_state_with_different_endpoints() {
         let mcp_registry_client = McpRegistryServiceClient::new(channel.clone());
         let backend_registry_client = BackendRegistryServiceClient::new(channel.clone());
         let admin_credential_client = AdminCredentialServiceClient::new(channel.clone());
-        let admin_ai_config_client = AdminAiConfigServiceClient::new(channel.clone());
-        let model_deployment_registry_client =
-            ModelDeploymentRegistryServiceClient::new(channel.clone());
 
         let state = GatewayState {
             config: Arc::new(crate::sms::config::SmsConfig::default()),
             node_client,
             task_client,
+            task_assignment_client,
             placement_client,
             instance_registry_client,
             execution_registry_client,
             execution_index_client,
             mcp_registry_client,
             backend_registry_client,
+            ai_backend_control_plane_client:
+                crate::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::new(channel.clone()),
             admin_credential_client,
-            admin_ai_config_client,
-            model_deployment_registry_client,
             stream_sessions: crate::sms::gateway::StreamSessionStore::new(),
             execution_stream_pool: crate::sms::gateway::ExecutionStreamPool::new(),
             cancel_token: CancellationToken::new(),

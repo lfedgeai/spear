@@ -45,23 +45,14 @@ This document explains how to use the `spear-next` Web Admin, covering nodes, fi
 - AI Models page is split into `Local` and `Remote`
 - List supports search and availability filtering (available/unavailable)
 - Click a row to navigate to the model detail page and inspect per-node instances
+- AI Models is read-only. Create, edit, place, enable, disable, and delete backends from `AI Backends`.
+- Remote AI Models includes a shortcut to the shared credentials page at `AI Backends → Credentials`
 
-### Local: Create a deployment
+## Credentials
 
-- Entry: Local → AI Models → `Create`
-- Form:
-  - Node: which node to deploy to
-  - Provider: defaults to `LLaMA CPP`
-  - Model name: display name
-  - Model URL: required for llamacpp, a direct `.gguf` URL (http/https)
-- On success the UI focuses the created deployment (via `deployment_id=...`) and shows progress in the `Provisioning` panel
-
-### Local: Delete a deployment (even if available)
-
-- Entry: Local → AI Models table → `Actions` → `Delete`
-- Behavior:
-  - Deletes matching deployments for the selected `(provider, model)` across the associated node(s)
-  - Spearlet will stop the local process and remove it from the backend registry on the next reconcile loop
+- Entry: `AI Backends` → `Credentials`
+- Use this page to create, rotate, disable, and delete reusable secret refs for AI backends
+- Credentials are shared control-plane resources and are no longer nested under the AI Models area
 
 ## Known Issues & Fixes
 

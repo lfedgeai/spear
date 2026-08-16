@@ -206,8 +206,8 @@ pub struct DefaultHostApi {
     pub(super) mcp_task_policy: Option<Arc<McpTaskPolicy>>,
     pub(super) instance_id: Option<String>,
     pub(super) execution_id: Option<String>,
-    pub(super) exec_termination: Arc<super::termination::WasmTerminationRegistry>,
-    pub(super) instance_termination: Arc<super::termination::WasmTerminationRegistry>,
+    pub(super) execution_termination_requests: Arc<super::termination::TerminationRequestRegistry>,
+    pub(super) instance_termination_requests: Arc<super::termination::TerminationRequestRegistry>,
 }
 
 impl DefaultHostApi {
@@ -248,8 +248,8 @@ impl DefaultHostApi {
             mcp_task_policy: None,
             instance_id: None,
             execution_id: None,
-            exec_termination: super::termination::exec_registry(),
-            instance_termination: super::termination::instance_registry(),
+            execution_termination_requests: super::termination::execution_termination_registry(),
+            instance_termination_requests: super::termination::instance_termination_registry(),
         }
     }
 
@@ -268,15 +268,21 @@ impl DefaultHostApi {
         self
     }
 
-    pub fn check_wasm_termination(&self) -> Option<super::termination::TerminationSnapshot> {
+    pub fn read_wasm_termination_request(&self) -> Option<super::termination::TerminationSnapshot> {
         let exec_id = self.execution_id.clone().or_else(current_wasm_execution_id);
         if let Some(execution_id) = exec_id.as_deref() {
-            if let Some(s) = self.exec_termination.check(execution_id) {
+            if let Some(s) = self
+                .execution_termination_requests
+                .read_termination_request(execution_id)
+            {
                 return Some(s);
             }
         }
         if let Some(instance_id) = self.instance_id.as_deref() {
-            if let Some(s) = self.instance_termination.check(instance_id) {
+            if let Some(s) = self
+                .instance_termination_requests
+                .read_termination_request(instance_id)
+            {
                 return Some(s);
             }
         }

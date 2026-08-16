@@ -60,6 +60,24 @@ The chat window remains unchanged; only the connection target changes.
 
 SPEAR Console keeps the main chat surface focused and moves task/instance/execution “connection info” into an Info dialog (top-right in the selection dialog / header).
 
+## Shared Frontend Styling
+
+- Console and Admin now share the same theme token source: [`theme.css`](../web-admin/src/shared/theme.css).
+- Shared theme tokens now also cover semantic state and surface tokens used by Console, such as success/warning colors, overlay tone, and shadow color, so dark/light switching stays visually coherent beyond the base background/foreground pair.
+- Console and Admin also share the same theme-mode application hook: `web-admin/src/shared/theme-mode.ts`, which keeps `class`, `data-theme`, `color-scheme`, and persisted theme state aligned.
+- Console reuses Admin-oriented UI primitives from `web-admin/src/shared/components/ui/`, including shared `Button`, `Input`, `Textarea`, `Card`, and `Select`.
+- Voice controls in Console should also reuse the shared button language where possible, so microphone actions, split controls, and mode menus stay visually aligned with Admin controls.
+- `web-admin/src/index.css` and `web-console/src/index.css` both import the shared theme entry, so light/dark colors, typography baseline, spacing rhythm, and control height stay aligned.
+- Header status chips should follow the shared radius language as well, avoiding pill-only shapes when surrounding controls use the Admin box radius.
+- Auxiliary labels such as sidebar eyebrows, section labels, and panel captions should keep the same restrained weight and tracking rhythm as Admin secondary text.
+- Section titles, panel titles, dialog titles, and supporting descriptions should share one typography baseline, instead of each Console area carrying its own local title scale.
+- In practice, this means top-level Console titles should resolve to the same `text-sm / font-semibold / leading-5` baseline used by Admin header titles, while supporting descriptions should resolve to `text-xs / leading-4`.
+- Body text, readonly values, status text, helper text, and badge text should avoid smaller local Console-only scales such as `11px`; they should resolve to the same shared `text-xs` or `text-sm` baselines used by Admin, with consistent line-height instead of ad hoc `1.45~1.65` ranges.
+- Information-dense components such as readonly blocks, connection details, code blocks, endpoint rows, and chat bubbles should also reuse the same compact density rules, so their internal padding and text rhythm do not drift away from the Admin system.
+- Spacing should prefer a compact shared rhythm built around a small set of steps such as `4 / 8 / 12`, instead of mixing many nearby one-off values across headers, cards, sections, and drawers.
+- Console-specific layout classes in `web-console/src/main.css` should only handle page structure and product-specific interaction patterns; base control visuals should continue to come from the shared primitives whenever possible.
+- As shared primitives expand, legacy control-specific utility classes in `web-console/src/main.css` should be removed instead of re-skinned in place.
+
 ## Why Selection Dialog
 
 SPEAR Console intentionally hides “SMS base URL” and assumes same-origin to simplify operation and reduce user error.

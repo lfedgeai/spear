@@ -145,7 +145,6 @@ async fn test_spearlet_fetches_task_from_sms_when_missing_locally() {
             name: "sms-task".to_string(),
             description: "d".to_string(),
             priority: spear_next::proto::sms::TaskPriority::Normal as i32,
-            node_uuid: "node-x".to_string(),
             endpoint: "sms-task".to_string(),
             version: "v1".to_string(),
             capabilities: vec!["c".to_string()],
@@ -156,6 +155,8 @@ async fn test_spearlet_fetches_task_from_sms_when_missing_locally() {
                 uri: "file:///bin/foo".to_string(),
                 ..Default::default()
             }),
+            desired_replicas: 1,
+            scheduling_strategy: spear_next::proto::sms::TaskSchedulingStrategy::Spread as i32,
         })
         .await
         .unwrap()
@@ -182,6 +183,10 @@ async fn test_spearlet_fetches_task_from_sms_when_missing_locally() {
     )
     .await
     .unwrap();
+    manager
+        .reconcile_task_replica_assignment(&task_id, 1)
+        .await
+        .unwrap();
 
     let resp = manager
         .submit_invocation(InvokeRequest {

@@ -2,7 +2,7 @@ use crate::proto::sms::{
     CredentialEvent, CredentialInfo, CredentialMaterial, WatchCredentialMaterialsResponse,
     WatchCredentialsResponse,
 };
-use crate::sms::admin_backends::ADMIN_REMOTE_BACKENDS_KEY;
+use crate::sms::ai_backends::model::AiBackendRecordModel;
 use crate::sms::registry_watch::{RegistryWatchHub, WatchStream};
 use crate::storage::kv::{serialization, KvStore};
 use aes_gcm::aead::{Aead, KeyInit};
@@ -276,20 +276,23 @@ async fn persist_snapshot(kv: &dyn KvStore, snapshot: &CredentialSnapshot) -> Re
 }
 
 async fn ensure_not_referenced(kv: &dyn KvStore, credential_name: &str) -> Result<(), Status> {
-    let loaded = kv
-        .get(&ADMIN_REMOTE_BACKENDS_KEY.to_string())
+    let backend_pairs = kv
+        .scan_prefix("ai:backend:")
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
-    let Some(bytes) = loaded else {
-        return Ok(());
-    };
-    let snapshot = serialization::deserialize::<crate::sms::admin_backends::BackendSpecSnapshot>(&bytes)
-        .map_err(|e| Status::internal(e.to_string()))?;
-    if snapshot
-        .backends
+
+    let referenced = backend_pairs
         .iter()
-        .any(|backend| backend.credential_ref.trim() == credential_name)
-    {
+        .filter_map(|pair| serialization::deserialize::<AiBackendRecordModel>(&pair.value).ok())
+        .any(|backend| {
+            backend
+                .credential_ref
+                .as_deref()
+                .map(|name| name.trim() == credential_name)
+                .unwrap_or(false)
+        });
+
+    if referenced {
         return Err(Status::failed_precondition(format!(
             "credential is still referenced by backend(s): {}",
             credential_name

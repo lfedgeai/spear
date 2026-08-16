@@ -5,8 +5,10 @@ This directory contains project documentation, recording important changes, solu
 ## Document List
 
 ### Project Structure Changes
-- **spear-next-library-conversion-zh.md** - Detailed record of spear-next project conversion to pure library (Chinese)
-- **spear-next-library-conversion-en.md** - spear-next Project Conversion to Pure Library
+- **[spear-next-library-conversion-zh.md](./spear-next-library-conversion-zh.md)** - Detailed record of spear-next project conversion to pure library (Chinese)
+- **[spear-next-library-conversion-en.md](./spear-next-library-conversion-en.md)** - spear-next Project Conversion to Pure Library
+- **[ai-backend-unified-control-plane-design-en.md](./ai-backend-unified-control-plane-design-en.md)** - Unified AI backend control-plane redesign covering UUID identity, placements, node status, and the read-only AI Models view
+- **[ai-backend-unified-control-plane-design-zh.md](./ai-backend-unified-control-plane-design-zh.md)** - Chinese version of the unified AI backend control-plane redesign
 
 ## Documentation Guidelines
 
@@ -30,3 +32,4 @@ This directory records the following types of documentation:
 ## Update Log
 - 2024-01-XX: Created docs directory and index files
 - 2024-01-XX: Added spear-next library project conversion documentation
+- 2026-07-05: Added unified AI backend control-plane design documents

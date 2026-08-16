@@ -4,27 +4,15 @@ import { useQuery } from '@tanstack/react-query'
 
 import { terminateExecution } from '@/api/control'
 import { getExecution } from '@/api/instanceExecution'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogHeader } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import ExecutionLogsDialog from '@/features/executions/ExecutionLogsDialog'
+import { ReasonConfirmDialog } from '@/features/shared/ReasonConfirmDialog'
+import { ExecutionStatusBadge } from '@/features/shared/status-badges'
 
 function formatMs(ts: number) {
   if (!ts) return '-'
   return new Date(ts).toLocaleString()
-}
-
-function ExecutionStatusBadge({ status }: { status: string }) {
-  const s = (status || '').toLowerCase()
-  if (s === 'completed') return <Badge variant="success">completed</Badge>
-  if (s === 'running') return <Badge>running</Badge>
-  if (s === 'pending') return <Badge variant="secondary">pending</Badge>
-  if (s === 'failed') return <Badge variant="destructive">failed</Badge>
-  if (s === 'cancelled') return <Badge variant="secondary">cancelled</Badge>
-  if (s === 'timeout') return <Badge variant="secondary">timeout</Badge>
-  return <Badge variant="destructive">{status || 'unknown'}</Badge>
 }
 
 function KVTable(props: { data: Record<string, string> }) {
@@ -79,14 +67,25 @@ export default function ExecutionDetailPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-lg font-semibold">Execution</div>
+          <div className="text-lg font-semibold">Execution run</div>
           <div className="text-sm text-[hsl(var(--muted-foreground))]">
-            <Link to="/tasks" className="hover:underline">
-              Tasks
+            <Link to="/executions" className="hover:underline">
+              Execution History
             </Link>
             <span className="mx-2">/</span>
             <span className="font-mono text-xs">{id}</span>
           </div>
+          {e?.task_id ? (
+            <div className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+              Task:{' '}
+              <Link
+                to={`/tasks/${encodeURIComponent(e.task_id)}`}
+                className="font-mono hover:underline"
+              >
+                {e.task_id}
+              </Link>
+            </div>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -115,7 +114,7 @@ export default function ExecutionDetailPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Summary</CardTitle>
+          <CardTitle>Run summary</CardTitle>
         </CardHeader>
         <CardContent>
           {q.isLoading ? (
@@ -136,6 +135,9 @@ export default function ExecutionDetailPage() {
                   {e!.execution_id}
                 </span>
               </div>
+              <div className="text-sm text-[hsl(var(--muted-foreground))]">
+                A single execution produced by one invocation on one task replica.
+              </div>
 
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
@@ -147,7 +149,7 @@ export default function ExecutionDetailPage() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Instance</div>
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Replica instance</div>
                   <div className="font-mono text-xs">
                     <Link
                       to={`/instances/${encodeURIComponent(e!.instance_id)}`}
@@ -225,68 +227,41 @@ export default function ExecutionDetailPage() {
         executionId={id}
       />
 
-      <Dialog open={terminateOpen} onOpenChange={setTerminateOpen}>
-        <DialogContent className="w-[min(520px,calc(100vw-24px))]">
-          <DialogHeader
-            title="Terminate execution"
-            description="Best-effort. This signals the running WASM/worker to stop."
-          />
-          <div className="space-y-3">
-            <div className="text-sm">
-              <div className="text-xs text-[hsl(var(--muted-foreground))]">Execution</div>
-              <div className="font-mono text-xs">{id}</div>
-            </div>
-            <div className="space-y-1">
-              <div className="text-xs text-[hsl(var(--muted-foreground))]">Reason (optional)</div>
-              <Input
-                value={terminateReason}
-                onChange={(ev) => setTerminateReason(ev.target.value)}
-                placeholder="Reason"
-              />
-            </div>
-            {terminateError ? (
-              <div className="text-sm text-[hsl(var(--destructive))]">{terminateError}</div>
-            ) : null}
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="secondary"
-                onClick={() => setTerminateOpen(false)}
-                disabled={terminateLoading}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                disabled={terminateLoading}
-                onClick={async () => {
-                  setTerminateError('')
-                  setTerminateLoading(true)
-                  try {
-                    const resp = await terminateExecution({
-                      execution_id: id,
-                      reason: terminateReason.trim() ? terminateReason.trim() : undefined,
-                    })
-                    if (!resp.success) {
-                      setTerminateError(resp.message || 'Terminate failed')
-                      return
-                    }
-                    setTerminateOpen(false)
-                    void q.refetch()
-                  } catch (err) {
-                    setTerminateError(
-                      String((err as { message?: string } | null)?.message || err || 'Terminate failed'),
-                    )
-                  } finally {
-                    setTerminateLoading(false)
-                  }
-                }}
-              >
-                {terminateLoading ? 'Terminating…' : 'Terminate'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ReasonConfirmDialog
+        open={terminateOpen}
+        onOpenChange={setTerminateOpen}
+        title="Terminate execution"
+        description="This stops the current execution attempt. It does not remove the task replica itself."
+        details={[{ label: 'Execution', value: id }]}
+        reason={terminateReason}
+        onReasonChange={setTerminateReason}
+        error={terminateError}
+        confirmLabel="Terminate"
+        confirmingLabel="Terminating…"
+        confirming={terminateLoading}
+        onConfirm={async () => {
+          setTerminateError('')
+          setTerminateLoading(true)
+          try {
+            const resp = await terminateExecution({
+              execution_id: id,
+              reason: terminateReason.trim() ? terminateReason.trim() : undefined,
+            })
+            if (!resp.success) {
+              setTerminateError(resp.message || 'Terminate failed')
+              return
+            }
+            setTerminateOpen(false)
+            void q.refetch()
+          } catch (err) {
+            setTerminateError(
+              String((err as { message?: string } | null)?.message || err || 'Terminate failed'),
+            )
+          } finally {
+            setTerminateLoading(false)
+          }
+        }}
+      />
     </div>
   )
 }

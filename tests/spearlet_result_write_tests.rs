@@ -122,13 +122,14 @@ async fn test_spearlet_writes_result_on_completion() {
         name: "t".to_string(),
         description: "d".to_string(),
         priority: 2,
-        node_uuid: "node-1".to_string(),
         endpoint: "t".to_string(),
         version: "v1".to_string(),
         capabilities: vec![],
         metadata: std::collections::HashMap::new(),
         config: std::collections::HashMap::new(),
         executable: None,
+        desired_replicas: 1,
+        scheduling_strategy: spear_next::proto::sms::TaskSchedulingStrategy::Spread as i32,
     };
     let task_id = client
         .register_task(reg)
@@ -168,11 +169,16 @@ async fn test_spearlet_writes_result_on_completion() {
         args: vec![],
         env: std::collections::HashMap::new(),
     });
-    let artifact = mgr.ensure_artifact_from_sms(&sms_task).await.unwrap();
-    let _ = mgr
-        .ensure_task_from_sms(&sms_task, &artifact)
+    let artifact = mgr
+        .materialize_local_artifact_from_sms_snapshot(&sms_task)
         .await
         .unwrap();
+    let _ = mgr
+        .materialize_local_task_from_sms_snapshot_with_artifact(&sms_task, &artifact)
+        .await
+        .unwrap();
+    let task = mgr.get_task_by_id(&task_id).unwrap();
+    mgr.create_instance_for_task(&task).await.unwrap();
 
     let _ = mgr
         .submit_invocation(spear_next::proto::spearlet::InvokeRequest {

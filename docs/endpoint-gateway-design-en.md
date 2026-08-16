@@ -108,7 +108,8 @@ Minimal selection strategy:
 
 Notes:
 
-- If task has `node_uuid`, only select/create on that node
+- Tasks no longer bind to a single `node_uuid`; placement uses the task's `desired_replicas`, `scheduling_strategy`, and current active-instance distribution
+- The MVP now supports `SPREAD`: prefer nodes that currently host fewer instances for the same task
 - Later we can add load/concurrency/affinity/LRU scoring
 
 ### 4.3 execution binding strategy

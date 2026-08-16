@@ -22,30 +22,43 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::proto::sms::{
+    ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient,
     admin_credential_service_client::AdminCredentialServiceClient,
-    admin_ai_config_service_client::AdminAiConfigServiceClient,
     backend_registry_service_client::BackendRegistryServiceClient,
     mcp_registry_service_client::McpRegistryServiceClient,
-    model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient,
     node_service_client::NodeServiceClient, placement_service_client::PlacementServiceClient,
     DeleteCredentialRequest, ListCredentialsRequest, ListNodesRequest, UpsertCredentialRequest,
 };
 use crate::sms::gateway::GatewayState;
+use crate::sms::query_support::{collect_task_instances_bounded, instance_is_active_and_fresh};
 pub use router::create_admin_router;
-use types::{AiModelsQuery, ListQuery, PageTokenQuery, StreamQuery};
+use presenter::{
+    credential_info_json, execution_detail_json, execution_history_row_json,
+    instance_execution_summary_json, instance_json, mcp_server_json, node_backends_snapshot_json,
+    node_detail_json, task_instance_row_json,
+};
+use types::{
+    AiBackendsQuery, AiModelViewsQuery, ExecutionHistoryQuery, ListQuery, PageTokenQuery,
+    StreamQuery,
+};
 
 use crate::proto::spearlet::{
     execution_service_client::ExecutionServiceClient,
     instance_service_client::InstanceServiceClient,
     invocation_service_client::InvocationServiceClient, DestroyInstanceRequest, ExecutionMode,
-    TerminateExecutionRequest,
+    ReconcileTaskAssignmentsNowRequest, TerminateExecutionRequest,
 };
 
-mod ai_model_catalog;
 mod invocation_flow;
 mod node_rpc;
 mod router;
+mod task_admin;
+mod presenter;
 mod types;
+
+pub(crate) use task_admin::{
+    create_task, delete_task_admin, get_task_detail, list_tasks, CreateTaskBody, DeleteTaskBody,
+};
 
 pub struct WebAdminServer {
     addr: SocketAddr,
@@ -102,6 +115,7 @@ impl WebAdminServer {
         let node_client = NodeServiceClient::new(channel.clone());
         let task_client =
             crate::proto::sms::task_service_client::TaskServiceClient::new(channel.clone());
+        let task_assignment_client = crate::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(channel.clone());
         let placement_client = PlacementServiceClient::new(channel.clone());
         let instance_registry_client =
             crate::proto::sms::instance_registry_service_client::InstanceRegistryServiceClient::new(
@@ -117,23 +131,22 @@ impl WebAdminServer {
             );
         let mcp_registry_client = McpRegistryServiceClient::new(channel.clone());
         let backend_registry_client = BackendRegistryServiceClient::new(channel.clone());
+        let ai_backend_control_plane_client =
+            AiBackendControlPlaneServiceClient::new(channel.clone());
         let admin_credential_client = AdminCredentialServiceClient::new(channel.clone());
-        let admin_ai_config_client = AdminAiConfigServiceClient::new(channel.clone());
-        let model_deployment_registry_client =
-            ModelDeploymentRegistryServiceClient::new(channel.clone());
         let state = GatewayState {
             config: Arc::new(crate::sms::config::SmsConfig::default()),
             node_client,
             task_client,
+            task_assignment_client,
             placement_client,
             instance_registry_client,
             execution_registry_client,
             execution_index_client,
             mcp_registry_client,
             backend_registry_client,
+            ai_backend_control_plane_client,
             admin_credential_client,
-            admin_ai_config_client,
-            model_deployment_registry_client,
             stream_sessions: crate::sms::gateway::StreamSessionStore::new(),
             execution_stream_pool: crate::sms::gateway::ExecutionStreamPool::new(),
             cancel_token: cancel_token.clone(),
@@ -195,26 +208,57 @@ struct McpHttpBody {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct UpsertRemoteBackendBody {
-    name: String,
-    kind: String,
-    base_url: String,
-    model: Option<String>,
-    credential_ref: Option<String>,
-    weight: Option<u32>,
-    priority: Option<i32>,
-    operations: Vec<String>,
-    features: Option<Vec<String>>,
-    transports: Option<Vec<String>>,
-    provider: Option<String>,
-}
-
-#[derive(Deserialize)]
 pub(crate) struct UpsertCredentialBody {
     name: String,
     secret: Option<String>,
     description: Option<String>,
     disabled: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct AiBackendWriteBody {
+    display_name: String,
+    provider: String,
+    model: String,
+    hosting: String,
+    backend_kind: String,
+    management_mode: Option<String>,
+    credential_ref: Option<String>,
+    desired_state: Option<String>,
+    spec: AiBackendSpecBody,
+    labels: Option<std::collections::HashMap<String, String>>,
+    metadata: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct AiBackendSpecBody {
+    base_url: Option<String>,
+    operations: Vec<String>,
+    features: Option<Vec<String>>,
+    transports: Option<Vec<String>>,
+    weight: Option<u32>,
+    priority: Option<i32>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct SetAiBackendDesiredStateBody {
+    desired_state: String,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct AiBackendPlacementWriteBody {
+    placement_id: Option<String>,
+    backend_id: String,
+    node_uuid: String,
+    desired_state: Option<String>,
+    weight_override: Option<i32>,
+    priority_override: Option<i32>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct AiBackendPlacementsQuery {
+    backend_id: Option<String>,
+    node_uuid: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -246,270 +290,33 @@ async fn get_node_backends(state: GatewayState, p: Path<String>) -> Json<serde_j
     {
         Ok(resp) => {
             let inner = resp.into_inner();
-            let meta = inner.snapshot.as_ref().map(|s| {
-                json!({
-                    "revision": s.revision,
-                    "reported_at_ms": s.reported_at_ms,
-                })
-            });
-            let backends = inner
-                .snapshot
-                .as_ref()
-                .map(|s| {
-                    s.backends
-                        .iter()
-                        .filter_map(|b| {
-                            b.spec.as_ref().map(|spec| {
-                                json!({
-                                    "name": spec.name,
-                                    "kind": spec.kind,
-                                    "operations": spec.operations,
-                                    "features": spec.features,
-                                    "transports": spec.transports,
-                                    "weight": spec.weight,
-                                    "priority": spec.priority,
-                                    "base_url": spec.base_url,
-                                    "status": b.status,
-                                    "status_reason": b.status_reason,
-                                    "provider": spec.provider,
-                                    "model": spec.model,
-                                    "hosting": spec.hosting,
-                                })
-                            })
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
+            let projection = node_backends_snapshot_json(inner.snapshot.as_ref());
             Json(json!({
                 "found": inner.found,
                 "node_uuid": node_uuid,
-                "backends": backends,
-                "snapshot": meta,
+                "backends": projection.get("backends").cloned().unwrap_or_else(|| json!([])),
+                "snapshot": projection.get("snapshot").cloned().unwrap_or(serde_json::Value::Null),
             }))
         }
         Err(e) => Json(json!({"found": false, "message": e.to_string()})),
     }
 }
 
-async fn list_ai_models(
+async fn list_ai_backends_admin(
     state: GatewayState,
-    Query(q): Query<AiModelsQuery>,
+    Query(q): Query<AiBackendsQuery>,
 ) -> Json<serde_json::Value> {
-    use crate::proto::sms::ListNodeBackendSnapshotsRequest;
-
-    let mut client = state.backend_registry_client.clone();
-    let limit = q.limit.unwrap_or(500) as u32;
-    let offset = q.offset.unwrap_or(0) as u32;
-    let resp = match client
-        .list_node_backend_snapshots(ListNodeBackendSnapshotsRequest { limit, offset })
-        .await
-    {
-        Ok(r) => r.into_inner(),
-        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
-    };
-
-    let provider_filter = q.provider.as_deref().map(|s| s.to_ascii_lowercase());
-    let hosting_filter = q.hosting.as_deref().map(|s| s.to_ascii_lowercase());
-    let needle = q.q.as_deref().map(|s| s.to_ascii_lowercase());
-
-    let list = ai_model_catalog::aggregate_models(
-        resp.snapshots,
-        provider_filter.as_deref(),
-        hosting_filter.as_deref(),
-        needle.as_deref(),
-    );
-
-    Json(json!({"success": true, "models": list, "total_count": resp.total_count}))
-}
-
-async fn get_ai_model_detail(
-    state: GatewayState,
-    p: Path<(String, String)>,
-    Query(q_in): Query<AiModelsQuery>,
-) -> Json<serde_json::Value> {
-    let (provider, model) = p.0;
-    if provider.trim().is_empty() || model.trim().is_empty() {
-        return Json(json!({"success": true, "found": false}));
-    }
-
-    let q = AiModelsQuery {
-        hosting: q_in.hosting.clone(),
-        provider: Some(provider.clone()),
-        limit: Some(500),
-        offset: Some(0),
-        q: Some(model.clone()),
-    };
-
-    let resp = list_ai_models(state, Query(q)).await;
-    let mut found = None;
-    if let Some(models) = resp.0.get("models").and_then(|v| v.as_array()) {
-        for m in models.iter() {
-            let p = m.get("provider").and_then(|v| v.as_str()).unwrap_or("");
-            let md = m.get("model").and_then(|v| v.as_str()).unwrap_or("");
-            if p == provider && md == model {
-                found = Some(m.clone());
-                break;
-            }
-        }
-    }
-    match found {
-        Some(m) => Json(json!({"success": true, "found": true, "model": m})),
-        None => Json(json!({"success": true, "found": false})),
-    }
-}
-
-#[derive(Deserialize)]
-pub(crate) struct CreateNodeModelDeploymentBody {
-    provider: String,
-    model: String,
-    params: Option<std::collections::HashMap<String, String>>,
-}
-
-async fn list_node_model_deployments(
-    state: GatewayState,
-    p: Path<String>,
-    Query(q): Query<ListQuery>,
-) -> Json<serde_json::Value> {
-    use crate::proto::sms::ListModelDeploymentsRequest;
-    let node_uuid = p.0;
-    if node_uuid.trim().is_empty() {
-        return Json(json!({"success": false, "message": "node_uuid is required"}));
-    }
-
-    let limit = q.limit.unwrap_or(200) as u32;
-    let offset = q.offset.unwrap_or(0) as u32;
-    let mut client = state.model_deployment_registry_client.clone();
-    let resp = match client
-        .list_model_deployments(ListModelDeploymentsRequest {
-            limit,
-            offset,
-            target_node_uuid: node_uuid.clone(),
-            provider: String::new(),
-        })
-        .await
-    {
-        Ok(r) => r.into_inner(),
-        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
-    };
-
-    let records = resp
-        .records
-        .into_iter()
-        .map(|r| {
-            json!({
-                "deployment_id": r.deployment_id,
-                "revision": r.revision,
-                "created_at_ms": r.created_at_ms,
-                "updated_at_ms": r.updated_at_ms,
-                "spec": r.spec.as_ref().map(|s| json!({
-                    "target_node_uuid": s.target_node_uuid,
-                    "provider": s.provider,
-                    "model": s.model,
-                    "params": s.params,
-                })),
-                "status": r.status.as_ref().map(|s| json!({
-                    "phase": s.phase,
-                    "message": s.message,
-                    "updated_at_ms": s.updated_at_ms,
-                })),
-            })
-        })
-        .collect::<Vec<_>>();
-
-    Json(json!({
-        "success": true,
-        "revision": resp.revision,
-        "total_count": resp.total_count,
-        "deployments": records,
-    }))
-}
-
-async fn create_node_model_deployment(
-    state: GatewayState,
-    p: Path<String>,
-    body: Json<CreateNodeModelDeploymentBody>,
-) -> Json<serde_json::Value> {
-    use crate::proto::sms::{
-        ModelDeploymentRecord, ModelDeploymentSpec, UpsertModelDeploymentRequest,
-    };
-    let node_uuid = p.0;
-    if node_uuid.trim().is_empty() {
-        return Json(json!({"success": false, "message": "node_uuid is required"}));
-    }
-    if body.provider.trim().is_empty() || body.model.trim().is_empty() {
-        return Json(json!({"success": false, "message": "provider and model are required"}));
-    }
-    let provider_lc = body.provider.trim().to_ascii_lowercase();
-    let provider = match provider_lc.as_str() {
-        "vllm" => "vllm".to_string(),
-        "llamacpp" | "llama_cpp" | "llama.cpp" => "llamacpp".to_string(),
-        _ => {
-            return Json(json!({
-                "success": false,
-                "message": "unsupported provider (only vllm/llamacpp supported)"
-            }))
-        }
-    };
-    let spec = ModelDeploymentSpec {
-        target_node_uuid: node_uuid.clone(),
-        provider,
-        model: body.model.clone(),
-        params: body.params.clone().unwrap_or_default(),
-        backend: None,
-    };
-    let record = ModelDeploymentRecord {
-        deployment_id: String::new(),
-        revision: 0,
-        created_at_ms: 0,
-        updated_at_ms: 0,
-        spec: Some(spec),
-        status: None,
-    };
-
-    let mut client = state.model_deployment_registry_client.clone();
-    let resp = match client
-        .upsert_model_deployment(UpsertModelDeploymentRequest {
-            record: Some(record),
-        })
-        .await
-    {
-        Ok(r) => r.into_inner(),
-        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
-    };
-
-    Json(json!({
-        "success": true,
-        "deployment_id": resp.deployment_id,
-        "revision": resp.revision,
-    }))
-}
-
-async fn delete_node_model_deployment(
-    state: GatewayState,
-    p: Path<(String, String)>,
-) -> Json<serde_json::Value> {
-    use crate::proto::sms::DeleteModelDeploymentRequest;
-    let (node_uuid, deployment_id) = p.0;
-    if node_uuid.trim().is_empty() || deployment_id.trim().is_empty() {
-        return Json(
-            json!({"success": false, "message": "node_uuid and deployment_id are required"}),
-        );
-    }
-    let mut client = state.model_deployment_registry_client.clone();
-    let resp = match client
-        .delete_model_deployment(DeleteModelDeploymentRequest { deployment_id })
-        .await
-    {
-        Ok(r) => r.into_inner(),
-        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
-    };
-    Json(json!({"success": true, "revision": resp.revision}))
-}
-
-async fn list_remote_backends_admin(state: GatewayState) -> Json<serde_json::Value> {
-    let mut client = state.admin_ai_config_client.clone();
+    let mut client = state.ai_backend_control_plane_client.clone();
     match client
-        .list_remote_backends(crate::proto::sms::ListRemoteBackendsRequest {})
+        .list_ai_backends(crate::proto::sms::ListAiBackendsRequest {
+            limit: q.limit.unwrap_or(0),
+            offset: q.offset.unwrap_or(0),
+            q: q.q.unwrap_or_default(),
+            hosting: q.hosting.unwrap_or_default(),
+            desired_state: q.desired_state.unwrap_or_default(),
+            provider: q.provider.unwrap_or_default(),
+            model: q.model.unwrap_or_default(),
+        })
         .await
     {
         Ok(resp) => {
@@ -517,86 +324,708 @@ async fn list_remote_backends_admin(state: GatewayState) -> Json<serde_json::Val
             let backends = inner
                 .backends
                 .into_iter()
-                .map(|b| {
-                    json!({
-                        "name": b.name,
-                        "kind": b.kind,
-                        "base_url": b.base_url,
-                        "model": if b.model.is_empty() { None::<String> } else { Some(b.model) },
-                        "credential_ref": if b.credential_ref.is_empty() { None::<String> } else { Some(b.credential_ref) },
-                        "weight": b.weight,
-                        "priority": b.priority,
-                        "operations": b.operations,
-                        "features": b.features,
-                        "transports": b.transports,
-                        "provider": if b.provider.is_empty() { None::<String> } else { Some(b.provider) },
-                    })
-                })
+                .map(ai_backend_record_json)
                 .collect::<Vec<_>>();
-            Json(json!({"success": true, "revision": inner.revision, "backends": backends}))
+            Json(json!({"success": true, "backends": backends, "total_count": inner.total_count}))
         }
         Err(e) => Json(json!({"success": false, "message": e.to_string()})),
     }
 }
 
-async fn upsert_remote_backend_admin(
-    state: GatewayState,
-    body: Json<UpsertRemoteBackendBody>,
-) -> Json<serde_json::Value> {
-    let b = body.0;
-    if b.name.trim().is_empty() || b.kind.trim().is_empty() || b.base_url.trim().is_empty() {
-        return Json(json!({"success": false, "message": "name/kind/base_url are required"}));
-    }
-    if b.operations.is_empty() {
-        return Json(json!({"success": false, "message": "operations are required"}));
-    }
-
-    let mut client = state.admin_ai_config_client.clone();
-    let resp = match client
-        .upsert_remote_backend(crate::proto::sms::UpsertRemoteBackendRequest {
-            backend: Some(crate::proto::sms::BackendSpec {
-                name: b.name,
-                kind: b.kind,
-                operations: b.operations,
-                features: b.features.unwrap_or_default(),
-                transports: b.transports.unwrap_or_else(|| vec!["http".to_string()]),
-                provider: b.provider.unwrap_or_default(),
-                model: b.model.unwrap_or_default(),
-                base_url: b.base_url,
-                credential_ref: b.credential_ref.unwrap_or_default(),
-                weight: b.weight.unwrap_or(100),
-                priority: b.priority.unwrap_or(0),
-                hosting: crate::proto::sms::BackendHosting::Remote as i32,
-                origin: crate::proto::sms::BackendOrigin::Sms as i32,
-                deployment_id: String::new(),
-            }),
-        })
-        .await
-    {
-        Ok(r) => r.into_inner(),
-        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
-    };
-
-    Json(json!({"success": true, "revision": resp.revision}))
-}
-
-async fn delete_remote_backend_admin(
+async fn get_ai_backend_admin(
     state: GatewayState,
     p: Path<String>,
 ) -> Json<serde_json::Value> {
-    let name = p.0;
-    if name.trim().is_empty() {
-        return Json(json!({"success": false, "message": "name is required"}));
+    let backend_id = p.0;
+    if backend_id.trim().is_empty() {
+        return Json(json!({"success": false, "message": "backend_id is required"}));
     }
-    let mut client = state.admin_ai_config_client.clone();
-    let resp = match client
-        .delete_remote_backend(crate::proto::sms::DeleteRemoteBackendRequest { name })
+
+    let mut client = state.ai_backend_control_plane_client.clone();
+    match client
+        .get_ai_backend(crate::proto::sms::GetAiBackendRequest { backend_id })
         .await
     {
-        Ok(r) => r.into_inner(),
-        Err(e) => return Json(json!({"success": false, "message": e.to_string()})),
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            Json(json!({
+                "success": true,
+                "found": inner.found,
+                "backend": inner.backend.map(ai_backend_record_json),
+            }))
+        }
+        Err(e) => Json(json!({"success": false, "message": e.to_string()})),
+    }
+}
+
+async fn create_ai_backend_admin(
+    state: GatewayState,
+    body: Json<AiBackendWriteBody>,
+) -> Json<serde_json::Value> {
+    let backend = match ai_backend_proto_from_body(body.0, String::new()) {
+        Ok(value) => value,
+        Err(message) => return Json(json!({"success": false, "message": message})),
     };
-    Json(json!({"success": true, "revision": resp.revision, "deleted": resp.deleted}))
+
+    let mut client = state.ai_backend_control_plane_client.clone();
+    match client
+        .create_ai_backend(crate::proto::sms::CreateAiBackendRequest {
+            backend: Some(backend),
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            Json(json!({
+                "success": true,
+                "backend": inner.backend.map(ai_backend_record_json),
+            }))
+        }
+        Err(e) => Json(json!({"success": false, "message": e.to_string()})),
+    }
+}
+
+async fn update_ai_backend_admin(
+    state: GatewayState,
+    p: Path<String>,
+    body: Json<AiBackendWriteBody>,
+) -> Json<serde_json::Value> {
+    let backend_id = p.0;
+    if backend_id.trim().is_empty() {
+        return Json(json!({"success": false, "message": "backend_id is required"}));
+    }
+
+    let backend = match ai_backend_proto_from_body(body.0, backend_id) {
+        Ok(value) => value,
+        Err(message) => return Json(json!({"success": false, "message": message})),
+    };
+
+    let mut client = state.ai_backend_control_plane_client.clone();
+    match client
+        .update_ai_backend(crate::proto::sms::UpdateAiBackendRequest {
+            backend: Some(backend),
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            Json(json!({
+                "success": true,
+                "backend": inner.backend.map(ai_backend_record_json),
+            }))
+        }
+        Err(e) => Json(json!({"success": false, "message": e.to_string()})),
+    }
+}
+
+async fn delete_ai_backend_admin(
+    state: GatewayState,
+    p: Path<String>,
+) -> Json<serde_json::Value> {
+    let backend_id = p.0;
+    if backend_id.trim().is_empty() {
+        return Json(json!({"success": false, "message": "backend_id is required"}));
+    }
+
+    let mut client = state.ai_backend_control_plane_client.clone();
+    match client
+        .delete_ai_backend(crate::proto::sms::DeleteAiBackendRequest { backend_id })
+        .await
+    {
+        Ok(resp) => Json(json!({"success": true, "deleted": resp.into_inner().deleted})),
+        Err(e) => Json(json!({"success": false, "message": e.to_string()})),
+    }
+}
+
+async fn set_ai_backend_desired_state_admin(
+    state: GatewayState,
+    p: Path<String>,
+    body: Json<SetAiBackendDesiredStateBody>,
+) -> Json<serde_json::Value> {
+    let backend_id = p.0;
+    if backend_id.trim().is_empty() {
+        return Json(json!({"success": false, "message": "backend_id is required"}));
+    }
+
+    let desired_state = match parse_ai_backend_desired_state(&body.0.desired_state) {
+        Ok(value) => value,
+        Err(message) => return Json(json!({"success": false, "message": message})),
+    };
+
+    let mut client = state.ai_backend_control_plane_client.clone();
+    match client
+        .set_ai_backend_desired_state(crate::proto::sms::SetAiBackendDesiredStateRequest {
+            backend_id,
+            desired_state: desired_state as i32,
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            Json(json!({
+                "success": true,
+                "backend": inner.backend.map(ai_backend_record_json),
+            }))
+        }
+        Err(e) => Json(json!({"success": false, "message": e.to_string()})),
+    }
+}
+
+async fn list_ai_backend_placements_admin(
+    state: GatewayState,
+    Query(q): Query<AiBackendPlacementsQuery>,
+) -> Json<serde_json::Value> {
+    let mut client = state.ai_backend_control_plane_client.clone();
+    match client
+        .list_ai_backend_placements(crate::proto::sms::ListAiBackendPlacementsRequest {
+            backend_id: q.backend_id.unwrap_or_default(),
+            node_uuid: q.node_uuid.unwrap_or_default(),
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            let placements = inner
+                .placements
+                .into_iter()
+                .map(ai_backend_placement_json)
+                .collect::<Vec<_>>();
+            Json(json!({
+                "success": true,
+                "placements": placements,
+                "total_count": inner.total_count,
+            }))
+        }
+        Err(e) => Json(json!({"success": false, "message": e.to_string()})),
+    }
+}
+
+async fn upsert_ai_backend_placement_admin(
+    state: GatewayState,
+    body: Json<AiBackendPlacementWriteBody>,
+) -> Json<serde_json::Value> {
+    let placement = match ai_backend_placement_proto_from_body(body.0) {
+        Ok(value) => value,
+        Err(message) => return Json(json!({"success": false, "message": message})),
+    };
+
+    let mut client = state.ai_backend_control_plane_client.clone();
+    match client
+        .upsert_ai_backend_placement(crate::proto::sms::UpsertAiBackendPlacementRequest {
+            placement: Some(placement),
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            Json(json!({
+                "success": true,
+                "placement": inner.placement.map(ai_backend_placement_json),
+            }))
+        }
+        Err(e) => Json(json!({"success": false, "message": e.to_string()})),
+    }
+}
+
+async fn delete_ai_backend_placement_admin(
+    state: GatewayState,
+    p: Path<String>,
+) -> Json<serde_json::Value> {
+    let placement_id = p.0;
+    if placement_id.trim().is_empty() {
+        return Json(json!({"success": false, "message": "placement_id is required"}));
+    }
+
+    let mut client = state.ai_backend_control_plane_client.clone();
+    match client
+        .delete_ai_backend_placement(crate::proto::sms::DeleteAiBackendPlacementRequest {
+            placement_id,
+        })
+        .await
+    {
+        Ok(resp) => Json(json!({"success": true, "deleted": resp.into_inner().deleted})),
+        Err(e) => Json(json!({"success": false, "message": e.to_string()})),
+    }
+}
+
+async fn list_ai_backend_assignments_admin(
+    state: GatewayState,
+    p: Path<String>,
+) -> Json<serde_json::Value> {
+    let node_uuid = p.0;
+    if node_uuid.trim().is_empty() {
+        return Json(json!({"success": false, "message": "node_uuid is required"}));
+    }
+
+    let mut client = state.ai_backend_control_plane_client.clone();
+    match client
+        .list_ai_backend_assignments(crate::proto::sms::ListAiBackendAssignmentsRequest {
+            node_uuid,
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            let assignments = inner
+                .assignments
+                .into_iter()
+                .map(ai_backend_assignment_json)
+                .collect::<Vec<_>>();
+            Json(json!({
+                "success": true,
+                "assignments": assignments,
+                "total_count": inner.total_count,
+            }))
+        }
+        Err(e) => Json(json!({"success": false, "message": e.to_string()})),
+    }
+}
+
+async fn list_ai_backend_node_statuses_admin(
+    state: GatewayState,
+    p: Path<String>,
+) -> Json<serde_json::Value> {
+    let backend_id = p.0;
+    if backend_id.trim().is_empty() {
+        return Json(json!({"success": false, "message": "backend_id is required"}));
+    }
+
+    let mut client = state.ai_backend_control_plane_client.clone();
+    match client
+        .list_ai_backend_node_statuses(crate::proto::sms::ListAiBackendNodeStatusesRequest {
+            backend_id,
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            let statuses = inner
+                .statuses
+                .into_iter()
+                .map(ai_backend_node_status_json)
+                .collect::<Vec<_>>();
+            Json(json!({
+                "success": true,
+                "statuses": statuses,
+                "total_count": inner.total_count,
+            }))
+        }
+        Err(e) => Json(json!({"success": false, "message": e.to_string()})),
+    }
+}
+
+async fn list_ai_model_views_admin(
+    state: GatewayState,
+    Query(q): Query<AiModelViewsQuery>,
+) -> Json<serde_json::Value> {
+    let mut client = state.ai_backend_control_plane_client.clone();
+    match client
+        .list_ai_model_views(crate::proto::sms::ListAiModelViewsRequest {
+            limit: q.limit.unwrap_or(0),
+            offset: q.offset.unwrap_or(0),
+            q: q.q.unwrap_or_default(),
+            hosting: q.hosting.unwrap_or_default(),
+            status: q.status.unwrap_or_default(),
+            provider: q.provider.unwrap_or_default(),
+            model: q.model.unwrap_or_default(),
+        })
+        .await
+    {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            let views = inner
+                .views
+                .into_iter()
+                .map(ai_model_view_json)
+                .collect::<Vec<_>>();
+            Json(json!({"success": true, "views": views, "total_count": inner.total_count}))
+        }
+        Err(e) => Json(json!({"success": false, "message": e.to_string()})),
+    }
+}
+
+/// Build a proto backend record from HTTP JSON input / 从 HTTP JSON 输入构建 proto backend 记录
+fn ai_backend_proto_from_body(
+    body: AiBackendWriteBody,
+    backend_id: String,
+) -> Result<crate::proto::sms::AiBackendRecord, String> {
+    if body.display_name.trim().is_empty() {
+        return Err("display_name is required".to_string());
+    }
+    if body.provider.trim().is_empty() {
+        return Err("provider is required".to_string());
+    }
+    if body.model.trim().is_empty() {
+        return Err("model is required".to_string());
+    }
+    if body.backend_kind.trim().is_empty() {
+        return Err("backend_kind is required".to_string());
+    }
+    if body.spec.operations.is_empty() {
+        return Err("spec.operations is required".to_string());
+    }
+
+    let hosting = parse_ai_backend_hosting(&body.hosting)?;
+    let management_mode = match body.management_mode.as_deref() {
+        Some(value) => parse_ai_backend_management_mode(value)?,
+        None => default_ai_backend_management_mode(hosting),
+    };
+    let desired_state = match body.desired_state.as_deref() {
+        Some(value) => parse_ai_backend_desired_state(value)?,
+        None => crate::proto::sms::AiBackendDesiredState::Enabled,
+    };
+    let credential_ref = trim_to_option(body.credential_ref.clone());
+
+    let record = crate::sms::ai_backends::model::AiBackendRecordModel {
+        backend_id,
+        display_name: body.display_name.trim().to_string(),
+        provider: body.provider.trim().to_string(),
+        model: body.model.trim().to_string(),
+        hosting: match hosting {
+            crate::proto::sms::AiBackendHosting::Remote => {
+                crate::sms::ai_backends::model::AiBackendHostingModel::Remote
+            }
+            crate::proto::sms::AiBackendHosting::Local => {
+                crate::sms::ai_backends::model::AiBackendHostingModel::Local
+            }
+            crate::proto::sms::AiBackendHosting::Unspecified => {
+                return Err("hosting is required".to_string())
+            }
+        },
+        backend_kind: body.backend_kind.trim().to_string(),
+        desired_state: match desired_state {
+            crate::proto::sms::AiBackendDesiredState::Enabled => {
+                crate::sms::ai_backends::model::AiBackendDesiredStateModel::Enabled
+            }
+            crate::proto::sms::AiBackendDesiredState::Disabled => {
+                crate::sms::ai_backends::model::AiBackendDesiredStateModel::Disabled
+            }
+            crate::proto::sms::AiBackendDesiredState::Unspecified => {
+                return Err("desired_state is required".to_string())
+            }
+        },
+        management_mode: match management_mode {
+            crate::proto::sms::AiBackendManagementMode::SmsRemote => {
+                crate::sms::ai_backends::model::AiBackendManagementModeModel::SmsRemote
+            }
+            crate::proto::sms::AiBackendManagementMode::SmsLocal => {
+                crate::sms::ai_backends::model::AiBackendManagementModeModel::SmsLocal
+            }
+            crate::proto::sms::AiBackendManagementMode::Unspecified => {
+                return Err("management_mode is required".to_string())
+            }
+        },
+        credential_ref: credential_ref.clone(),
+        spec: crate::sms::ai_backends::model::AiBackendSpecModel {
+            name: String::new(),
+            kind: body.backend_kind.trim().to_string(),
+            operations: body.spec.operations,
+            features: body.spec.features.unwrap_or_default(),
+            transports: body
+                .spec
+                .transports
+                .unwrap_or_else(|| vec!["http".to_string()]),
+            weight: body.spec.weight.unwrap_or(100),
+            priority: body.spec.priority.unwrap_or(0),
+            base_url: body.spec.base_url.unwrap_or_default(),
+            provider: body.provider.trim().to_string(),
+            model: body.model.trim().to_string(),
+            credential_ref: credential_ref.unwrap_or_default(),
+            origin: 0,
+            deployment_id: String::new(),
+        },
+        labels: body.labels.unwrap_or_default().into_iter().collect(),
+        metadata: body.metadata.unwrap_or_else(|| json!({})),
+        generation: 0,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+    };
+    Ok(crate::sms::ai_backends::proto_conv::proto_backend_from_domain(&record))
+}
+
+/// Build a proto placement record from HTTP JSON input / 从 HTTP JSON 输入构建 proto placement 记录
+fn ai_backend_placement_proto_from_body(
+    body: AiBackendPlacementWriteBody,
+) -> Result<crate::proto::sms::AiBackendPlacementRecord, String> {
+    if body.backend_id.trim().is_empty() {
+        return Err("backend_id is required".to_string());
+    }
+    if body.node_uuid.trim().is_empty() {
+        return Err("node_uuid is required".to_string());
+    }
+
+    Ok(crate::proto::sms::AiBackendPlacementRecord {
+        placement_id: body.placement_id.unwrap_or_default(),
+        backend_id: body.backend_id,
+        node_uuid: body.node_uuid,
+        desired_state: match body.desired_state.as_deref() {
+            Some(value) => parse_ai_backend_desired_state(value)? as i32,
+            None => crate::proto::sms::AiBackendDesiredState::Enabled as i32,
+        },
+        weight_override: body.weight_override,
+        priority_override: body.priority_override,
+        generation: 0,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+    })
+}
+
+/// Convert one backend record into admin JSON / 把单个 backend 记录转换为管理端 JSON
+fn ai_backend_record_json(record: crate::proto::sms::AiBackendRecord) -> serde_json::Value {
+    json!({
+        "backend_id": record.backend_id,
+        "display_name": record.display_name,
+        "provider": record.provider,
+        "model": record.model,
+        "hosting": ai_backend_hosting_label(record.hosting),
+        "backend_kind": record.backend_kind,
+        "desired_state": ai_backend_desired_state_label(record.desired_state),
+        "management_mode": ai_backend_management_mode_label(record.management_mode),
+        "credential_ref": trim_to_option(record.credential_ref),
+        "spec": record.spec.map(ai_backend_spec_json),
+        "labels": record.labels,
+        "metadata": proto_struct_to_json(record.metadata.as_ref()),
+        "generation": record.generation,
+        "created_at_ms": record.created_at_ms,
+        "updated_at_ms": record.updated_at_ms,
+    })
+}
+
+/// Convert one backend spec into admin JSON / 把单个 backend spec 转换为管理端 JSON
+fn ai_backend_spec_json(spec: crate::proto::sms::BackendSpec) -> serde_json::Value {
+    json!({
+        "name": spec.name,
+        "kind": spec.kind,
+        "operations": spec.operations,
+        "features": spec.features,
+        "transports": spec.transports,
+        "weight": spec.weight,
+        "priority": spec.priority,
+        "base_url": spec.base_url,
+        "provider": spec.provider,
+        "model": spec.model,
+        "credential_ref": trim_to_option(Some(spec.credential_ref)),
+        "origin": spec.origin,
+        "deployment_id": spec.deployment_id,
+    })
+}
+
+/// Convert one placement record into admin JSON / 把单个 placement 记录转换为管理端 JSON
+fn ai_backend_placement_json(
+    record: crate::proto::sms::AiBackendPlacementRecord,
+) -> serde_json::Value {
+    json!({
+        "placement_id": record.placement_id,
+        "backend_id": record.backend_id,
+        "node_uuid": record.node_uuid,
+        "desired_state": ai_backend_desired_state_label(record.desired_state),
+        "weight_override": record.weight_override,
+        "priority_override": record.priority_override,
+        "generation": record.generation,
+        "created_at_ms": record.created_at_ms,
+        "updated_at_ms": record.updated_at_ms,
+    })
+}
+
+/// Convert one node status record into admin JSON / 把单个节点状态记录转换为管理端 JSON
+fn ai_backend_node_status_json(
+    record: crate::proto::sms::AiBackendNodeStatusRecord,
+) -> serde_json::Value {
+    json!({
+        "backend_id": record.backend_id,
+        "node_uuid": record.node_uuid,
+        "observed_generation": record.observed_generation,
+        "status": ai_backend_node_status_label(record.status),
+        "status_reason": record.status_reason,
+        "runtime_backend_name": trim_to_option(Some(record.runtime_backend_name)),
+        "endpoint": trim_to_option(Some(record.endpoint)),
+        "available": record.available,
+        "operations": record.operations,
+        "features": record.features,
+        "transports": record.transports,
+        "last_heartbeat_at_ms": record.last_heartbeat_at_ms,
+    })
+}
+
+/// Convert one resolved assignment into admin JSON / 把单个解析后的 assignment 转换为管理端 JSON
+fn ai_backend_assignment_json(
+    assignment: crate::proto::sms::ResolvedAiBackendAssignment,
+) -> serde_json::Value {
+    json!({
+        "backend": assignment.backend.map(ai_backend_record_json),
+        "placement": assignment.placement.map(ai_backend_placement_json),
+    })
+}
+
+/// Convert one read-model row into admin JSON / 把单个只读模型行转换为管理端 JSON
+fn ai_model_view_json(view: crate::proto::sms::AiModelView) -> serde_json::Value {
+    json!({
+        "provider": view.provider,
+        "model": view.model,
+        "hosting": ai_backend_hosting_label(view.hosting),
+        "backend_ids": view.backend_ids,
+        "operations": view.operations,
+        "features": view.features,
+        "transports": view.transports,
+        "enabled_nodes": view.enabled_nodes,
+        "ready_nodes": view.ready_nodes,
+        "total_nodes": view.total_nodes,
+        "instances": view.instances.into_iter().map(ai_model_view_instance_json).collect::<Vec<_>>(),
+    })
+}
+
+/// Convert one read-model instance into admin JSON / 把单个只读模型实例转换为管理端 JSON
+fn ai_model_view_instance_json(
+    instance: crate::proto::sms::AiModelViewInstance,
+) -> serde_json::Value {
+    json!({
+        "backend_id": instance.backend_id,
+        "node_uuid": instance.node_uuid,
+        "placement_state": ai_backend_desired_state_label(instance.placement_state),
+        "backend_state": ai_backend_desired_state_label(instance.backend_state),
+        "runtime_status": instance.runtime_status.map(ai_backend_node_status_label),
+        "runtime_backend_name": trim_to_option(instance.runtime_backend_name),
+        "endpoint": trim_to_option(instance.endpoint),
+        "available": instance.available,
+    })
+}
+
+/// Convert protobuf Struct into JSON / 把 protobuf Struct 转换为 JSON
+fn proto_struct_to_json(value: Option<&prost_types::Struct>) -> serde_json::Value {
+    let fields = value
+        .map(|inner| {
+            inner
+                .fields
+                .iter()
+                .map(|(key, value)| (key.clone(), proto_value_to_json(value)))
+                .collect()
+        })
+        .unwrap_or_default();
+    serde_json::Value::Object(fields)
+}
+
+/// Convert protobuf Value into JSON / 把 protobuf Value 转换为 JSON
+fn proto_value_to_json(value: &prost_types::Value) -> serde_json::Value {
+    match value.kind.as_ref() {
+        Some(prost_types::value::Kind::NullValue(_)) | None => serde_json::Value::Null,
+        Some(prost_types::value::Kind::BoolValue(inner)) => serde_json::Value::Bool(*inner),
+        Some(prost_types::value::Kind::NumberValue(inner)) => serde_json::json!(inner),
+        Some(prost_types::value::Kind::StringValue(inner)) => serde_json::Value::String(inner.clone()),
+        Some(prost_types::value::Kind::StructValue(inner)) => proto_struct_to_json(Some(inner)),
+        Some(prost_types::value::Kind::ListValue(inner)) => {
+            serde_json::Value::Array(inner.values.iter().map(proto_value_to_json).collect())
+        }
+    }
+}
+
+/// Parse backend hosting from HTTP text / 从 HTTP 文本解析 backend hosting
+fn parse_ai_backend_hosting(
+    value: &str,
+) -> Result<crate::proto::sms::AiBackendHosting, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "remote" => Ok(crate::proto::sms::AiBackendHosting::Remote),
+        "local" => Ok(crate::proto::sms::AiBackendHosting::Local),
+        _ => Err("hosting must be remote or local".to_string()),
+    }
+}
+
+/// Parse desired state from HTTP text / 从 HTTP 文本解析期望状态
+fn parse_ai_backend_desired_state(
+    value: &str,
+) -> Result<crate::proto::sms::AiBackendDesiredState, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "enabled" => Ok(crate::proto::sms::AiBackendDesiredState::Enabled),
+        "disabled" => Ok(crate::proto::sms::AiBackendDesiredState::Disabled),
+        _ => Err("desired_state must be enabled or disabled".to_string()),
+    }
+}
+
+/// Parse management mode from HTTP text / 从 HTTP 文本解析管理模式
+fn parse_ai_backend_management_mode(
+    value: &str,
+) -> Result<crate::proto::sms::AiBackendManagementMode, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "sms_remote" | "remote" => Ok(crate::proto::sms::AiBackendManagementMode::SmsRemote),
+        "sms_local" | "local" => Ok(crate::proto::sms::AiBackendManagementMode::SmsLocal),
+        _ => Err("management_mode must be sms_remote or sms_local".to_string()),
+    }
+}
+
+/// Choose the default management mode from hosting / 根据 hosting 选择默认管理模式
+fn default_ai_backend_management_mode(
+    hosting: crate::proto::sms::AiBackendHosting,
+) -> crate::proto::sms::AiBackendManagementMode {
+    match hosting {
+        crate::proto::sms::AiBackendHosting::Remote => {
+            crate::proto::sms::AiBackendManagementMode::SmsRemote
+        }
+        crate::proto::sms::AiBackendHosting::Local => {
+            crate::proto::sms::AiBackendManagementMode::SmsLocal
+        }
+        crate::proto::sms::AiBackendHosting::Unspecified => {
+            crate::proto::sms::AiBackendManagementMode::Unspecified
+        }
+    }
+}
+
+/// Normalize an optional string by trimming empties / 通过裁剪空字符串归一化可选字符串
+fn trim_to_option(value: Option<String>) -> Option<String> {
+    value.and_then(|inner| {
+        let trimmed = inner.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+/// Render hosting enum as stable text / 把 hosting 枚举渲染为稳定文本
+fn ai_backend_hosting_label(value: i32) -> &'static str {
+    match crate::proto::sms::AiBackendHosting::try_from(value)
+        .unwrap_or(crate::proto::sms::AiBackendHosting::Unspecified)
+    {
+        crate::proto::sms::AiBackendHosting::Remote => "remote",
+        crate::proto::sms::AiBackendHosting::Local => "local",
+        crate::proto::sms::AiBackendHosting::Unspecified => "unspecified",
+    }
+}
+
+/// Render desired-state enum as stable text / 把期望状态枚举渲染为稳定文本
+fn ai_backend_desired_state_label(value: i32) -> &'static str {
+    match crate::proto::sms::AiBackendDesiredState::try_from(value)
+        .unwrap_or(crate::proto::sms::AiBackendDesiredState::Unspecified)
+    {
+        crate::proto::sms::AiBackendDesiredState::Enabled => "enabled",
+        crate::proto::sms::AiBackendDesiredState::Disabled => "disabled",
+        crate::proto::sms::AiBackendDesiredState::Unspecified => "unspecified",
+    }
+}
+
+/// Render management-mode enum as stable text / 把管理模式枚举渲染为稳定文本
+fn ai_backend_management_mode_label(value: i32) -> &'static str {
+    match crate::proto::sms::AiBackendManagementMode::try_from(value)
+        .unwrap_or(crate::proto::sms::AiBackendManagementMode::Unspecified)
+    {
+        crate::proto::sms::AiBackendManagementMode::SmsRemote => "sms_remote",
+        crate::proto::sms::AiBackendManagementMode::SmsLocal => "sms_local",
+        crate::proto::sms::AiBackendManagementMode::Unspecified => "unspecified",
+    }
+}
+
+/// Render node-status enum as stable text / 把节点状态枚举渲染为稳定文本
+fn ai_backend_node_status_label(value: i32) -> &'static str {
+    match crate::proto::sms::AiBackendNodeStatus::try_from(value)
+        .unwrap_or(crate::proto::sms::AiBackendNodeStatus::Unspecified)
+    {
+        crate::proto::sms::AiBackendNodeStatus::Pending => "pending",
+        crate::proto::sms::AiBackendNodeStatus::Reconciling => "reconciling",
+        crate::proto::sms::AiBackendNodeStatus::Ready => "ready",
+        crate::proto::sms::AiBackendNodeStatus::Degraded => "degraded",
+        crate::proto::sms::AiBackendNodeStatus::Error => "error",
+        crate::proto::sms::AiBackendNodeStatus::Disabled => "disabled",
+        crate::proto::sms::AiBackendNodeStatus::Unspecified => "unspecified",
+    }
 }
 
 async fn list_credentials_admin(state: GatewayState) -> Json<serde_json::Value> {
@@ -604,17 +1033,25 @@ async fn list_credentials_admin(state: GatewayState) -> Json<serde_json::Value> 
     match client.list_credentials(ListCredentialsRequest {}).await {
         Ok(resp) => {
             let inner = resp.into_inner();
-            let mut backend_client = state.admin_ai_config_client.clone();
+            let mut backend_client = state.ai_backend_control_plane_client.clone();
             let referenced_by_count = match backend_client
-                .list_remote_backends(crate::proto::sms::ListRemoteBackendsRequest {})
+                .list_ai_backends(crate::proto::sms::ListAiBackendsRequest {
+                    limit: 0,
+                    offset: 0,
+                    q: String::new(),
+                    hosting: String::new(),
+                    desired_state: String::new(),
+                    provider: String::new(),
+                    model: String::new(),
+                })
                 .await
             {
                 Ok(resp) => {
-                    // Reuse the admin remote backend snapshot to surface lightweight reference counts.
-                    // 复用 admin remote backend 快照，为页面提供轻量级引用计数。
+                    // Count credential references from the unified AI backend records.
+                    // 从统一 AI backend 记录中统计 credential 引用数。
                     let mut counts = std::collections::HashMap::<String, usize>::new();
                     for backend in resp.into_inner().backends {
-                        let credential_ref = backend.credential_ref.trim();
+                        let credential_ref = backend.credential_ref.as_deref().unwrap_or("").trim();
                         if credential_ref.is_empty() {
                             continue;
                         }
@@ -628,16 +1065,8 @@ async fn list_credentials_admin(state: GatewayState) -> Json<serde_json::Value> 
                 .credentials
                 .into_iter()
                 .map(|c| {
-                    json!({
-                        "name": c.name,
-                        "provider_kind": c.provider_kind,
-                        "version": c.version,
-                        "description": if c.description.is_empty() { None::<String> } else { Some(c.description) },
-                        "disabled": c.disabled,
-                        "created_at_ms": c.created_at_ms,
-                        "updated_at_ms": c.updated_at_ms,
-                        "referenced_by_count": referenced_by_count.get(&c.name).copied().unwrap_or(0),
-                    })
+                    let referenced = referenced_by_count.get(&c.name).copied().unwrap_or(0);
+                    credential_info_json(c, referenced)
                 })
                 .collect::<Vec<_>>();
             Json(json!({"success": true, "revision": inner.revision, "credentials": credentials}))
@@ -700,48 +1129,7 @@ async fn list_mcp_servers(state: GatewayState) -> Json<serde_json::Value> {
             let servers = inner
                 .servers
                 .into_iter()
-                .map(|s| {
-                    let stdio = s.stdio.as_ref().map(|x| {
-                        json!({
-                            "command": x.command,
-                            "args": x.args,
-                            "env": x.env,
-                            "cwd": x.cwd,
-                        })
-                    });
-                    let http = s.http.as_ref().map(|x| {
-                        json!({
-                            "url": x.url,
-                            "headers": x.headers,
-                            "auth_ref": x.auth_ref,
-                        })
-                    });
-                    let approval_policy = s.approval_policy.as_ref().map(|x| {
-                        json!({
-                            "default_policy": x.default_policy,
-                            "per_tool": x.per_tool,
-                        })
-                    });
-                    let budgets = s.budgets.as_ref().map(|x| {
-                        json!({
-                            "tool_timeout_ms": x.tool_timeout_ms,
-                            "max_concurrency": x.max_concurrency,
-                            "max_tool_output_bytes": x.max_tool_output_bytes,
-                        })
-                    });
-                    json!({
-                        "server_id": s.server_id,
-                        "display_name": s.display_name,
-                        "transport": s.transport,
-                        "stdio": stdio,
-                        "http": http,
-                        "tool_namespace": s.tool_namespace,
-                        "allowed_tools": s.allowed_tools,
-                        "approval_policy": approval_policy,
-                        "budgets": budgets,
-                        "updated_at_ms": s.updated_at_ms,
-                    })
-                })
+                .map(mcp_server_json)
                 .collect::<Vec<_>>();
             Json(json!({"success": true, "revision": inner.revision, "servers": servers}))
         }
@@ -767,46 +1155,7 @@ async fn get_mcp_server(state: GatewayState, p: Path<String>) -> Json<serde_json
         if s.server_id != server_id {
             continue;
         }
-        let stdio = s.stdio.as_ref().map(|x| {
-            json!({
-                "command": x.command,
-                "args": x.args,
-                "env": x.env,
-                "cwd": x.cwd,
-            })
-        });
-        let http = s.http.as_ref().map(|x| {
-            json!({
-                "url": x.url,
-                "headers": x.headers,
-                "auth_ref": x.auth_ref,
-            })
-        });
-        let approval_policy = s.approval_policy.as_ref().map(|x| {
-            json!({
-                "default_policy": x.default_policy,
-                "per_tool": x.per_tool,
-            })
-        });
-        let budgets = s.budgets.as_ref().map(|x| {
-            json!({
-                "tool_timeout_ms": x.tool_timeout_ms,
-                "max_concurrency": x.max_concurrency,
-                "max_tool_output_bytes": x.max_tool_output_bytes,
-            })
-        });
-        let server = json!({
-            "server_id": s.server_id,
-            "display_name": s.display_name,
-            "transport": s.transport,
-            "stdio": stdio,
-            "http": http,
-            "tool_namespace": s.tool_namespace,
-            "allowed_tools": s.allowed_tools,
-            "approval_policy": approval_policy,
-            "budgets": budgets,
-            "updated_at_ms": s.updated_at_ms,
-        });
+        let server = mcp_server_json(s);
         return Json(json!({"success": true, "found": true, "server": server}));
     }
 
@@ -906,7 +1255,6 @@ struct CreateExecutionBody {
     request_id: Option<String>,
     execution_id: Option<String>,
     execution_mode: Option<String>,
-    max_candidates: Option<u32>,
 }
 
 #[derive(serde::Deserialize)]
@@ -925,6 +1273,67 @@ fn parse_execution_mode(v: Option<&str>) -> i32 {
         Some(s) if s == "async" => ExecutionMode::Async as i32,
         _ => ExecutionMode::Sync as i32,
     }
+}
+
+async fn list_ready_node_uuids_for_task(
+    state: &GatewayState,
+    task_id: &str,
+) -> Result<Vec<String>, String> {
+    let mut idx_client = state.execution_index_client.clone();
+    let mut counts = std::collections::HashMap::<String, usize>::new();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    for inst in collect_task_instances_bounded(&mut idx_client, task_id, 100)
+        .await
+        .map_err(|e| format!("execution_index error: {e}"))?
+    {
+        if !instance_is_active_and_fresh(&state.config, inst.status, inst.last_seen_ms, now_ms) {
+            continue;
+        }
+        *counts.entry(inst.node_uuid).or_insert(0) += 1;
+    }
+
+    let mut node_uuids: Vec<_> = counts.into_keys().collect();
+    node_uuids.sort();
+    Ok(node_uuids)
+}
+
+async fn trigger_assignment_reconcile_hints(
+    state: &GatewayState,
+    task_id: &str,
+) -> Result<usize, String> {
+    let mut assignment_client = state.task_assignment_client.clone();
+    let assignments = assignment_client
+        .list_task_assignments(tonic::Request::new(
+            crate::proto::sms::ListTaskAssignmentsRequest {
+                task_id: task_id.to_string(),
+            },
+        ))
+        .await
+        .map_err(|e| format!("task_assignment error: {e}"))?
+        .into_inner()
+        .assignments;
+
+    let mut nudged = 0usize;
+    for assignment in assignments {
+        if assignment.desired_instances == 0 {
+            continue;
+        }
+        let target = match node_rpc::resolve_node_channel(state, &assignment.node_uuid).await {
+            Ok(target) => target,
+            Err(_) => continue,
+        };
+        let mut client = InstanceServiceClient::new(target.channel);
+        if client
+            .reconcile_task_assignments_now(ReconcileTaskAssignmentsNowRequest {
+                task_id: task_id.to_string(),
+            })
+            .await
+            .is_ok()
+        {
+            nudged += 1;
+        }
+    }
+    Ok(nudged)
 }
 
 pub(super) async fn terminate_execution_admin(
@@ -1050,8 +1459,6 @@ async fn create_invocation(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| Uuid::new_v4().to_string());
     let mode = parse_execution_mode(body.execution_mode.as_deref());
-    let max_candidates = body.max_candidates.unwrap_or(3);
-
     if let Some(node_uuid) = body.node_uuid.as_ref().filter(|s| !s.is_empty()) {
         let target = match node_rpc::resolve_node_channel(&state, node_uuid).await {
             Ok(t) => t,
@@ -1078,50 +1485,30 @@ async fn create_invocation(
             Err(e) => Json(json!({ "success": false, "message": e.to_string() })),
         };
     }
-
-    let mut placement = state.placement_client.clone();
-    // Step 1: ask SMS to return an ordered list of candidate nodes.
-    // 第一步：调用 SMS placement，拿到有序候选节点列表。
-    let placement_resp = placement
-        .place_invocation(crate::proto::sms::PlaceInvocationRequest {
-            request_id: request_id.clone(),
-            task_id: body.task_id.clone(),
-            max_candidates,
-            labels: std::collections::HashMap::new(),
-        })
-        .await;
-    let placement_resp = match placement_resp {
-        Ok(r) => r.into_inner(),
-        Err(e) => {
-            return Json(json!({ "success": false, "message": e.to_string() }));
-        }
+    let ready_node_uuids = match list_ready_node_uuids_for_task(&state, &body.task_id).await {
+        Ok(v) => v,
+        Err(e) => return Json(json!({ "success": false, "message": e })),
     };
-    if placement_resp.candidates.is_empty() {
-        return Json(json!({ "success": false, "message": "no candidates" }));
+    if ready_node_uuids.is_empty() {
+        let nudged = trigger_assignment_reconcile_hints(&state, &body.task_id)
+            .await
+            .unwrap_or(0);
+        return Json(json!({
+            "success": false,
+            "message": if nudged > 0 {
+                "task replicas are warming up; retry after assigned nodes reconcile"
+            } else {
+                "task has no ready replicas"
+            }
+        }));
     }
 
-    for c in placement_resp.candidates.iter() {
-        // Step 2: try candidates in order (spillback).
-        // 第二步：按顺序尝试候选节点（spillback）。
-        let channel = node_rpc::connect_lazy_node_channel(&c.ip_address, c.port);
-        let Some(channel) = channel else {
-            // Node address is invalid: treat as unavailable and spillback.
-            // 节点地址不可用：按 unavailable 处理并继续 spillback。
-            let _ = placement
-                .report_invocation_outcome(crate::sms::placement::outcome::build_outcome_request(
-                    &placement_resp.decision_id,
-                    &request_id,
-                    &body.task_id,
-                    &c.node_uuid,
-                    crate::proto::sms::InvocationOutcomeClass::Unavailable as i32,
-                    "invalid node url".to_string(),
-                ))
-                .await;
-            continue;
+    for node_uuid in ready_node_uuids {
+        let target = match node_rpc::resolve_node_channel(&state, &node_uuid).await {
+            Ok(t) => t,
+            Err(_) => continue,
         };
-        let mut invc = InvocationServiceClient::new(channel);
-        // Use ExistingTask invocation; Spearlet may fetch task from SMS when missing.
-        // 使用 ExistingTask 调用；若节点本地缺 task，Spearlet 会从 SMS 拉取补齐后执行。
+        let mut invc = InvocationServiceClient::new(target.channel);
         let req =
             invocation_flow::build_invoke_request(&body.task_id, &request_id, &execution_id, mode);
         match invc.invoke(req).await {
@@ -1132,67 +1519,21 @@ async fn create_invocation(
                     inner.error.as_ref().map(|e| e.message.as_str()),
                 );
                 if success {
-                    // Success: report feedback to SMS and return.
-                    // 成功：回报给 SMS 用于后续 placement，然后直接返回。
-                    let _ = placement
-                        .report_invocation_outcome(crate::sms::placement::outcome::build_outcome_request(
-                            &placement_resp.decision_id,
-                            &request_id,
-                            &body.task_id,
-                            &c.node_uuid,
-                            crate::proto::sms::InvocationOutcomeClass::Success as i32,
-                            String::new(),
-                        ))
-                        .await;
                     return Json(json!({
                         "success": true,
-                        "decision_id": placement_resp.decision_id,
-                        "node_uuid": c.node_uuid,
+                        "node_uuid": target.node_uuid,
                         "invocation_id": inner.invocation_id,
                         "execution_id": inner.execution_id,
                         "message": message,
                     }));
                 }
-                // Function-level failure is not retryable here: return immediately.
-                // Function 级失败在这里不做重试：直接返回给前端。
-                let _ = placement
-                    .report_invocation_outcome(crate::sms::placement::outcome::build_outcome_request(
-                        &placement_resp.decision_id,
-                        &request_id,
-                        &body.task_id,
-                        &c.node_uuid,
-                        crate::proto::sms::InvocationOutcomeClass::Internal as i32,
-                        message.clone(),
-                    ))
-                    .await;
                 return Json(json!({ "success": false, "message": message }));
             }
-            Err(e) => {
-                // gRPC error classification decides whether to spillback.
-                // gRPC 错误分类用于决定是否继续 spillback。
-                let class = crate::sms::placement::outcome::classify_invoke_rpc_error(e.code());
-                let _ = placement
-                    .report_invocation_outcome(crate::sms::placement::outcome::build_outcome_request(
-                        &placement_resp.decision_id,
-                        &request_id,
-                        &body.task_id,
-                        &c.node_uuid,
-                        class,
-                        e.to_string(),
-                    ))
-                    .await;
-                if crate::sms::placement::outcome::is_terminal_outcome_class(class) {
-                    // Non-retryable: stop spillback.
-                    // 不可重试：终止 spillback。
-                    return Json(json!({ "success": false, "message": e.to_string() }));
-                }
-                continue;
-            }
+            Err(_) => continue,
         }
     }
-    // All candidates exhausted.
-    // 所有候选均失败。
-    Json(json!({ "success": false, "message": "all candidates failed" }))
+
+    Json(json!({ "success": false, "message": "all ready-instance nodes failed" }))
 }
 
 async fn list_nodes(state: GatewayState, Query(q): Query<ListQuery>) -> Json<serde_json::Value> {
@@ -1272,154 +1613,12 @@ async fn list_nodes(state: GatewayState, Query(q): Query<ListQuery>) -> Json<ser
     Json(json!({ "nodes": list, "total_count": total }))
 }
 
-async fn list_tasks(state: GatewayState, Query(q): Query<ListQuery>) -> Json<serde_json::Value> {
-    use crate::proto::sms::ListTasksRequest;
-    let mut client = state.task_client.clone();
-    let resp = client
-        .list_tasks(ListTasksRequest {
-            node_uuid: String::new(),
-            status_filter: -1,
-            priority_filter: -1,
-            limit: 0,
-            offset: 0,
-        })
-        .await
-        .unwrap()
-        .into_inner();
-    let total = resp.total_count as usize;
-    let mut list = resp
-        .tasks
-        .into_iter()
-        .map(|t| {
-            let status = crate::sms::task_status_to_public_str(t.status);
-            let priority = crate::sms::task_priority_to_public_str(t.priority);
-            let (exec_type, exec_uri, exec_name) = if let Some(exec) = t.executable {
-                let et = match exec.r#type {
-                    1 => "binary",
-                    2 => "script",
-                    3 => "container",
-                    4 => "wasm",
-                    5 => "process",
-                    _ => "unknown",
-                };
-                (et.to_string(), exec.uri, exec.name)
-            } else {
-                (String::new(), String::new(), String::new())
-            };
-            json!({
-                "task_id": t.task_id,
-                "name": t.name,
-                "description": t.description,
-                "status": status,
-                "priority": priority,
-                "node_uuid": t.node_uuid,
-                "endpoint": t.endpoint,
-                "version": t.version,
-                "capabilities": t.capabilities,
-                "registered_at": t.registered_at,
-                "last_heartbeat": t.last_heartbeat,
-                "metadata": t.metadata,
-                "config": t.config,
-                "executable_type": exec_type,
-                "executable_uri": exec_uri,
-                "executable_name": exec_name,
-                "result_uris": t.result_uris,
-                "last_result_uri": t.last_result_uri,
-                "last_result_status": t.last_result_status,
-                "last_completed_at": t.last_completed_at,
-                "last_result_metadata": t.last_result_metadata,
-            })
-        })
-        .collect::<Vec<_>>();
-    if let Some(qs) = q.q.as_ref().map(|s| s.to_lowercase()) {
-        list.retain(|item| {
-            let id = item["task_id"].as_str().unwrap_or("").to_lowercase();
-            let name = item["name"].as_str().unwrap_or("").to_lowercase();
-            let node = item["node_uuid"].as_str().unwrap_or("").to_lowercase();
-            let endpoint = item["endpoint"].as_str().unwrap_or("").to_lowercase();
-            let meta = item["metadata"].as_object();
-            let meta_hit = meta
-                .map(|m| {
-                    m.iter().any(|(k, v)| {
-                        k.to_lowercase().contains(&qs)
-                            || v.as_str().unwrap_or("").to_lowercase().contains(&qs)
-                    })
-                })
-                .unwrap_or(false);
-            id.contains(&qs)
-                || name.contains(&qs)
-                || node.contains(&qs)
-                || endpoint.contains(&qs)
-                || meta_hit
-        });
-    }
-    let (field, asc) = if let Some(sort) = &q.sort {
-        let mut parts = sort.split(':');
-        let field = parts.next().unwrap_or("").to_string();
-        let order = parts.next().unwrap_or("asc");
-        let asc = order != "desc";
-        (field, asc)
-    } else if let Some(field) = &q.sort_by {
-        let asc = q.order.as_deref().unwrap_or("asc") != "desc";
-        (field.clone(), asc)
-    } else {
-        (String::new(), true)
-    };
-    if !field.is_empty() {
-        match field.as_str() {
-            "last_heartbeat" => list.sort_by_key(|i| i["last_heartbeat"].as_i64().unwrap_or(0)),
-            "registered_at" => list.sort_by_key(|i| i["registered_at"].as_i64().unwrap_or(0)),
-            _ => {}
-        }
-        if !asc {
-            list.reverse();
-        }
-    }
-    if let Some(offset) = q.offset {
-        if offset < list.len() {
-            list = list.split_off(offset);
-        } else {
-            list.clear();
-        }
-    }
-    if let Some(limit) = q.limit {
-        if limit < list.len() {
-            list.truncate(limit);
-        }
-    }
-    Json(json!({ "tasks": list, "total_count": total }))
-}
-
-fn instance_status_to_public_str(v: i32) -> &'static str {
-    use crate::proto::sms::InstanceStatus;
-    match InstanceStatus::try_from(v).unwrap_or(InstanceStatus::Unknown) {
-        InstanceStatus::Running => "running",
-        InstanceStatus::Idle => "idle",
-        InstanceStatus::Terminating => "terminating",
-        InstanceStatus::Terminated => "terminated",
-        InstanceStatus::Unknown => "unknown",
-    }
-}
-
-fn execution_status_to_public_str(v: i32) -> &'static str {
-    use crate::proto::sms::ExecutionStatus;
-    match ExecutionStatus::try_from(v).unwrap_or(ExecutionStatus::Unknown) {
-        ExecutionStatus::Pending => "pending",
-        ExecutionStatus::Running => "running",
-        ExecutionStatus::Completed => "completed",
-        ExecutionStatus::Failed => "failed",
-        ExecutionStatus::Cancelled => "cancelled",
-        ExecutionStatus::Timeout => "timeout",
-        ExecutionStatus::Unknown => "unknown",
-    }
-}
-
 async fn list_task_instances_admin(
     state: GatewayState,
     Path(task_id): Path<String>,
     Query(q): Query<PageTokenQuery>,
 ) -> Json<serde_json::Value> {
-    use crate::proto::sms::ListTaskInstancesRequest;
+    use crate::proto::sms::{GetInstanceRequest, ListTaskInstancesRequest};
     let mut client = state.execution_index_client.clone();
     let limit = q.limit.unwrap_or(50).max(1);
     let page_token = q.page_token.unwrap_or_default();
@@ -1433,20 +1632,18 @@ async fn list_task_instances_admin(
     match resp {
         Ok(r) => {
             let inner = r.into_inner();
-            let instances = inner
-                .instances
-                .into_iter()
-                .map(|i| {
-                    let s = instance_status_to_public_str(i.status).to_string();
-                    json!({
-                        "instance_id": i.instance_id,
-                        "node_uuid": i.node_uuid,
-                        "status": s,
-                        "last_seen_ms": i.last_seen_ms,
-                        "current_execution_id": i.current_execution_id,
-                    })
-                })
-                .collect::<Vec<_>>();
+            let mut instances = Vec::with_capacity(inner.instances.len());
+            for i in inner.instances {
+                let detail = client
+                    .get_instance(tonic::Request::new(GetInstanceRequest {
+                        instance_id: i.instance_id.clone(),
+                    }))
+                    .await
+                    .ok()
+                    .map(|resp| resp.into_inner().instance)
+                    .flatten();
+                instances.push(task_instance_row_json(i, detail.as_ref()));
+            }
             Json(json!({
                 "success": true,
                 "instances": instances,
@@ -1469,19 +1666,7 @@ async fn get_instance_admin(
     match resp {
         Ok(r) => {
             let inner = r.into_inner();
-            let instance = inner.instance.map(|i| {
-                json!({
-                    "instance_id": i.instance_id,
-                    "task_id": i.task_id,
-                    "node_uuid": i.node_uuid,
-                    "status": instance_status_to_public_str(i.status),
-                    "created_at_ms": i.created_at_ms,
-                    "updated_at_ms": i.updated_at_ms,
-                    "last_seen_ms": i.last_seen_ms,
-                    "current_execution_id": i.current_execution_id,
-                    "metadata": i.metadata,
-                })
-            });
+            let instance = inner.instance.map(instance_json);
             Json(json!({
                 "success": true,
                 "found": inner.found,
@@ -1515,17 +1700,43 @@ async fn list_instance_executions_admin(
             let executions = inner
                 .executions
                 .into_iter()
-                .map(|e| {
-                    let s = execution_status_to_public_str(e.status).to_string();
-                    json!({
-                        "execution_id": e.execution_id,
-                        "task_id": e.task_id,
-                        "status": s,
-                        "started_at_ms": e.started_at_ms,
-                        "completed_at_ms": e.completed_at_ms,
-                        "function_name": e.function_name,
-                    })
-                })
+                .map(instance_execution_summary_json)
+                .collect::<Vec<_>>();
+            Json(json!({
+                "success": true,
+                "executions": executions,
+                "next_page_token": inner.next_page_token,
+            }))
+        }
+        Err(e) => Json(json!({ "success": false, "message": e.to_string() })),
+    }
+}
+
+async fn list_execution_history_admin(
+    state: GatewayState,
+    Query(q): Query<ExecutionHistoryQuery>,
+) -> Json<serde_json::Value> {
+    use crate::proto::sms::ListExecutionsRequest;
+
+    // This endpoint serves the durable execution archive, not the task/runtime view.
+    // Task pages link here when users need records that survive replica cleanup.
+    let mut client = state.execution_index_client.clone();
+    let resp = client
+        .list_executions(tonic::Request::new(ListExecutionsRequest {
+            task_id: q.task_id.unwrap_or_default(),
+            status: q.status.unwrap_or_default(),
+            limit: q.limit.unwrap_or(100),
+            page_token: q.page_token.unwrap_or_default(),
+        }))
+        .await;
+
+    match resp {
+        Ok(r) => {
+            let inner = r.into_inner();
+            let executions = inner
+                .executions
+                .into_iter()
+                .map(execution_history_row_json)
                 .collect::<Vec<_>>();
             Json(json!({
                 "success": true,
@@ -1552,194 +1763,13 @@ async fn get_execution_admin(
             if !inner.found {
                 return Json(json!({ "success": true, "found": false }));
             }
-            let e = inner.execution.unwrap();
-            let status = execution_status_to_public_str(e.status).to_string();
-            let log_ref = e.log_ref.map(|lr| {
-                json!({
-                    "backend": lr.backend,
-                    "uri_prefix": lr.uri_prefix,
-                    "content_type": lr.content_type,
-                    "compression": lr.compression,
-                })
-            });
             Json(json!({
                 "success": true,
                 "found": true,
-                "execution": {
-                    "execution_id": e.execution_id,
-                    "invocation_id": e.invocation_id,
-                    "task_id": e.task_id,
-                    "function_name": e.function_name,
-                    "node_uuid": e.node_uuid,
-                    "instance_id": e.instance_id,
-                    "status": status,
-                    "started_at_ms": e.started_at_ms,
-                    "completed_at_ms": e.completed_at_ms,
-                    "updated_at_ms": e.updated_at_ms,
-                    "metadata": e.metadata,
-                    "log_ref": log_ref,
-                }
+                "execution": execution_detail_json(inner.execution.unwrap())
             }))
         }
         Err(e) => Json(json!({ "success": false, "message": e.to_string() })),
-    }
-}
-
-#[derive(serde::Deserialize)]
-struct CreateExecutableBody {
-    r#type: Option<String>,
-    uri: Option<String>,
-    name: Option<String>,
-    checksum_sha256: Option<String>,
-    args: Option<Vec<String>>,
-    env: Option<std::collections::HashMap<String, String>>,
-}
-
-#[derive(serde::Deserialize)]
-struct CreateTaskBody {
-    name: String,
-    description: Option<String>,
-    priority: Option<String>,
-    node_uuid: String,
-    endpoint: String,
-    version: String,
-    capabilities: Option<Vec<String>>,
-    metadata: Option<std::collections::HashMap<String, String>>,
-    config: Option<std::collections::HashMap<String, String>>,
-    executable: Option<CreateExecutableBody>,
-}
-
-async fn create_task(
-    state: GatewayState,
-    axum::extract::Json(body): axum::extract::Json<CreateTaskBody>,
-) -> Json<serde_json::Value> {
-    use crate::proto::sms::{ExecutableType, RegisterTaskRequest, TaskExecutable, TaskPriority};
-    let p = match body.priority.as_ref().map(|s| s.to_ascii_lowercase()) {
-        Some(s) if s == "low" => TaskPriority::Low as i32,
-        Some(s) if s == "high" => TaskPriority::High as i32,
-        Some(s) if s == "urgent" => TaskPriority::Urgent as i32,
-        Some(s) if s == "unknown" => TaskPriority::Unknown as i32,
-        _ => TaskPriority::Normal as i32,
-    };
-    let exe = body.executable.as_ref().map(|e| {
-        let t = match e.r#type.as_ref().map(|s| s.to_ascii_lowercase()) {
-            Some(s) if s == "binary" => ExecutableType::Binary as i32,
-            Some(s) if s == "script" => ExecutableType::Script as i32,
-            Some(s) if s == "container" => ExecutableType::Container as i32,
-            Some(s) if s == "wasm" => ExecutableType::Wasm as i32,
-            Some(s) if s == "process" => ExecutableType::Process as i32,
-            _ => ExecutableType::Unknown as i32,
-        };
-        TaskExecutable {
-            r#type: t,
-            uri: e.uri.clone().unwrap_or_default(),
-            name: e.name.clone().unwrap_or_default(),
-            checksum_sha256: e.checksum_sha256.clone().unwrap_or_default(),
-            args: e.args.clone().unwrap_or_default(),
-            env: e.env.clone().unwrap_or_default(),
-        }
-    });
-    let meta = body.metadata.clone().unwrap_or_default();
-    let req = RegisterTaskRequest {
-        name: body.name,
-        description: body.description.unwrap_or_default(),
-        priority: p,
-        node_uuid: body.node_uuid,
-        endpoint: body.endpoint,
-        version: body.version,
-        capabilities: body.capabilities.unwrap_or_default(),
-        metadata: meta.clone(),
-        config: body.config.unwrap_or_default(),
-        executable: exe,
-    };
-    let mut client = state.task_client.clone();
-    let resp = client.register_task(tonic::Request::new(req)).await;
-    match resp {
-        Ok(r) => {
-            let inner = r.into_inner();
-            Json(
-                json!({ "success": inner.success, "task_id": inner.task_id, "message": inner.message }),
-            )
-        }
-        Err(e) => Json(json!({ "success": false, "message": e.to_string() })),
-    }
-}
-
-async fn get_task_detail(
-    state: GatewayState,
-    Path(task_id): Path<String>,
-) -> Json<serde_json::Value> {
-    use crate::proto::sms::GetTaskRequest;
-    let mut client = state.task_client.clone();
-    let resp = client.get_task(GetTaskRequest { task_id }).await;
-    match resp {
-        Ok(r) => {
-            let inner = r.into_inner();
-            if let Some(t) = inner.task {
-                let status = crate::sms::task_status_to_public_str(t.status);
-                let priority = crate::sms::task_priority_to_public_str(t.priority);
-                let (exec_type, exec_uri, exec_name, exec_sum, exec_args, exec_env) =
-                    if let Some(exec) = t.executable {
-                        let et = match exec.r#type {
-                            1 => "binary",
-                            2 => "script",
-                            3 => "container",
-                            4 => "wasm",
-                            5 => "process",
-                            _ => "unknown",
-                        };
-                        (
-                            et.to_string(),
-                            exec.uri,
-                            exec.name,
-                            exec.checksum_sha256,
-                            exec.args,
-                            exec.env,
-                        )
-                    } else {
-                        (
-                            String::new(),
-                            String::new(),
-                            String::new(),
-                            String::new(),
-                            vec![],
-                            std::collections::HashMap::new(),
-                        )
-                    };
-                Json(json!({
-                    "found": true,
-                    "task": {
-                        "task_id": t.task_id,
-                        "name": t.name,
-                        "description": t.description,
-                        "status": status,
-                        "priority": priority,
-                        "node_uuid": t.node_uuid,
-                        "endpoint": t.endpoint,
-                        "version": t.version,
-                        "capabilities": t.capabilities,
-                        "registered_at": t.registered_at,
-                        "last_heartbeat": t.last_heartbeat,
-                        "metadata": t.metadata,
-                        "config": t.config,
-                        "executable_type": exec_type,
-                        "executable_uri": exec_uri,
-                        "executable_name": exec_name,
-                        "executable_checksum": exec_sum,
-                        "executable_args": exec_args,
-                        "executable_env": exec_env,
-                        "result_uris": t.result_uris,
-                        "last_result_uri": t.last_result_uri,
-                        "last_result_status": t.last_result_status,
-                        "last_completed_at": t.last_completed_at,
-                        "last_result_metadata": t.last_result_metadata,
-                    }
-                }))
-            } else {
-                Json(json!({"found": false}))
-            }
-        }
-        Err(_) => Json(json!({"found": false})),
     }
 }
 
@@ -1751,29 +1781,7 @@ async fn get_node_detail(state: GatewayState, Path(uuid): Path<String>) -> Json<
         .await
         .unwrap()
         .into_inner();
-    let node = resp.node;
-    let resource = resp.resource;
-    let body = json!({
-        "found": node.is_some(),
-        "node": node.map(|n| json!({
-            "uuid": n.uuid,
-            "ip_address": n.ip_address,
-            "port": n.port,
-            "status": n.status,
-            "last_heartbeat": n.last_heartbeat,
-            "registered_at": n.registered_at,
-            "metadata": n.metadata,
-        })),
-        "resource": resource.map(|r| json!({
-            "cpu_usage_percent": r.cpu_usage_percent,
-            "memory_usage_percent": r.memory_usage_percent,
-            "disk_usage_percent": r.disk_usage_percent,
-            "total_memory_bytes": r.total_memory_bytes,
-            "used_memory_bytes": r.used_memory_bytes,
-            "available_memory_bytes": r.available_memory_bytes,
-        })),
-    });
-    Json(body)
+    Json(node_detail_json(resp.node, resp.resource))
 }
 
 async fn get_node_ai_credential_sync(

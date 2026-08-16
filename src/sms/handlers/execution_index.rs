@@ -8,8 +8,8 @@ use tonic::Request;
 
 use super::common::ErrorResponse;
 use crate::proto::sms::{
-    ExecutionStatus, GetExecutionRequest, GetInstanceRequest, InstanceStatus,
-    ListInstanceExecutionsRequest, ListTaskInstancesRequest,
+    GetExecutionRequest, GetInstanceRequest, ListInstanceExecutionsRequest,
+    ListTaskInstancesRequest,
 };
 use crate::sms::gateway::GatewayState;
 
@@ -128,7 +128,7 @@ pub async fn list_task_instances(
                     .map(|s| InstanceSummaryResponse {
                         instance_id: s.instance_id,
                         node_uuid: s.node_uuid,
-                        status: instance_status_to_str(s.status),
+                        status: crate::sms::instance_status_to_public_str(s.status).to_string(),
                         last_seen_ms: s.last_seen_ms,
                         current_execution_id: s.current_execution_id,
                     })
@@ -174,7 +174,7 @@ pub async fn list_instance_executions(
                     .map(|s| ExecutionSummaryResponse {
                         execution_id: s.execution_id,
                         task_id: s.task_id,
-                        status: execution_status_to_str(s.status),
+                        status: crate::sms::execution_status_to_public_str(s.status).to_string(),
                         started_at_ms: s.started_at_ms,
                         completed_at_ms: s.completed_at_ms,
                         function_name: s.function_name,
@@ -206,7 +206,7 @@ pub async fn get_instance(
                 instance_id: i.instance_id,
                 task_id: i.task_id,
                 node_uuid: i.node_uuid,
-                status: instance_status_to_str(i.status),
+                status: crate::sms::instance_status_to_public_str(i.status).to_string(),
                 created_at_ms: i.created_at_ms,
                 updated_at_ms: i.updated_at_ms,
                 last_seen_ms: i.last_seen_ms,
@@ -249,7 +249,7 @@ pub async fn get_execution(
                 function_name: e.function_name,
                 node_uuid: e.node_uuid,
                 instance_id: e.instance_id,
-                status: execution_status_to_str(e.status),
+                status: crate::sms::execution_status_to_public_str(e.status).to_string(),
                 started_at_ms: e.started_at_ms,
                 completed_at_ms: e.completed_at_ms,
                 log_ref: e.log_ref.map(|lr| LogRefResponse {
@@ -273,27 +273,5 @@ pub async fn get_execution(
                 message: e.to_string(),
             }),
         )),
-    }
-}
-
-fn instance_status_to_str(v: i32) -> String {
-    match InstanceStatus::try_from(v).unwrap_or(InstanceStatus::Unknown) {
-        InstanceStatus::Running => "running".to_string(),
-        InstanceStatus::Idle => "idle".to_string(),
-        InstanceStatus::Terminating => "terminating".to_string(),
-        InstanceStatus::Terminated => "terminated".to_string(),
-        InstanceStatus::Unknown => "unknown".to_string(),
-    }
-}
-
-fn execution_status_to_str(v: i32) -> String {
-    match ExecutionStatus::try_from(v).unwrap_or(ExecutionStatus::Unknown) {
-        ExecutionStatus::Pending => "pending".to_string(),
-        ExecutionStatus::Running => "running".to_string(),
-        ExecutionStatus::Completed => "completed".to_string(),
-        ExecutionStatus::Failed => "failed".to_string(),
-        ExecutionStatus::Cancelled => "cancelled".to_string(),
-        ExecutionStatus::Timeout => "timeout".to_string(),
-        ExecutionStatus::Unknown => "unknown".to_string(),
     }
 }

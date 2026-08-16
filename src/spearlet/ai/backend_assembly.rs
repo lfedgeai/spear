@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::proto::sms::{BackendHosting, BackendOrigin, BackendSpec};
+use crate::proto::sms::{BackendHosting, BackendInfo, BackendOrigin, BackendSpec, BackendStatus};
 use crate::spearlet::ai::credential_resolver::CredentialResolver;
 use crate::spearlet::config::AiBackendConfig;
 use crate::spearlet::execution::ai::backends::ollama_chat::OllamaChatBackendAdapter;
@@ -149,6 +149,31 @@ pub fn backend_spec_from_parts(parts: BackendSpecParts) -> BackendSpec {
         credential_ref: normalized_optional(parts.credential_ref.as_deref()),
         origin: parts.origin as i32,
         deployment_id: normalized_optional(parts.deployment_id.as_deref()),
+    }
+}
+
+/// Apply runtime weight/priority overrides to a backend spec.
+/// 将运行时 weight/priority 覆盖项应用到 backend spec。
+pub fn apply_runtime_overrides(
+    spec: &mut BackendSpec,
+    weight_override: Option<i32>,
+    priority_override: Option<i32>,
+) {
+    if let Some(weight_override) = weight_override {
+        spec.weight = weight_override.max(0) as u32;
+    }
+    if let Some(priority_override) = priority_override {
+        spec.priority = priority_override;
+    }
+}
+
+/// Build an available runtime backend info from a canonical spec.
+/// 基于规范 spec 构建一个可用状态的运行时 backend info。
+pub fn available_backend_info(spec: BackendSpec) -> BackendInfo {
+    BackendInfo {
+        spec: Some(spec),
+        status: BackendStatus::Available as i32,
+        status_reason: String::new(),
     }
 }
 
@@ -402,4 +427,5 @@ mod tests {
 
         assert!(inst.is_none());
     }
+
 }

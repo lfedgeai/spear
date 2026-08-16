@@ -61,7 +61,7 @@ Prefer reusing the existing patterns:
   - `RegistryWatchHub`
   - `KvStore`
 - spearlet:
-  - `RemoteBackendSyncService`
+  - `BackendAssignmentController`
   - `DynamicBackendRegistry`
 
 The credential control plane should not introduce a completely different synchronization model.
@@ -129,7 +129,7 @@ Recommended file:
 
 - `src/sms/admin_credentials.rs`
 
-The structure should stay aligned with `src/sms/admin_backends.rs`.
+The structure can reference the current unified control-plane persistence modules, such as `src/sms/ai_backends/repository_kv.rs`.
 
 Core structure:
 
@@ -236,13 +236,13 @@ Reasons:
 - Avoids dangling `credential_ref`
 - Easy to understand
 
-SMS can reuse the existing admin backend snapshot to validate references.
+SMS can validate references directly against unified `ai_backends` records.
 
 ---
 
 ## 5. proto / gRPC API design
 
-Use a dedicated service instead of folding this into `AdminAiConfigService`.
+Use a dedicated service instead of folding this into a legacy configuration service.
 
 Recommended service:
 
@@ -294,12 +294,12 @@ These are runtime synchronization APIs for spearlet. They may fail with `FailedP
 
 Recommended UX:
 
-- A dedicated credentials section under the AI models admin area
+- A dedicated credentials section in the AI backend admin area
 
 Current implementation status:
 
-- A dedicated Web Admin route now exists at `/ai-models/credentials`
-- The Remote AI Models page now links to the dedicated credentials page instead of embedding only a minimal inline form
+- A dedicated Web Admin route now exists at `/ai-backends/credentials`
+- The Remote AI Models page now links to that shared credentials page instead of embedding only a minimal inline form
 
 ### 6.2 Page capabilities
 

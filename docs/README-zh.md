@@ -5,8 +5,10 @@
 ## 文档列表
 
 ### 项目结构变更
-- **spear-next-library-conversion-zh.md** - spear-next 项目转换为纯库项目的详细记录
-- **spear-next-library-conversion-en.md** - spear-next Project Conversion to Pure Library (English)
+- **[spear-next-library-conversion-zh.md](./spear-next-library-conversion-zh.md)** - spear-next 项目转换为纯库项目的详细记录
+- **[spear-next-library-conversion-en.md](./spear-next-library-conversion-en.md)** - spear-next Project Conversion to Pure Library (English)
+- **[ai-backend-unified-control-plane-design-zh.md](./ai-backend-unified-control-plane-design-zh.md)** - 统一 AI backend 控制面重构设计，覆盖 UUID 资源模型、placement、node status 与 AI Models 只读聚合视图
+- **[ai-backend-unified-control-plane-design-en.md](./ai-backend-unified-control-plane-design-en.md)** - Unified AI backend control-plane redesign 的英文版
 
 ## 文档说明
 
@@ -30,3 +32,4 @@
 ## 更新记录
 - 2024-01-XX: 创建 docs 目录和索引文件
 - 2024-01-XX: 添加 spear-next 库项目转换文档
+- 2026-07-05: 添加统一 AI backend 控制面设计文档

@@ -274,7 +274,8 @@ pub async fn openapi_spec() -> Json<serde_json::Value> {
                                         "name": {"type": "string"},
                                         "description": {"type": "string"},
                                         "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
-                                        "node_uuid": {"type": "string"},
+                                        "desired_replicas": {"type": "integer", "minimum": 1},
+                                        "scheduling_strategy": {"type": "string", "enum": ["spread"]},
                                         "endpoint": {"type": "string"},
                                         "version": {"type": "string"},
                                         "capabilities": {"type": "array", "items": {"type": "string"}},
@@ -294,11 +295,6 @@ pub async fn openapi_spec() -> Json<serde_json::Value> {
                 "get": {
                     "summary": "List tasks",
                     "parameters": [
-                        {
-                            "name": "node_uuid",
-                            "in": "query",
-                            "schema": {"type": "string"}
-                        },
                         {
                             "name": "status",
                             "in": "query",

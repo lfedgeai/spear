@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 
@@ -61,69 +61,101 @@ pub fn create_admin_router(state: GatewayState) -> Router {
             }),
         )
         .route(
-            "/admin/api/ai-models",
+            "/admin/api/ai-backends",
             get({
                 let state = state.clone();
-                move |q: Query<super::types::AiModelsQuery>| super::list_ai_models(state.clone(), q)
-            }),
-        )
-        .route(
-            "/admin/api/ai-models/{provider}/{model}",
-            get({
-                let state = state.clone();
-                move |p: Path<(String, String)>, q: Query<super::types::AiModelsQuery>| {
-                    super::get_ai_model_detail(state.clone(), p, q)
+                move |q: Query<super::types::AiBackendsQuery>| {
+                    super::list_ai_backends_admin(state.clone(), q)
                 }
             }),
         )
         .route(
-            "/admin/api/nodes/{uuid}/ai-models",
+            "/admin/api/ai-backends",
             post({
                 let state = state.clone();
-                move |p: Path<String>, body: Json<super::CreateNodeModelDeploymentBody>| {
-                    super::create_node_model_deployment(state.clone(), p, body)
+                move |body: Json<super::AiBackendWriteBody>| {
+                    super::create_ai_backend_admin(state.clone(), body)
                 }
             }),
         )
         .route(
-            "/admin/api/nodes/{uuid}/ai-models/deployments",
+            "/admin/api/ai-backends/{backend_id}",
             get({
                 let state = state.clone();
-                move |p: Path<String>, q: Query<ListQuery>| {
-                    super::list_node_model_deployments(state.clone(), p, q)
+                move |p: Path<String>| super::get_ai_backend_admin(state.clone(), p)
+            }),
+        )
+        .route(
+            "/admin/api/ai-backends/{backend_id}",
+            put({
+                let state = state.clone();
+                move |p: Path<String>, body: Json<super::AiBackendWriteBody>| {
+                    super::update_ai_backend_admin(state.clone(), p, body)
                 }
             }),
         )
         .route(
-            "/admin/api/nodes/{uuid}/ai-models/deployments/{deployment_id}",
+            "/admin/api/ai-backends/{backend_id}",
             delete({
                 let state = state.clone();
-                move |p: Path<(String, String)>| {
-                    super::delete_node_model_deployment(state.clone(), p)
-                }
+                move |p: Path<String>| super::delete_ai_backend_admin(state.clone(), p)
             }),
         )
         .route(
-            "/admin/api/ai/remote-backends",
-            get({
-                let state = state.clone();
-                move || super::list_remote_backends_admin(state.clone())
-            }),
-        )
-        .route(
-            "/admin/api/ai/remote-backends",
+            "/admin/api/ai-backends/{backend_id}/desired-state",
             post({
                 let state = state.clone();
-                move |body: Json<super::UpsertRemoteBackendBody>| {
-                    super::upsert_remote_backend_admin(state.clone(), body)
+                move |p: Path<String>, body: Json<super::SetAiBackendDesiredStateBody>| {
+                    super::set_ai_backend_desired_state_admin(state.clone(), p, body)
                 }
             }),
         )
         .route(
-            "/admin/api/ai/remote-backends/{name}",
+            "/admin/api/ai-backend-placements",
+            get({
+                let state = state.clone();
+                move |q: Query<super::AiBackendPlacementsQuery>| {
+                    super::list_ai_backend_placements_admin(state.clone(), q)
+                }
+            }),
+        )
+        .route(
+            "/admin/api/ai-backend-placements",
+            post({
+                let state = state.clone();
+                move |body: Json<super::AiBackendPlacementWriteBody>| {
+                    super::upsert_ai_backend_placement_admin(state.clone(), body)
+                }
+            }),
+        )
+        .route(
+            "/admin/api/ai-backend-placements/{placement_id}",
             delete({
                 let state = state.clone();
-                move |p: Path<String>| super::delete_remote_backend_admin(state.clone(), p)
+                move |p: Path<String>| super::delete_ai_backend_placement_admin(state.clone(), p)
+            }),
+        )
+        .route(
+            "/admin/api/ai-backend-assignments/{node_uuid}",
+            get({
+                let state = state.clone();
+                move |p: Path<String>| super::list_ai_backend_assignments_admin(state.clone(), p)
+            }),
+        )
+        .route(
+            "/admin/api/ai-backend-statuses/{backend_id}",
+            get({
+                let state = state.clone();
+                move |p: Path<String>| super::list_ai_backend_node_statuses_admin(state.clone(), p)
+            }),
+        )
+        .route(
+            "/admin/api/ai-model-views",
+            get({
+                let state = state.clone();
+                move |q: Query<super::types::AiModelViewsQuery>| {
+                    super::list_ai_model_views_admin(state.clone(), q)
+                }
             }),
         )
         .route(
@@ -203,6 +235,15 @@ pub fn create_admin_router(state: GatewayState) -> Router {
             }),
         )
         .route(
+            "/admin/api/tasks/{task_id}",
+            delete({
+                let state = state.clone();
+                move |p: Path<String>, payload: axum::extract::Json<super::DeleteTaskBody>| {
+                    super::delete_task_admin(state.clone(), p, payload)
+                }
+            }),
+        )
+        .route(
             "/admin/api/tasks/{task_id}/instances",
             get({
                 let state = state.clone();
@@ -247,10 +288,10 @@ pub fn create_admin_router(state: GatewayState) -> Router {
         )
         .route(
             "/admin/api/executions",
-            post({
+            get({
                 let state = state.clone();
-                move |payload: axum::extract::Json<super::CreateExecutionBody>| {
-                    super::create_invocation(state.clone(), payload)
+                move |q: Query<super::types::ExecutionHistoryQuery>| {
+                    super::list_execution_history_admin(state.clone(), q)
                 }
             }),
         )

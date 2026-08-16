@@ -10,13 +10,11 @@ use tracing::{error, info};
 use super::gateway::{create_gateway_router, GatewayState};
 use crate::proto::sms::{
     admin_credential_service_client::AdminCredentialServiceClient,
-    admin_ai_config_service_client::AdminAiConfigServiceClient,
     backend_registry_service_client::BackendRegistryServiceClient,
     execution_index_service_client::ExecutionIndexServiceClient,
     execution_registry_service_client::ExecutionRegistryServiceClient,
     instance_registry_service_client::InstanceRegistryServiceClient,
     mcp_registry_service_client::McpRegistryServiceClient,
-    model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient,
     node_service_client::NodeServiceClient, placement_service_client::PlacementServiceClient,
     task_service_client::TaskServiceClient,
 };
@@ -84,30 +82,30 @@ impl HttpGateway {
             .connect_lazy();
         let node_client = NodeServiceClient::new(channel.clone());
         let task_client = TaskServiceClient::new(channel.clone());
+        let task_assignment_client = crate::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(channel.clone());
         let placement_client = PlacementServiceClient::new(channel.clone());
         let instance_registry_client = InstanceRegistryServiceClient::new(channel.clone());
         let execution_registry_client = ExecutionRegistryServiceClient::new(channel.clone());
         let execution_index_client = ExecutionIndexServiceClient::new(channel.clone());
         let mcp_registry_client = McpRegistryServiceClient::new(channel.clone());
         let backend_registry_client = BackendRegistryServiceClient::new(channel.clone());
+        let ai_backend_control_plane_client =
+            crate::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::new(channel.clone());
         let admin_credential_client = AdminCredentialServiceClient::new(channel.clone());
-        let admin_ai_config_client = AdminAiConfigServiceClient::new(channel.clone());
-        let model_deployment_registry_client =
-            ModelDeploymentRegistryServiceClient::new(channel.clone());
 
         let state = GatewayState {
             config: self.config.clone(),
             node_client,
             task_client,
+            task_assignment_client,
             placement_client,
             instance_registry_client,
             execution_registry_client,
             execution_index_client,
             mcp_registry_client,
             backend_registry_client,
+            ai_backend_control_plane_client,
             admin_credential_client,
-            admin_ai_config_client,
-            model_deployment_registry_client,
             stream_sessions: super::gateway::StreamSessionStore::new(),
             execution_stream_pool: super::gateway::ExecutionStreamPool::new(),
             cancel_token: CancellationToken::new(),

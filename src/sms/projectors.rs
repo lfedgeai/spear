@@ -31,10 +31,10 @@ impl ProjectorKind {
     ) {
         match self {
             Self::Instance => {
-                let _ = idx.apply_instance_event(op, any, now_ms).await;
+                let _ = idx.project_instance_event(op, any, now_ms).await;
             }
             Self::Execution => {
-                let _ = idx.apply_execution_event(op, any, now_ms).await;
+                let _ = idx.project_execution_event(op, any, now_ms).await;
             }
         }
     }

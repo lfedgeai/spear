@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button } from '../../../web-admin/src/shared/components/ui/button'
 
 export type MicMode = 'hold' | 'open'
 
@@ -42,8 +43,10 @@ export function MicSplitControl(props: MicSplitControlProps) {
 
   return (
     <div className="cw-micSplit" ref={wrapRef}>
-      <button
-        className={props.recording ? 'cw-btn cw-btnPrimary' : 'cw-btn'}
+      <Button
+        variant={props.recording ? 'default' : 'secondary'}
+        size="sm"
+        className="cw-micSplitMain"
         disabled={props.disabled}
         onClick={() => {
           if (props.disabled) return
@@ -73,39 +76,50 @@ export function MicSplitControl(props: MicSplitControlProps) {
         }}
       >
         {label}
-      </button>
-      <button
-        className="cw-btn cw-micSplitArrow"
+      </Button>
+      <Button
+        variant="secondary"
+        size="sm"
+        className="cw-micSplitArrow"
         disabled={props.disabled}
         onClick={() => {
           if (props.disabled) return
           setMenuOpen((v) => !v)
         }}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        aria-label="Select microphone mode"
       >
         ▾
-      </button>
+      </Button>
       {menuOpen ? (
-        <div className="cw-menu">
-          <button
-            className={props.mode === 'hold' ? 'cw-menuItem cw-menuItemActive' : 'cw-menuItem'}
+        <div className="cw-menu" role="menu">
+          <Button
+            variant={props.mode === 'hold' ? 'default' : 'secondary'}
+            size="sm"
+            className="cw-menuItem"
             onClick={() => {
               setMenuOpen(false)
               if (props.recording && props.mode === 'open') props.onToggle()
               props.onModeChange('hold')
             }}
+            role="menuitem"
           >
             Hold to Talk
-          </button>
-          <button
-            className={props.mode === 'open' ? 'cw-menuItem cw-menuItemActive' : 'cw-menuItem'}
+          </Button>
+          <Button
+            variant={props.mode === 'open' ? 'default' : 'secondary'}
+            size="sm"
+            className="cw-menuItem"
             onClick={() => {
               setMenuOpen(false)
               if (props.recording && props.mode === 'hold') props.onHoldEnd()
               props.onModeChange('open')
             }}
+            role="menuitem"
           >
             Open Mic
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>

@@ -49,6 +49,7 @@ async fn test_admin_tasks_schema_contains_expected_fields() {
         task_client: spear_next::proto::sms::task_service_client::TaskServiceClient::new(
             channel.clone(),
         ),
+        task_assignment_client: spear_next::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(channel.clone()),
         placement_client:
             spear_next::proto::sms::placement_service_client::PlacementServiceClient::new(
                 channel.clone(),
@@ -73,16 +74,12 @@ async fn test_admin_tasks_schema_contains_expected_fields() {
             spear_next::proto::sms::backend_registry_service_client::BackendRegistryServiceClient::new(
                 channel.clone(),
             ),
+        ai_backend_control_plane_client:
+            spear_next::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::new(
+                channel.clone(),
+            ),
         admin_credential_client:
             spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::new(
-                channel.clone(),
-            ),
-        admin_ai_config_client:
-            spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::new(
-                channel.clone(),
-            ),
-        model_deployment_registry_client:
-            spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::new(
                 channel.clone(),
             ),
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
@@ -101,7 +98,8 @@ async fn test_admin_tasks_schema_contains_expected_fields() {
         "name": "task-a",
         "description": "d",
         "priority": "normal",
-        "node_uuid": "node-1",
+        "desired_replicas": 2,
+        "scheduling_strategy": "spread",
         "endpoint": "task-a",
         "version": "v1",
         "capabilities": ["c"]
@@ -119,7 +117,8 @@ async fn test_admin_tasks_schema_contains_expected_fields() {
         "name",
         "status",
         "priority",
-        "node_uuid",
+        "desired_replicas",
+        "scheduling_strategy",
         "endpoint",
         "version",
         "registered_at",

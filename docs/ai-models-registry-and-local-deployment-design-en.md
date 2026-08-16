@@ -305,7 +305,11 @@ Notes:
 - `params` must be strictly validated in code (allowlist keys + formats) to avoid turning this into a remote-exec channel.
 - `ReportModelDeploymentStatus` is for UX (“pulling/starting/failed”), while **routing truth** remains backend snapshots (avoid dual source of truth).
 
-### 6.4 Spearlet node: LocalModelController (reconcile loop)
+### 6.4 Spearlet node: LocalModelController (reconcile loop, historical design)
+
+Note: this section documents a historical design. The node-side legacy
+`LocalModelController` runtime has since been removed, and the current
+implementation is centered on the unified assignment controller.
 
 Add a long-running controller to Spearlet:
 
@@ -445,7 +449,10 @@ Add handlers in `src/sms/web_admin.rs` in the same style as existing backends/mc
 - `delete_node_ai_model_deployment(...)`: delete a deployment
 - `list_node_ai_model_deployments(...)`: list deployments + status for a node
 
-#### Spearlet: LocalModelController (node-side reconcile loop)
+#### Spearlet: LocalModelController (node-side reconcile loop, historical design)
+
+Note: the module boundaries and functions below are kept only as a record of the
+historical design and no longer match the current code layout.
 
 Startup:
 
@@ -548,10 +555,10 @@ If you later support “pull/start processes automatically”, require:
 - extend `BackendInfo` with `provider/model/hosting`
 - populate these in Spearlet reporting based on `kind/model/base_url`
 
-### Phase C: Local (Ollama) “create model” MVP
+### Phase C: Local (Ollama) “create model” MVP (historical design)
 
 - SMS: implement ModelDeploymentRegistryService + Web Admin entry
-- Spearlet: LocalModelController + OllamaDriver (API-driven pull; daemon already exists)
+- Spearlet: LocalModelController + OllamaDriver (historical design; current node-side runtime has moved to the unified assignment controller path)
 - Routing: after readiness, generate `managed/ollama/<model>` backend and report
 
 ### Phase D: Managed llama.cpp / vLLM (optional)

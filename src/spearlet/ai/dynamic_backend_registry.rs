@@ -8,8 +8,7 @@ use crate::proto::sms::BackendInfo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DynamicBackendSource {
-    LocalController,
-    Sms,
+    AiControlPlane,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -66,8 +65,25 @@ impl DynamicBackendRegistry {
         out
     }
 
+    /// Get a stable snapshot grouped by source.
+    /// 获取按 source 分组的稳定快照。
+    pub fn snapshot_by_source(&self) -> HashMap<DynamicBackendSource, Vec<BackendInfo>> {
+        let guard = self.by_source.read();
+        guard.clone()
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision.load(Ordering::Relaxed)
+    }
+}
+
+impl DynamicBackendSource {
+    /// Render the source as a stable text label.
+    /// 将 source 渲染为稳定文本标签。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DynamicBackendSource::AiControlPlane => "ai_control_plane",
+        }
     }
 }
 

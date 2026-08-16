@@ -40,6 +40,7 @@ This is the recommended cross-platform local setup (no Kubernetes required). It 
 Use the provided Compose file:
 
 - `deploy/docker/compose.local.yaml`
+- The local Compose stack builds SMS with the `rocksdb` feature enabled and persists both admin metadata and event KV under the `sms-data` volume.
 
 Start:
 
@@ -170,10 +171,10 @@ SPEARlet can import models from a local Ollama on startup and materialize them a
 
 ## Web Admin
 
-Web Admin provides Nodes/Tasks/Files/AI Models pages.
+Web Admin provides Nodes/Tasks/Files/AI Backends/AI Models/Credentials pages.
 
-- AI Models provides an aggregated view across nodes, split into Local/Remote.
-- Local AI Models supports creating/deleting model deployments on a node.
+- AI Backends is the control-plane write surface for backend definitions, placements, and credentials.
+- AI Models provides a read-only aggregated view across nodes, split into Local/Remote.
 
 Local model provisioning (llamacpp):
 

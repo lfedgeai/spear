@@ -1,5 +1,6 @@
 use crate::proto::sms::{
-    EventEnvelope, EventOp, Execution, Instance, Node, ResourceType, Task, TaskEvent, TaskEventKind,
+    EventEnvelope, EventOp, Execution, Instance, Node, ResourceType, Task, TaskEvent,
+    TaskEventKind, TaskPlacementAssignment,
 };
 use crate::sms::services::error::SmsError;
 use crate::storage::kv::{serialization, KvPair, KvStore};
@@ -62,6 +63,7 @@ impl UnifiedEventBus {
             ResourceType::Artifact => "type.artifact".to_string(),
             ResourceType::Instance => "type.instance".to_string(),
             ResourceType::Execution => "type.execution".to_string(),
+            ResourceType::TaskAssignment => "type.task_assignment".to_string(),
             ResourceType::Unknown => "type.unknown".to_string(),
         }
     }
@@ -73,6 +75,7 @@ impl UnifiedEventBus {
             ResourceType::Artifact => format!("resource.artifact.{}", resource_id),
             ResourceType::Instance => format!("resource.instance.{}", resource_id),
             ResourceType::Execution => format!("resource.execution.{}", resource_id),
+            ResourceType::TaskAssignment => format!("resource.task_assignment.{}", resource_id),
             ResourceType::Unknown => format!("resource.unknown.{}", resource_id),
         }
     }
@@ -143,15 +146,13 @@ impl UnifiedEventBus {
         task: &Task,
         kind: TaskEventKind,
     ) -> Result<u64, SmsError> {
-        let node_uuid = task.node_uuid.clone();
-        let base_stream = Self::node_stream(&node_uuid);
+        let base_stream = Self::type_stream(ResourceType::Task);
         let resource_id = task.task_id.clone();
 
         let ts_ms = chrono::Utc::now().timestamp_millis();
         let payload = TaskEvent {
             event_id: 0,
             ts: chrono::Utc::now().timestamp(),
-            node_uuid: node_uuid.clone(),
             task_id: task.task_id.clone(),
             kind: kind as i32,
             execution_id: None,
@@ -178,7 +179,7 @@ impl UnifiedEventBus {
             resource_id: resource_id.clone(),
             op: op as i32,
             schema_version: 1,
-            node_uuid: node_uuid.clone(),
+            node_uuid: String::new(),
             correlation_id: String::new(),
             headers: HashMap::new(),
             payload: Some(any),
@@ -191,11 +192,56 @@ impl UnifiedEventBus {
             &[
                 base_stream,
                 Self::all_stream().to_string(),
-                Self::type_stream(ResourceType::Task),
                 Self::resource_stream(ResourceType::Task, &resource_id),
             ],
         )
         .await
+    }
+
+    pub async fn publish_task_assignment_event(
+        &self,
+        assignment: &TaskPlacementAssignment,
+        op: EventOp,
+    ) -> Result<u64, SmsError> {
+        let node_uuid = assignment.node_uuid.clone();
+        let base_stream = Self::node_stream(&node_uuid);
+        let resource_id = format!("{}:{}", assignment.task_id, assignment.node_uuid);
+        let ts_ms = chrono::Utc::now().timestamp_millis();
+        let payload_bytes = assignment.encode_to_vec();
+        let any = prost_types::Any {
+            type_url: "type.googleapis.com/sms.TaskPlacementAssignment".to_string(),
+            value: payload_bytes,
+        };
+        let env = EventEnvelope {
+            event_id: uuid::Uuid::new_v4().to_string(),
+            ts_ms,
+            stream: base_stream.clone(),
+            seq: 0,
+            resource_type: ResourceType::TaskAssignment as i32,
+            resource_id: resource_id.clone(),
+            op: op as i32,
+            schema_version: 1,
+            node_uuid,
+            correlation_id: String::new(),
+            headers: HashMap::new(),
+            payload: Some(any),
+            payload_bytes: Vec::new(),
+            content_type: "application/protobuf".to_string(),
+        };
+
+        let mut streams = vec![
+            base_stream,
+            Self::all_stream().to_string(),
+            Self::type_stream(ResourceType::TaskAssignment),
+            Self::resource_stream(ResourceType::TaskAssignment, &resource_id),
+        ];
+        if !assignment.task_id.is_empty() {
+            streams.push(Self::resource_stream(
+                ResourceType::Task,
+                &assignment.task_id,
+            ));
+        }
+        self.append_to_streams(env, &streams).await
     }
 
     pub async fn publish_node_event(&self, node: &Node, op: EventOp) -> Result<u64, SmsError> {

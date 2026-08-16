@@ -39,7 +39,7 @@
 //! - `service`: Main SMS service implementation / 主要SMS服务实现
 
 pub mod config;
-pub mod events;
+pub mod ai_backends;
 pub mod execution_logs;
 pub mod gateway;
 pub mod grpc_server;
@@ -48,22 +48,25 @@ pub mod http_gateway;
 pub mod instance_execution_index;
 pub mod placement;
 pub mod projectors;
-pub mod admin_backends;
+pub(crate) mod query_support;
 pub mod admin_credentials;
 pub mod registry_watch;
 pub mod registry;
 pub mod routes;
+pub(crate) mod runtime;
 pub mod service;
 pub mod services;
 pub mod stream_mux;
+mod ai_backend_rpc;
+mod task_assignment_rpc;
+mod task_rpc;
+pub(crate) mod task_semantics;
 pub mod types;
 pub mod unified_events;
 pub mod web_admin;
 
 #[cfg(test)]
 pub mod config_test;
-#[cfg(test)]
-pub mod events_test;
 #[cfg(test)]
 pub mod file_service_test;
 #[cfg(test)]
@@ -78,8 +81,6 @@ pub mod http_gateway_test;
 pub mod placement_penalty_test;
 #[cfg(test)]
 pub mod routes_test;
-#[cfg(test)]
-pub mod service_event_kv_test;
 #[cfg(test)]
 pub mod service_unified_events_test;
 #[cfg(test)]

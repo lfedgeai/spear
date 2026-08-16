@@ -101,19 +101,20 @@ Routes live in [web_admin.rs](../src/sms/web_admin.rs).
   - registers a task (maps to gRPC RegisterTask)
   - response: `{ success, task_id, message }`
   - semantics:
-    - `node_uuid=<uuid>` pins the task to a node (ownership/filtering/ops; not “last execution placement”); execution is triggered via `POST /admin/api/executions`.
-    - `node_uuid=""` (empty string) means the task is not pinned; execution is triggered via `POST /admin/api/executions` and SMS placement picks a node.
+    - tasks no longer bind to a single `node_uuid`
+    - the request expresses workload spec, including `desired_replicas` and `scheduling_strategy`
+    - execution is still triggered via `POST /admin/api/invocations`, and only targets nodes that already have ready replicas; if assignments are still converging, it returns warming up
 
 - `GET /admin/api/tasks/{task_id}`
   - returns structured task detail JSON
 
 #### 2.2.4 Executions
 
-- `POST /admin/api/executions`
+- `POST /admin/api/invocations`
   - BFF behavior:
     - If request includes `node_uuid=<uuid>`: execute directly on that node (no placement)
-    - Otherwise: call SMS placement to obtain candidate nodes, then spillback invoke Spearlet
-    - Report each failure via `report_invocation_outcome` back to placement
+    - Otherwise: only invoke on nodes that already have ready replicas
+    - If no replica is ready yet: best-effort trigger assignment reconcile, then return warming up / no ready replicas
   - response: `{ success, ... }` (currently not a unified schema)
 
 #### 2.2.5 Files
@@ -393,7 +394,7 @@ Use right-side Drawer or standalone route (prefer `#/nodes/:uuid` for deep linki
 
 - Actions
   - copy node UUID
-  - quick create task (prefill node_uuid)
+  - quick create task (prefill placement constraints / replica policy in the future)
 
 #### 3.2.4 Tasks
 
@@ -453,19 +454,18 @@ So the frontend can implement a single error-handling layer.
 
 ### 4.3 Executions API recommendations
 
-The current `/admin/api/executions` is a BFF endpoint that triggers an execution and returns a one-shot result.
+The current `/admin/api/invocations` is a BFF endpoint that triggers one invoke and returns the result/state.
 
 Recommended additions:
 
-- `POST /admin/api/executions`
+- `POST /admin/api/invocations`
   - request:
     - task_id
     - mode (sync/async/stream)
-    - max_candidates
     - labels/metadata
   - response:
-    - decision_id / request_id / execution_id
-    - attempted_candidates[] (node + outcome + latency + error)
+    - request_id / execution_id / node_uuid
+    - warming_up / no_ready_replicas (when assignments have not converged yet)
     - final_result (on success)
 
 Future:

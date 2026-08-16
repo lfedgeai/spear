@@ -2,13 +2,16 @@ use crate::proto::sms::{
     Execution, ExecutionSummary, Instance, InstanceStatus, InstanceSummary, LogRef,
 };
 use crate::sms::services::error::SmsError;
-use crate::storage::kv::{serialization, KvStore};
+use crate::storage::kv::{serialization, KvStore, RangeOptions};
 use prost::Message;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 const INSTANCE_KEY_PREFIX: &str = "instance:";
+const INSTANCE_TOMBSTONE_KEY_PREFIX: &str = "instance_tombstone:";
 const EXECUTION_KEY_PREFIX: &str = "execution:";
+const IDX_EXECUTIONS_BY_STARTED_PREFIX: &str = "idx:executions:started_at:";
+const IDX_TASK_EXECUTIONS_BY_STARTED_PREFIX: &str = "idx:task_executions:";
 const IDX_TASK_ACTIVE_INSTANCES_PREFIX: &str = "idx:task_active_instances:";
 const IDX_INSTANCE_RECENT_EXECUTIONS_PREFIX: &str = "idx:instance_recent_executions:";
 const PROJECTION_CHECKPOINT_PREFIX: &str = "projection_checkpoint:";
@@ -92,13 +95,18 @@ impl InstanceExecutionIndex {
         }
     }
 
-    pub async fn upsert_instance(&self, inst: Instance) -> Result<(bool, i64), SmsError> {
+    pub async fn upsert_instance_record(&self, inst: Instance) -> Result<(bool, i64), SmsError> {
         if inst.instance_id.is_empty() || inst.task_id.is_empty() || inst.node_uuid.is_empty() {
             return Err(SmsError::InvalidRequest(
                 "instance_id, task_id, node_uuid are required".to_string(),
             ));
         }
         let rec = stored_instance_record_from_proto(&inst);
+        if let Some(tombstone_ms) = self.instance_tombstone_ms(&rec.instance_id).await? {
+            if tombstone_ms > rec.updated_at_ms {
+                return Ok((false, tombstone_ms));
+            }
+        }
         let key = format!("{}{}", INSTANCE_KEY_PREFIX, rec.instance_id);
         let stored = self.kv.get(&key).await?;
         if let Some(bytes) = stored {
@@ -109,14 +117,42 @@ impl InstanceExecutionIndex {
         }
         let val = serialization::serialize(&rec)?;
         self.kv.put(&key, &val).await?;
+        self.clear_instance_tombstone(&rec.instance_id).await?;
         Ok((true, rec.updated_at_ms))
+    }
+
+    pub async fn tombstone_instance_record(
+        &self,
+        instance_id: &str,
+        task_id: &str,
+        deleted_at_ms: i64,
+    ) -> Result<(bool, i64), SmsError> {
+        if instance_id.is_empty() || task_id.is_empty() {
+            return Err(SmsError::InvalidRequest(
+                "instance_id and task_id are required".to_string(),
+            ));
+        }
+        let latest_known_ms = self
+            .latest_instance_clock_ms(instance_id)
+            .await?
+            .unwrap_or_default();
+        if latest_known_ms > deleted_at_ms {
+            return Ok((false, latest_known_ms));
+        }
+
+        let key = format!("{}{}", INSTANCE_KEY_PREFIX, instance_id);
+        let _ = self.kv.delete(&key).await;
+        self.store_instance_tombstone(instance_id, deleted_at_ms).await?;
+        self.remove_from_task_active_instances(task_id, instance_id)
+            .await?;
+        Ok((true, deleted_at_ms))
     }
 
     pub fn stale_after_ms(&self) -> i64 {
         self.stale_after_ms
     }
 
-    pub async fn upsert_execution(&self, exe: Execution) -> Result<(bool, i64), SmsError> {
+    pub async fn upsert_execution_record(&self, exe: Execution) -> Result<(bool, i64), SmsError> {
         if exe.execution_id.is_empty()
             || exe.task_id.is_empty()
             || exe.node_uuid.is_empty()
@@ -134,10 +170,16 @@ impl InstanceExecutionIndex {
             if existing.updated_at_ms > rec.updated_at_ms {
                 return Ok((false, existing.updated_at_ms));
             }
+            self.remove_execution_history_indexes(&existing).await?;
         }
         let val = serialization::serialize(&rec)?;
         self.kv.put(&key, &val).await?;
+        self.store_execution_history_indexes(&rec).await?;
         Ok((true, rec.updated_at_ms))
+    }
+
+    pub async fn project_instance_views(&self, inst: &Instance, now_ms: i64) -> Result<(), SmsError> {
+        self.project_task_active_instances_view(inst, now_ms).await
     }
 
     pub async fn get_instance(&self, instance_id: &str) -> Result<Option<Instance>, SmsError> {
@@ -246,7 +288,86 @@ impl InstanceExecutionIndex {
         Ok((page, next))
     }
 
-    pub async fn apply_instance_event(
+    pub async fn list_executions(
+        &self,
+        task_id: Option<&str>,
+        status: Option<&str>,
+        limit: usize,
+        page_token: &str,
+    ) -> Result<(Vec<Execution>, String), SmsError> {
+        let task_filter = task_id
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+        let status_filter = status
+            .map(|s| s.trim().to_ascii_lowercase())
+            .filter(|s| !s.is_empty());
+        let prefix = execution_history_index_prefix(task_filter.as_deref());
+        let start_key = if page_token.is_empty() {
+            prefix.clone()
+        } else {
+            next_index_cursor(page_token)
+        };
+        let end_key = index_prefix_end(&prefix);
+        let mut executions = Vec::new();
+        let mut cursor = start_key;
+        let mut next = String::new();
+        let batch_limit = limit.max(1).max(64);
+        while executions.len() < limit.max(1) + 1 {
+            let pairs = self
+                .kv
+                .range(
+                    &RangeOptions::new()
+                        .start_key(cursor.clone())
+                        .end_key(end_key.clone())
+                        .limit(batch_limit),
+                )
+                .await?;
+            if pairs.is_empty() {
+                break;
+            }
+
+            let mut last_key = String::new();
+            let mut last_returned_key = String::new();
+            for pair in pairs.iter() {
+                last_key = pair.key.clone();
+                let execution_id = String::from_utf8(pair.value.clone()).map_err(|e| {
+                    SmsError::Serialization(format!("invalid execution archive index value: {}", e))
+                })?;
+                let Some(exe) = self.get_execution(&execution_id).await? else {
+                    continue;
+                };
+                if let Some(status_filter) = status_filter.as_ref() {
+                    let public_status =
+                        crate::sms::execution_status_to_public_str(exe.status).to_ascii_lowercase();
+                    if public_status != *status_filter {
+                        continue;
+                    }
+                }
+                executions.push(exe);
+                if executions.len() <= limit.max(1) {
+                    last_returned_key = last_key.clone();
+                }
+                if executions.len() > limit.max(1) {
+                    next = last_returned_key;
+                    break;
+                }
+            }
+            if !next.is_empty() {
+                break;
+            }
+            if last_key.is_empty() || pairs.len() < batch_limit {
+                break;
+            }
+            cursor = next_index_cursor(&last_key);
+        }
+        if executions.len() > limit.max(1) {
+            executions.truncate(limit.max(1));
+        }
+        Ok((executions, next))
+    }
+
+    pub async fn project_instance_event(
         &self,
         op: i32,
         payload: &prost_types::Any,
@@ -254,16 +375,22 @@ impl InstanceExecutionIndex {
     ) -> Result<(), SmsError> {
         let inst = decode_any::<Instance>(payload)?;
         if op == crate::proto::sms::EventOp::Delete as i32 {
-            self.delete_instance(&inst.instance_id, &inst.task_id)
+            self.tombstone_instance_record(
+                &inst.instance_id,
+                &inst.task_id,
+                inst.updated_at_ms.max(now_ms),
+            )
                 .await?;
             return Ok(());
         }
-        let _ = self.upsert_instance(inst.clone()).await?;
-        self.update_task_active_instances(&inst, now_ms).await?;
+        let (accepted, _) = self.upsert_instance_record(inst.clone()).await?;
+        if accepted {
+            self.project_task_active_instances_view(&inst, now_ms).await?;
+        }
         Ok(())
     }
 
-    pub async fn apply_execution_event(
+    pub async fn project_execution_event(
         &self,
         op: i32,
         payload: &prost_types::Any,
@@ -271,13 +398,13 @@ impl InstanceExecutionIndex {
     ) -> Result<(), SmsError> {
         let exe = decode_any::<Execution>(payload)?;
         if op == crate::proto::sms::EventOp::Delete as i32 {
-            self.delete_execution(&exe.execution_id).await?;
+            self.purge_execution_record(&exe.execution_id).await?;
             self.remove_from_instance_recent_executions(&exe.instance_id, &exe.execution_id)
                 .await?;
             return Ok(());
         }
-        let _ = self.upsert_execution(exe.clone()).await?;
-        self.update_instance_recent_executions(&exe).await?;
+        let _ = self.upsert_execution_record(exe.clone()).await?;
+        self.project_instance_recent_executions_view(&exe).await?;
         if !exe.instance_id.is_empty() && !exe.task_id.is_empty() {
             let inst = Instance {
                 instance_id: exe.instance_id.clone(),
@@ -290,8 +417,10 @@ impl InstanceExecutionIndex {
                 current_execution_id: exe.execution_id.clone(),
                 metadata: std::collections::HashMap::new(),
             };
-            let _ = self.upsert_instance(inst.clone()).await?;
-            self.update_task_active_instances(&inst, now_ms).await?;
+            let (accepted, _) = self.upsert_instance_record(inst.clone()).await?;
+            if accepted {
+                self.project_task_active_instances_view(&inst, now_ms).await?;
+            }
         }
         Ok(())
     }
@@ -315,28 +444,66 @@ impl InstanceExecutionIndex {
         Ok(())
     }
 
-    async fn delete_instance(&self, instance_id: &str, task_id: &str) -> Result<(), SmsError> {
-        if !instance_id.is_empty() {
-            let key = format!("{}{}", INSTANCE_KEY_PREFIX, instance_id);
-            let _ = self.kv.delete(&key).await;
-        }
-        if !task_id.is_empty() {
-            self.remove_from_task_active_instances(task_id, instance_id)
-                .await?;
-        }
+    async fn latest_instance_clock_ms(&self, instance_id: &str) -> Result<Option<i64>, SmsError> {
+        let record_ms = match self
+            .kv
+            .get(&format!("{}{}", INSTANCE_KEY_PREFIX, instance_id))
+            .await?
+        {
+            Some(bytes) => {
+                let existing: StoredInstanceRecord = serialization::deserialize(&bytes)?;
+                Some(existing.updated_at_ms)
+            }
+            None => None,
+        };
+        let tombstone_ms = self.instance_tombstone_ms(instance_id).await?;
+        Ok(match (record_ms, tombstone_ms) {
+            (Some(record_ms), Some(tombstone_ms)) => Some(record_ms.max(tombstone_ms)),
+            (Some(record_ms), None) => Some(record_ms),
+            (None, Some(tombstone_ms)) => Some(tombstone_ms),
+            (None, None) => None,
+        })
+    }
+
+    async fn instance_tombstone_ms(&self, instance_id: &str) -> Result<Option<i64>, SmsError> {
+        let key = format!("{}{}", INSTANCE_TOMBSTONE_KEY_PREFIX, instance_id);
+        let bytes = self.kv.get(&key).await?;
+        Ok(bytes
+            .and_then(|raw| String::from_utf8(raw).ok())
+            .and_then(|value| value.parse::<i64>().ok()))
+    }
+
+    async fn store_instance_tombstone(
+        &self,
+        instance_id: &str,
+        deleted_at_ms: i64,
+    ) -> Result<(), SmsError> {
+        let key = format!("{}{}", INSTANCE_TOMBSTONE_KEY_PREFIX, instance_id);
+        let bytes = deleted_at_ms.to_string().into_bytes();
+        self.kv.put(&key, &bytes).await?;
         Ok(())
     }
 
-    async fn delete_execution(&self, execution_id: &str) -> Result<(), SmsError> {
-        if execution_id.is_empty() {
-            return Ok(());
-        }
-        let key = format!("{}{}", EXECUTION_KEY_PREFIX, execution_id);
+    async fn clear_instance_tombstone(&self, instance_id: &str) -> Result<(), SmsError> {
+        let key = format!("{}{}", INSTANCE_TOMBSTONE_KEY_PREFIX, instance_id);
         let _ = self.kv.delete(&key).await;
         Ok(())
     }
 
-    async fn update_task_active_instances(
+    async fn purge_execution_record(&self, execution_id: &str) -> Result<(), SmsError> {
+        if execution_id.is_empty() {
+            return Ok(());
+        }
+        let key = format!("{}{}", EXECUTION_KEY_PREFIX, execution_id);
+        if let Some(bytes) = self.kv.get(&key).await? {
+            let rec: StoredExecutionRecord = serialization::deserialize(&bytes)?;
+            self.remove_execution_history_indexes(&rec).await?;
+        }
+        let _ = self.kv.delete(&key).await;
+        Ok(())
+    }
+
+    async fn project_task_active_instances_view(
         &self,
         inst: &Instance,
         now_ms: i64,
@@ -386,7 +553,10 @@ impl InstanceExecutionIndex {
         Ok(())
     }
 
-    async fn update_instance_recent_executions(&self, exe: &Execution) -> Result<(), SmsError> {
+    async fn project_instance_recent_executions_view(
+        &self,
+        exe: &Execution,
+    ) -> Result<(), SmsError> {
         let key = format!(
             "{}{}",
             IDX_INSTANCE_RECENT_EXECUTIONS_PREFIX, exe.instance_id
@@ -427,6 +597,38 @@ impl InstanceExecutionIndex {
         Ok(())
     }
 
+    async fn store_execution_history_indexes(
+        &self,
+        rec: &StoredExecutionRecord,
+    ) -> Result<(), SmsError> {
+        let execution_id_bytes = rec.execution_id.as_bytes().to_vec();
+        self.kv
+            .put(&execution_history_index_key(None, rec), &execution_id_bytes)
+            .await?;
+        self.kv
+            .put(
+                &execution_history_index_key(Some(rec.task_id.as_str()), rec),
+                &execution_id_bytes,
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn remove_execution_history_indexes(
+        &self,
+        rec: &StoredExecutionRecord,
+    ) -> Result<(), SmsError> {
+        let _ = self
+            .kv
+            .delete(&execution_history_index_key(None, rec))
+            .await?;
+        let _ = self
+            .kv
+            .delete(&execution_history_index_key(Some(rec.task_id.as_str()), rec))
+            .await?;
+        Ok(())
+    }
+
     async fn load_vec<T: serde::de::DeserializeOwned>(
         &self,
         key: &str,
@@ -449,6 +651,37 @@ impl InstanceExecutionIndex {
         self.kv.put(&key_owned, &bytes).await?;
         Ok(())
     }
+}
+
+fn reverse_started_at_key(ts_ms: i64) -> String {
+    let normalized = ts_ms.max(0) as u64;
+    format!("{:020}", u64::MAX - normalized)
+}
+
+fn execution_history_index_prefix(task_id: Option<&str>) -> String {
+    match task_id {
+        Some(task_id) if !task_id.is_empty() => {
+            format!("{}{}:", IDX_TASK_EXECUTIONS_BY_STARTED_PREFIX, task_id)
+        }
+        _ => IDX_EXECUTIONS_BY_STARTED_PREFIX.to_string(),
+    }
+}
+
+fn execution_history_index_key(task_id: Option<&str>, rec: &StoredExecutionRecord) -> String {
+    format!(
+        "{}{}:{}",
+        execution_history_index_prefix(task_id),
+        reverse_started_at_key(rec.started_at_ms),
+        rec.execution_id
+    )
+}
+
+fn index_prefix_end(prefix: &str) -> String {
+    format!("{}{}", prefix, '\u{10FFFF}')
+}
+
+fn next_index_cursor(last_key: &str) -> String {
+    format!("{}{}", last_key, '\0')
 }
 
 fn stored_log_ref_from_proto(lr: &LogRef) -> StoredLogRef {
@@ -543,10 +776,7 @@ pub(crate) fn is_instance_active_and_fresh(
     if now_ms.saturating_sub(last_seen_ms) > stale_after_ms {
         return false;
     }
-    match InstanceStatus::try_from(status).unwrap_or(InstanceStatus::Unknown) {
-        InstanceStatus::Terminated | InstanceStatus::Unknown => false,
-        _ => true,
-    }
+    crate::sms::is_instance_live(status)
 }
 
 fn parse_offset(token: &str) -> usize {
@@ -571,7 +801,8 @@ impl Default for InstanceExecutionIndex {
 #[cfg(test)]
 mod tests {
     use super::{is_instance_active_and_fresh, InstanceExecutionIndex};
-    use crate::proto::sms::{Instance, InstanceStatus};
+    use crate::proto::sms::{EventOp, Execution, ExecutionStatus, Instance, InstanceStatus};
+    use prost::Message;
 
     #[tokio::test]
     async fn get_instance_returns_latest_stored_instance() {
@@ -588,7 +819,7 @@ mod tests {
             metadata: std::collections::HashMap::new(),
         };
 
-        idx.upsert_instance(inst.clone()).await.unwrap();
+        idx.upsert_instance_record(inst.clone()).await.unwrap();
 
         let stored = idx.get_instance("inst-1").await.unwrap().unwrap();
         assert_eq!(stored.instance_id, inst.instance_id);
@@ -618,6 +849,147 @@ mod tests {
             2_000,
             500,
         ));
+    }
+
+    #[tokio::test]
+    async fn delete_instance_event_removes_active_instance_and_blocks_stale_upsert() {
+        let idx = InstanceExecutionIndex::default();
+        let running = Instance {
+            instance_id: "inst-delete-1".to_string(),
+            task_id: "task-delete-1".to_string(),
+            node_uuid: "node-1".to_string(),
+            status: InstanceStatus::Running as i32,
+            created_at_ms: 100,
+            updated_at_ms: 100,
+            last_seen_ms: 100,
+            current_execution_id: String::new(),
+            metadata: std::collections::HashMap::new(),
+        };
+        let running_any = prost_types::Any {
+            type_url: "type.googleapis.com/sms.Instance".to_string(),
+            value: running.encode_to_vec(),
+        };
+        idx.project_instance_event(EventOp::Upsert as i32, &running_any, 100)
+            .await
+            .unwrap();
+
+        let (instances, _) = idx
+            .list_task_instances("task-delete-1", 100, 10, "")
+            .await
+            .unwrap();
+        assert_eq!(instances.len(), 1);
+
+        let delete_payload = Instance {
+            updated_at_ms: 200,
+            last_seen_ms: 200,
+            ..running.clone()
+        };
+        let delete_any = prost_types::Any {
+            type_url: "type.googleapis.com/sms.Instance".to_string(),
+            value: delete_payload.encode_to_vec(),
+        };
+        idx.project_instance_event(EventOp::Delete as i32, &delete_any, 200)
+            .await
+            .unwrap();
+
+        assert!(idx.get_instance("inst-delete-1").await.unwrap().is_none());
+        let (instances, _) = idx
+            .list_task_instances("task-delete-1", 200, 10, "")
+            .await
+            .unwrap();
+        assert!(instances.is_empty());
+
+        let stale_running = Instance {
+            updated_at_ms: 150,
+            last_seen_ms: 150,
+            ..running
+        };
+        let stale_running_any = prost_types::Any {
+            type_url: "type.googleapis.com/sms.Instance".to_string(),
+            value: stale_running.encode_to_vec(),
+        };
+        idx.project_instance_event(EventOp::Upsert as i32, &stale_running_any, 150)
+            .await
+            .unwrap();
+
+        assert!(idx.get_instance("inst-delete-1").await.unwrap().is_none());
+        let (instances, _) = idx
+            .list_task_instances("task-delete-1", 200, 10, "")
+            .await
+            .unwrap();
+        assert!(instances.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_executions_uses_started_at_index_for_pagination() {
+        let idx = InstanceExecutionIndex::default();
+        for (execution_id, started_at_ms) in [("exe-1", 100), ("exe-2", 300), ("exe-3", 200)] {
+            idx.upsert_execution_record(Execution {
+                execution_id: execution_id.to_string(),
+                invocation_id: format!("inv-{}", execution_id),
+                task_id: "task-1".to_string(),
+                function_name: "main".to_string(),
+                node_uuid: "node-1".to_string(),
+                instance_id: "inst-1".to_string(),
+                status: ExecutionStatus::Completed as i32,
+                started_at_ms,
+                completed_at_ms: started_at_ms + 10,
+                log_ref: None,
+                metadata: std::collections::HashMap::new(),
+                updated_at_ms: started_at_ms + 20,
+            })
+            .await
+            .unwrap();
+        }
+
+        let (page1, token1) = idx.list_executions(None, None, 2, "").await.unwrap();
+        assert_eq!(
+            page1.iter().map(|e| e.execution_id.as_str()).collect::<Vec<_>>(),
+            vec!["exe-2", "exe-3"]
+        );
+        assert!(!token1.is_empty());
+
+        let (page2, token2) = idx.list_executions(None, None, 2, &token1).await.unwrap();
+        assert_eq!(
+            page2.iter().map(|e| e.execution_id.as_str()).collect::<Vec<_>>(),
+            vec!["exe-1"]
+        );
+        assert!(token2.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_executions_filters_by_task_and_status() {
+        let idx = InstanceExecutionIndex::default();
+        for (execution_id, task_id, status, started_at_ms) in [
+            ("exe-a", "task-a", ExecutionStatus::Completed as i32, 100),
+            ("exe-b", "task-b", ExecutionStatus::Completed as i32, 200),
+            ("exe-c", "task-a", ExecutionStatus::Failed as i32, 300),
+        ] {
+            idx.upsert_execution_record(Execution {
+                execution_id: execution_id.to_string(),
+                invocation_id: format!("inv-{}", execution_id),
+                task_id: task_id.to_string(),
+                function_name: "main".to_string(),
+                node_uuid: "node-1".to_string(),
+                instance_id: "inst-1".to_string(),
+                status,
+                started_at_ms,
+                completed_at_ms: started_at_ms + 10,
+                log_ref: None,
+                metadata: std::collections::HashMap::new(),
+                updated_at_ms: started_at_ms + 20,
+            })
+            .await
+            .unwrap();
+        }
+
+        let (page, token) = idx
+            .list_executions(Some("task-a"), Some("completed"), 10, "")
+            .await
+            .unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].execution_id, "exe-a");
+        assert!(token.is_empty());
     }
 }
 

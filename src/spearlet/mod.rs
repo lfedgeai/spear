@@ -28,7 +28,7 @@
 //! ```
 
 pub mod backend_reporter;
-pub mod debug_reporter;
+pub(crate) mod debug_reporter;
 pub mod ai;
 pub mod controller;
 pub mod config;
@@ -44,7 +44,9 @@ pub mod ollama_discovery;
 pub mod param_keys;
 pub mod registration;
 pub mod sms_connector;
+pub mod task_assignments;
 pub mod task_events;
+mod task_event_cursor;
 
 #[cfg(test)]
 mod config_test;
@@ -66,4 +68,5 @@ pub use grpc_server::{GrpcServer, HealthService};
 pub use http_gateway::HttpGateway;
 pub use object_service::ObjectServiceImpl;
 pub use registration::{RegistrationService, RegistrationState};
+pub use task_assignments::TaskAssignmentSubscriber;
 pub use task_events::TaskEventSubscriber;

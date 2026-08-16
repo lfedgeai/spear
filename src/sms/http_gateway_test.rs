@@ -551,6 +551,7 @@ mod integration_tests {
             task_client: crate::proto::sms::task_service_client::TaskServiceClient::new(
                 channel.clone(),
             ),
+            task_assignment_client: crate::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(channel.clone()),
             placement_client:
                 crate::proto::sms::placement_service_client::PlacementServiceClient::new(
                     channel.clone(),
@@ -572,16 +573,12 @@ mod integration_tests {
                 crate::proto::sms::backend_registry_service_client::BackendRegistryServiceClient::new(
                     channel.clone(),
                 ),
+            ai_backend_control_plane_client:
+                crate::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::new(
+                    channel.clone(),
+                ),
             admin_credential_client:
                 crate::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::new(
-                    channel.clone(),
-                ),
-            admin_ai_config_client:
-                crate::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::new(
-                    channel.clone(),
-                ),
-            model_deployment_registry_client:
-                crate::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::new(
                     channel.clone(),
                 ),
             stream_sessions: StreamSessionStore::new(),

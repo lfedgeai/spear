@@ -1,3 +1,6 @@
+import { Button } from '../../../web-admin/src/shared/components/ui/button'
+import { Input } from '../../../web-admin/src/shared/components/ui/input'
+
 export function RenameDialog(props: {
   value: string
   onChange: (v: string) => void
@@ -10,17 +13,16 @@ export function RenameDialog(props: {
         <div className="cw-modalHeader">
           <div className="cw-modalTitle">Rename chat</div>
           <div className="cw-modalHeaderRight">
-            <button className="cw-iconBtn" onClick={props.onClose}>
+            <Button variant="secondary" size="sm" onClick={props.onClose}>
               <span className="cw-btnGlyph">×</span>
               <span className="cw-btnText">Close</span>
-            </button>
+            </Button>
           </div>
         </div>
         <div className="cw-modalBody">
           <div className="cw-modalRow">
             <div className="cw-label">Title</div>
-            <input
-              className="cw-textInput"
+            <Input
               value={props.value}
               onChange={(e) => props.onChange(e.target.value)}
               autoFocus
@@ -35,14 +37,14 @@ export function RenameDialog(props: {
           </div>
         </div>
         <div className="cw-modalFooter">
-          <button className="cw-btn" onClick={props.onClose}>
+          <Button variant="secondary" size="sm" onClick={props.onClose}>
             <span className="cw-btnGlyph">↩</span>
             <span className="cw-btnText">Cancel</span>
-          </button>
-          <button className="cw-btn cw-btnPrimary" onClick={props.onConfirm} disabled={!props.value.trim()}>
+          </Button>
+          <Button size="sm" onClick={props.onConfirm} disabled={!props.value.trim()}>
             <span className="cw-btnGlyph">✓</span>
             <span className="cw-btnText">Save</span>
-          </button>
+          </Button>
         </div>
       </div>
     </div>

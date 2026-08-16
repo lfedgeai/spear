@@ -62,7 +62,7 @@ COPY sdk/rust/crates/spear-ssf/ sdk/rust/crates/spear-ssf/
 COPY --from=web_builder /work/assets/admin assets/admin
 COPY --from=web_builder /work/assets/console assets/console
 
-RUN cargo build --release --locked --bin sms
+RUN cargo build --release --locked --features rocksdb --bin sms
 
 FROM ${DEBIAN_IMAGE} AS runtime
 

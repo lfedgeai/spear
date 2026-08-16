@@ -3,12 +3,10 @@ import { fetchJson } from '@/api/client'
 export type CreateExecutionPayload = {
   /** Task ID / 任务 ID */
   task_id: string
-  /** Preferred node uuid (optional) / 期望节点 uuid（可选） */
+  /** Direct target node uuid (optional) / 直接目标节点 uuid（可选） */
   node_uuid?: string
   /** Execution mode (optional) / 执行模式（可选） */
   execution_mode?: 'sync' | 'async'
-  /** Maximum placement candidates (optional) / 最大候选节点数（可选） */
-  max_candidates?: number
 }
 
 export type CreateExecutionResponse = {
@@ -20,23 +18,20 @@ export type CreateExecutionResponse = {
   execution_id?: string
   /** Selected node uuid (optional) / 选中的节点 uuid（可选） */
   node_uuid?: string
-  /** Placement decision id (optional) / 调度决策 id（可选） */
-  decision_id?: string
 }
 
 /**
- * Create an execution via SMS Web Admin API.
- * 通过 SMS Web Admin API 创建一次执行。
+ * Create an invocation via SMS Web Admin API.
+ * 通过 SMS Web Admin API 创建一次 invocation。
  */
 export function createExecution(payload: CreateExecutionPayload) {
-  return fetchJson<CreateExecutionResponse>('/admin/api/executions', {
+  return fetchJson<CreateExecutionResponse>('/admin/api/invocations', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       task_id: payload.task_id,
       node_uuid: payload.node_uuid,
       execution_mode: payload.execution_mode,
-      max_candidates: payload.max_candidates,
     }),
   })
 }

@@ -100,6 +100,18 @@ fn build_ws_s2t_request(st: &RtAsrState, model: Option<String>) -> CanonicalRequ
 }
 
 impl DefaultHostApi {
+    fn rtasr_state_name(state: RtAsrConnState) -> &'static str {
+        match state {
+            RtAsrConnState::Init => "Init",
+            RtAsrConnState::Configured => "Configured",
+            RtAsrConnState::Connecting => "Connecting",
+            RtAsrConnState::Connected => "Connected",
+            RtAsrConnState::Draining => "Draining",
+            RtAsrConnState::Closed => "Closed",
+            RtAsrConnState::Error => "Error",
+        }
+    }
+
     pub fn rtasr_create(&self) -> i32 {
         self.fd_table.alloc(FdEntry {
             kind: FdKind::RtAsr,
@@ -487,7 +499,25 @@ impl DefaultHostApi {
                 let bytes = serde_json::to_vec(&body).map_err(|_| -SPEAR_EIO)?;
                 Ok(Some(bytes))
             }
-            _ => Err(-SPEAR_EINVAL),
+            _ => {
+                let state_name = match entry.lock() {
+                    Ok(e) => {
+                        let FdInner::RtAsr(st) = &e.inner else {
+                            return Err(-SPEAR_EBADF);
+                        };
+                        Self::rtasr_state_name(st.state)
+                    }
+                    Err(_) => return Err(-SPEAR_EIO),
+                };
+                tracing::warn!(
+                    fd,
+                    cmd,
+                    state = state_name,
+                    payload_len = payload.map(|bytes| bytes.len()).unwrap_or(0),
+                    "rtasr_ctl received invalid command"
+                );
+                Err(-SPEAR_EINVAL)
+            }
         }
     }
 

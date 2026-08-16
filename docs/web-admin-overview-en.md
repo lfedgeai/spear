@@ -6,8 +6,8 @@ This document summarizes the new Web Admin in `spear-next`.
 
 - Independent port (default `127.0.0.1:8081`) with Axum router
 - Nodes list with search, sort, pagination
-- AI Models list (aggregated view; split into Local/Remote with a model detail page)
-- Local AI Models: create/delete model deployments on a node, with provisioning status
+- AI Backends control page for backend definitions, placements, and credentials
+- AI Models list (read-only aggregated view; split into Local/Remote with a model detail page)
 - Stats cards (total, online, offline, recent 60s)
 - SSE stream `GET /admin/api/nodes/stream`
   - For testing: `?once=true` returns a single snapshot event
@@ -33,19 +33,23 @@ This document summarizes the new Web Admin in `spear-next`.
 - `GET /admin/api/nodes/:uuid` → Node + optional resource info
 - `GET /admin/api/stats` → counts (total/online/offline/recent_60s)
 - `GET /admin/api/nodes/stream[?once=true]` → SSE snapshot events
-- `GET /admin/api/ai-models` → aggregated AI models list (provider/model/hosting + per-node availability)
-- `GET /admin/api/ai-models/:provider/:model` → AI model detail (includes instances)
+- `GET /admin/api/ai-model-views` → unified read-model view of AI Models (provider/model/hosting aggregation with placement/runtime details)
+- `GET /admin/api/ai-backends` → canonical AI backend list (control-plane write resources)
+- `GET /admin/api/ai-backend-placements` → AI backend placement list
+- `GET /admin/api/ai-backend-statuses` → node-side runtime status list
+- `GET /admin/api/ai/credentials` → reusable credential registry for AI backends
 
-### Local AI Models (Model Deployments)
+### Historical Endpoints (Removed)
 
-- `POST /admin/api/nodes/:node_uuid/ai-models` → create a node-local model deployment (body: `{ provider, model, params }`)
-- `GET /admin/api/nodes/:node_uuid/ai-models/deployments` → list deployments for the node (phase/message)
-- `DELETE /admin/api/nodes/:node_uuid/ai-models/deployments/:deployment_id` → delete a deployment (Spearlet stops the process on next reconcile)
+- The following legacy AI Models / model deployments / remote backends Web Admin endpoints are removed:
+- `/admin/api/ai-models`
+- `/admin/api/nodes/:node_uuid/ai-models*`
+- `/admin/api/ai/remote-backends*`
 
 ### Tasks Endpoints
 
 - `GET /admin/api/tasks` → returns task list with fields:
-  - `task_id`, `name`, `description`, `status`, `priority`, `node_uuid`, `endpoint`, `version`
+  - `task_id`, `name`, `description`, `status`, `priority`, `desired_replicas`, `scheduling_strategy`, `endpoint`, `version`
 
 #### Create vs Execute (Two Flows)
 
@@ -53,21 +57,20 @@ Web Admin treats “create task (register)” and “execute task (schedule + ru
 
 - Step 1: create/register
   - `POST /admin/api/tasks`
-  - `node_uuid` semantics:
-    - pin to node: `node_uuid=<uuid>`
-    - auto-schedule: `node_uuid=""` (empty string)
+  - The request defines task spec rather than task ownership
+  - The minimal scheduling-related fields are:
+    - `desired_replicas`
+    - `scheduling_strategy` (currently `spread`)
 - Step 2: trigger execution (optional)
-  - `POST /admin/api/executions`
-  - uses SMS placement to pick candidates, then spillback-invokes Spearlet
+  - `POST /admin/api/invocations`
+  - only invokes on nodes that already have ready replicas; if replicas are still converging, it returns warming up / no ready replicas
 
 Behavior differences:
 
-- Pinned node (`node_uuid` non-empty):
-  - indicates the task is pinned/owned by a specific node (not “last execution placement”)
-  - execution is triggered via `POST /admin/api/executions`; `Run after create` will run on that node
-- Auto-schedule (`node_uuid` empty):
-  - indicates the task is not pinned to a node
-  - execution is triggered via `POST /admin/api/executions`; `Run after create` will use SMS placement to pick a node
+- Tasks no longer have pinned-node / owner-node semantics:
+  - `task` represents workload spec
+  - `instance` is what binds to a concrete `node_uuid`
+  - execution is triggered via `POST /admin/api/invocations`; `Run after create` uses the current ready replicas, and returns warming up if assignments have not converged yet
 
 ## Secret/Key Management Guidance
 
@@ -81,7 +84,7 @@ If you add an “API key configuration” component to Web Admin, design it as �
   - `result_uris`, `last_result_uri`, `last_result_status`, `last_completed_at`, `last_result_metadata`
 - `GET /admin/api/tasks/{task_id}` → returns detail with the same fields
 - `POST /admin/api/tasks` → create task
-  - Body includes `name`, `description`, `priority`, `node_uuid`, `endpoint`, `version`, `capabilities`, `metadata`, `config`, optional `executable`
+  - Body includes `name`, `description`, `priority`, `desired_replicas`, `scheduling_strategy`, `endpoint`, `version`, `capabilities`, `metadata`, `config`, optional `executable`
 
 ## Testing
 

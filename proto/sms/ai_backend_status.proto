@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package sms;
+
+// Node-observed backend state / 节点观察到的 backend 状态
+enum AiBackendNodeStatus {
+  AI_BACKEND_NODE_STATUS_UNSPECIFIED = 0;
+  AI_BACKEND_NODE_STATUS_PENDING = 1;
+  AI_BACKEND_NODE_STATUS_RECONCILING = 2;
+  AI_BACKEND_NODE_STATUS_READY = 3;
+  AI_BACKEND_NODE_STATUS_DEGRADED = 4;
+  AI_BACKEND_NODE_STATUS_ERROR = 5;
+  AI_BACKEND_NODE_STATUS_DISABLED = 6;
+}
+
+// Latest status reported by one node for one backend / 单个节点对单个 backend 上报的最新状态
+message AiBackendNodeStatusRecord {
+  string backend_id = 1;
+  string node_uuid = 2;
+  uint64 observed_generation = 3;
+  AiBackendNodeStatus status = 4;
+  string status_reason = 5;
+  string runtime_backend_name = 6;
+  string endpoint = 7;
+  bool available = 8;
+  repeated string operations = 9;
+  repeated string features = 10;
+  repeated string transports = 11;
+  int64 last_heartbeat_at_ms = 12;
+}

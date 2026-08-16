@@ -40,6 +40,7 @@ English README: [README.md](./README.md)
 使用仓库自带 Compose 文件：
 
 - `deploy/docker/compose.local.yaml`
+- 本地 Compose 栈会用 `rocksdb` feature 构建 SMS，并把 admin metadata 与 event KV 一起持久化到 `sms-data` volume。
 
 启动：
 
@@ -170,10 +171,10 @@ SPEARlet 支持在启动时从本机 Ollama 导入模型并生成对应的 AI ba
 
 ## Web Admin
 
-Web Admin 提供 Nodes/Tasks/Files/AI Models 等页面。
+Web Admin 提供 Nodes/Tasks/Files/AI Backends/AI Models/Credentials 等页面。
 
-- AI Models 提供跨节点聚合视图，并区分 Local/Remote
-- Local AI Models 支持在节点上创建/删除 model deployment
+- AI Backends 是 backend 定义、placement 与 credentials 的控制面写入口
+- AI Models 提供跨节点只读聚合视图，并区分 Local/Remote
 
 本地模型拉取（llamacpp）：
 

@@ -49,13 +49,14 @@ async fn test_register_task_returns_uuid_on_success() {
         name: "echo".to_string(),
         description: "simple echo".to_string(),
         priority: crate::proto::sms::TaskPriority::Normal as i32,
-        node_uuid: Uuid::new_v4().to_string(),
         endpoint: "echo".to_string(),
         version: "1.0.0".to_string(),
         capabilities: vec!["echo".to_string()],
         metadata: std::collections::HashMap::new(),
         config: std::collections::HashMap::new(),
         executable: None,
+        desired_replicas: 1,
+        scheduling_strategy: crate::proto::sms::TaskSchedulingStrategy::Spread as i32,
     };
 
     let resp = sms_service.register_task(Request::new(req)).await.unwrap();

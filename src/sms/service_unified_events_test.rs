@@ -18,18 +18,19 @@ mod tests {
     use crate::sms::service::SmsServiceImpl;
     use crate::sms::services::{node_service::NodeService, resource_service::ResourceService};
 
-    fn make_register(node_uuid: &str) -> RegisterTaskRequest {
+    fn make_register() -> RegisterTaskRequest {
         RegisterTaskRequest {
             name: "t".to_string(),
             description: "d".to_string(),
             priority: TaskPriority::Normal as i32,
-            node_uuid: node_uuid.to_string(),
             endpoint: "t".to_string(),
             version: "v1".to_string(),
             capabilities: vec![],
             metadata: std::collections::HashMap::new(),
             config: std::collections::HashMap::new(),
             executable: None,
+            desired_replicas: 1,
+            scheduling_strategy: crate::proto::sms::TaskSchedulingStrategy::Spread as i32,
         }
     }
 
@@ -41,16 +42,16 @@ mod tests {
         })
         .await;
 
-        let node_uuid = uuid::Uuid::new_v4().to_string();
-        let reg = TaskServiceTrait::register_task(&svc, Request::new(make_register(&node_uuid)))
+        let reg = TaskServiceTrait::register_task(&svc, Request::new(make_register()))
             .await
             .unwrap()
             .into_inner();
         let task_id = reg.task_id;
+        let node_uuid = uuid::Uuid::new_v4().to_string();
 
         let req = SubscribeEventsRequest {
             selector: Some(SubscribeEventsSelector {
-                selector: Some(Selector::NodeUuid(node_uuid.clone())),
+                selector: Some(Selector::ResourceType(ResourceType::Task as i32)),
             }),
             after_seq: 0,
             replay_limit: 100,
@@ -61,7 +62,7 @@ mod tests {
             .into_inner();
 
         let first = stream.next().await.unwrap().unwrap();
-        assert_eq!(first.node_uuid, node_uuid);
+        assert!(first.node_uuid.is_empty());
         assert_eq!(first.resource_id, task_id);
         let first_seq = first.seq;
 
@@ -79,7 +80,7 @@ mod tests {
 
         let req2 = SubscribeEventsRequest {
             selector: Some(SubscribeEventsSelector {
-                selector: Some(Selector::NodeUuid(node_uuid.clone())),
+                selector: Some(Selector::ResourceType(ResourceType::Task as i32)),
             }),
             after_seq: first_seq,
             replay_limit: 100,
@@ -145,8 +146,7 @@ mod tests {
         })
         .await;
 
-        let node_uuid = uuid::Uuid::new_v4().to_string();
-        let reg = TaskServiceTrait::register_task(&svc, Request::new(make_register(&node_uuid)))
+        let reg = TaskServiceTrait::register_task(&svc, Request::new(make_register()))
             .await
             .unwrap()
             .into_inner();
@@ -176,8 +176,7 @@ mod tests {
         })
         .await;
 
-        let node_uuid = uuid::Uuid::new_v4().to_string();
-        let reg = TaskServiceTrait::register_task(&svc, Request::new(make_register(&node_uuid)))
+        let reg = TaskServiceTrait::register_task(&svc, Request::new(make_register()))
             .await
             .unwrap()
             .into_inner();

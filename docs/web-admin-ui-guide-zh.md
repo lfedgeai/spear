@@ -46,24 +46,14 @@
 - AI Models 页面分为 `Local` 与 `Remote`
 - 列表支持搜索与可用性筛选（available/unavailable）
 - 点击某一行进入详情页，查看该模型在各节点上的实例分布与状态
+- AI Models 现为只读聚合页。创建、编辑、placement、启停和删除动作统一在 `AI Backends` 中执行。
+- Remote AI Models 页面提供跳转到共享 credentials 页的入口：`AI Backends → Credentials`
 
-### Local：创建 deployment
+## Credentials
 
-- 入口：Local → AI Models → `Create`
-- 表单：
-  - Node：选择部署到哪个节点
-  - Provider：默认 `LLaMA CPP`
-  - Model name：展示用名称
-  - Model URL：当 Provider=llamacpp 时必填，填写 `.gguf` 文件直链（http/https）
-- 提交成功后会跳转并高亮对应的 deployment（URL query `deployment_id=...`），并在页面下方的 `Provisioning` 面板显示部署进度
-
-### Local：删除 deployment（已 available 也可删除）
-
-- 入口：Local → AI Models 列表右侧 `Actions` 列 → `Delete`
-- 行为：
-  - 会对该 `(provider, model)` 在关联节点上的 deployment 逐个删除
-  - Spearlet 在下一轮 reconcile 中停止本地进程并从 backend registry 移除
-- 删除后列表会自动刷新
+- 入口：`AI Backends` → `Credentials`
+- 用于创建、轮换、禁用和删除 AI backends 复用的 secret 引用
+- Credentials 现作为共享控制面资源管理，不再挂在 AI Models 目录下
 
 ## 常见问题
 

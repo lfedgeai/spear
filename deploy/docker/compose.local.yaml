@@ -46,9 +46,9 @@ services:
       - --web-admin-addr
       - 0.0.0.0:8081
       - --db-type
-      - sled
+      - rocksdb
       - --db-path
-      - /var/lib/sms/sms.db
+      - /var/lib/sms/rocksdb
       - --files-dir
       - /var/lib/sms/files
       - --execution-logs-dir
@@ -57,6 +57,8 @@ services:
       SMS_LOG_LEVEL: ${SMS_LOG_LEVEL:-info}
       SMS_LOG_FORMAT: ${SMS_LOG_FORMAT:-json}
       SMS_CREDENTIAL_MASTER_KEY: ${SMS_CREDENTIAL_MASTER_KEY}
+      SMS_EVENTS_KV_BACKEND: rocksdb
+      SMS_EVENTS_KV_PATH: /var/lib/sms/events-rocksdb
     ports:
       - ${SMS_GRPC_PORT:-50051}:50051
       - ${SMS_HTTP_PORT:-18080}:8080

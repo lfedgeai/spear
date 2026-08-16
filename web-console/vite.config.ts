@@ -8,8 +8,13 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
   plugins: [react()],
   resolve: {
+    dedupe: ['react', 'react-dom'],
     alias: {
       '@': path.resolve(rootDir, './src'),
+      react: path.resolve(rootDir, './node_modules/react'),
+      'react-dom': path.resolve(rootDir, './node_modules/react-dom'),
+      'react/jsx-runtime': path.resolve(rootDir, './node_modules/react/jsx-runtime.js'),
+      'react/jsx-dev-runtime': path.resolve(rootDir, './node_modules/react/jsx-dev-runtime.js'),
     },
   },
   server: {

@@ -15,18 +15,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(true)
         .compile_protos(
             &[
+                "proto/sms/ai_backend.proto",
+                "proto/sms/ai_backend_control_plane.proto",
+                "proto/sms/ai_backend_placement.proto",
+                "proto/sms/ai_backend_status.proto",
                 "proto/sms/admin_credentials.proto",
-                "proto/sms/admin_ai_config.proto",
                 "proto/sms/backend_spec.proto",
                 "proto/sms/backend_registry.proto",
                 "proto/sms/events.proto",
                 "proto/sms/execution.proto",
                 "proto/sms/execution_log_ingest.proto",
                 "proto/sms/node.proto",
+                "proto/sms/task_assignment.proto",
                 "proto/sms/task.proto",
                 "proto/sms/placement.proto",
                 "proto/sms/mcp_registry.proto",
-                "proto/sms/model_deployment_registry.proto",
             ],
             &["proto"],
         )?;

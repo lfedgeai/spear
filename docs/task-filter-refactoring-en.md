@@ -12,7 +12,6 @@ The key design goal is to support optional filters while remaining protobuf-comp
 
 - Endpoint: `GET /api/v1/tasks`
 - Optional query parameters:
-  - `node_uuid`
   - `status`: one of `unknown|registered|created|active|inactive|unregistered`
   - `priority`: one of `unknown|low|normal|high|urgent`
   - `limit` (default 100)
@@ -21,7 +20,7 @@ The key design goal is to support optional filters while remaining protobuf-comp
 Example:
 
 ```text
-GET /api/v1/tasks?node_uuid=<uuid>&status=active&priority=high&limit=50&offset=0
+GET /api/v1/tasks?status=active&priority=high&limit=50&offset=0
 ```
 
 Implementation: `src/sms/handlers/task.rs:252`.
@@ -53,7 +52,6 @@ Implementation: `src/sms/handlers/task.rs:259`.
 
 `src/sms/service.rs:633` converts request fields into optional filters:
 
-- `node_uuid == ""` => `None`
 - `status_filter < 0` => `None`
 - `priority_filter < 0` => `None`
 - `limit <= 0` => `None`
@@ -65,7 +63,6 @@ Then it calls `TaskService::list_tasks_with_filters(...)`.
 
 `src/sms/services/task_service.rs:57` applies filters:
 
-- If `node_uuid` is set, tasks must match `task.node_uuid`.
 - If `status_filter` is set and `>= 0`, tasks must match `task.status`.
 - If `priority_filter` is set and `>= 0`, tasks must match `task.priority`.
 

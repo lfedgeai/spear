@@ -15,6 +15,9 @@ heartbeat_timeout = 90
 # Cleanup interval / 清理间隔
 cleanup_interval = 30
 
+# Periodic task assignment reconcile interval / 周期性任务分配收敛间隔
+assignment_reconcile_interval = 60
+
 # Max upload size / 最大上传字节数
 max_upload_bytes = 67108864
 

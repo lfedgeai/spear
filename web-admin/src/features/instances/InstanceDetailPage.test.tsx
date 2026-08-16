@@ -6,11 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import InstanceDetailPage from '@/features/instances/InstanceDetailPage'
 
 const mockListInstanceExecutions = vi.fn()
-const mockGetExecution = vi.fn()
+const mockGetInstance = vi.fn()
+const mockDestroyInstance = vi.fn()
 
 vi.mock('@/api/instanceExecution', () => ({
   listInstanceExecutions: (input: unknown) => mockListInstanceExecutions(input),
-  getExecution: (executionId: string) => mockGetExecution(executionId),
+  getInstance: (instanceId: string) => mockGetInstance(instanceId),
+}))
+
+vi.mock('@/api/control', () => ({
+  destroyInstance: (input: unknown) => mockDestroyInstance(input),
 }))
 
 function LocationDisplay() {
@@ -29,6 +34,7 @@ function renderPage(initialPath: string) {
         <Routes>
           <Route path="/instances/:instanceId" element={<InstanceDetailPage />} />
           <Route path="/executions/:executionId" element={<div>execution page</div>} />
+          <Route path="/tasks/:taskId" element={<div>task detail page</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -38,7 +44,8 @@ function renderPage(initialPath: string) {
 describe('InstanceDetailPage', () => {
   beforeEach(() => {
     mockListInstanceExecutions.mockReset()
-    mockGetExecution.mockReset()
+    mockGetInstance.mockReset()
+    mockDestroyInstance.mockReset()
     mockListInstanceExecutions.mockResolvedValue({
       success: true,
       executions: [
@@ -53,23 +60,26 @@ describe('InstanceDetailPage', () => {
       ],
       next_page_token: '',
     })
-    mockGetExecution.mockResolvedValue({
+    mockGetInstance.mockResolvedValue({
       success: true,
       found: true,
-      execution: {
-        execution_id: 'e-1',
-        invocation_id: 'inv-1',
-        task_id: 't-1',
-        function_name: 'f1',
-        node_uuid: 'n-1',
+      active: true,
+      instance: {
         instance_id: 'i-1',
-        status: 'completed',
-        started_at_ms: 1000,
-        completed_at_ms: 2000,
+        task_id: 't-1',
+        node_uuid: 'n-1',
+        status: 'running',
+        created_at_ms: 1000,
+        last_seen_ms: 2000,
         updated_at_ms: 2000,
+        current_execution_id: '',
         metadata: {},
-        log_ref: null,
       },
+    })
+    mockDestroyInstance.mockResolvedValue({
+      success: true,
+      instance_id: 'i-1',
+      node_uuid: 'n-1',
     })
   })
 
@@ -95,6 +105,50 @@ describe('InstanceDetailPage', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('location').textContent).toBe('/executions/e-1')
+    })
+  })
+
+  it('redirects back to task detail after destroy removes the instance', async () => {
+    mockGetInstance
+      .mockResolvedValueOnce({
+        success: true,
+        found: true,
+        active: true,
+        instance: {
+          instance_id: 'i-1',
+          task_id: 't-1',
+          node_uuid: 'n-1',
+          status: 'running',
+          created_at_ms: 1000,
+          last_seen_ms: 2000,
+          updated_at_ms: 2000,
+          current_execution_id: '',
+          metadata: {},
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        found: false,
+        active: false,
+        instance: undefined,
+      })
+
+    renderPage('/instances/i-1')
+
+    await screen.findByText('e-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Destroy' }))
+    await screen.findByText('Destroy replica')
+    fireEvent.click(screen.getByRole('button', { name: 'Destroy' }))
+
+    await waitFor(() => {
+      expect(mockDestroyInstance).toHaveBeenCalledWith({
+        instance_id: 'i-1',
+        node_uuid: 'n-1',
+        reason: undefined,
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('location').textContent).toBe('/tasks/t-1')
     })
   })
 })

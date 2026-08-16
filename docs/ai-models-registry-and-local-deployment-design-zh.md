@@ -315,7 +315,10 @@ service ModelDeploymentRegistryService {
 - `params` 必须在代码中做强校验与 allowlist，避免把任意命令/路径直接塞进去造成 RCE。
 - `ReportModelDeploymentStatus` 用于 UI 展示“正在拉取/启动失败”等过程状态；真正参与路由的仍以 backend snapshot 为准（避免双源不一致）。
 
-### 6.4 Spearlet 节点侧：LocalModelController（reconcile loop）
+### 6.4 Spearlet 节点侧：LocalModelController（reconcile loop，历史方案）
+
+说明：本节描述的是历史设计方案。当前节点侧 legacy `LocalModelController`
+运行时已移除，实际实现已收敛到 unified assignment controller。
 
 节点侧应新增一个长期运行的控制器，职责：
 
@@ -463,7 +466,9 @@ gRPC service 实现（示意函数边界）：
 - `delete_node_ai_model_deployment(...)`：删除 deployment
 - `list_node_ai_model_deployments(...)`：列出 node 下 deployments 与状态
 
-#### Spearlet：LocalModelController（节点侧控制循环）
+#### Spearlet：LocalModelController（节点侧控制循环，历史方案）
+
+说明：以下模块划分与函数边界用于记录历史方案，不再对应当前代码结构。
 
 启动时机：
 
@@ -573,10 +578,10 @@ Local provider 常通过 `base_url` 访问本机服务（Ollama）。必须保�
 - 扩展 `BackendInfo` 增加 `provider/model/hosting`
 - Spearlet 上报时填充这些字段（从 `AiBackendConfig.kind/model/base_url` 映射）
 
-### Phase C：Local（Ollama）“创建模型”MVP
+### Phase C：Local（Ollama）“创建模型”MVP（历史方案）
 
 - SMS：实现 ModelDeploymentRegistryService + Web Admin 入口
-- Spearlet：实现 LocalModelController + OllamaDriver（只依赖已有 daemon，通过 API 触发 pull）
+- Spearlet：实现 LocalModelController + OllamaDriver（历史方案；当前已改为 unified assignment controller 路径）
 - 路由：deployment 完成后，Spearlet 生成 `managed/ollama/<model>` backend 并上报
 
 ### Phase D：llama.cpp / vLLM 托管（可选）

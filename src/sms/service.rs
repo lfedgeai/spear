@@ -7,42 +7,31 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::sms::config::SmsConfig;
-use crate::sms::events::TaskEventBus;
 use crate::sms::instance_execution_index::InstanceExecutionIndex;
 use crate::sms::placement::outcome::normalize_outcome_class;
-use crate::sms::placement::policy::{
-    build_candidate, is_candidate_node, score_node, select_top_candidates,
-};
+use crate::sms::placement::policy::select_top_candidates;
 use crate::sms::placement::state::PlacementState;
+use crate::sms::runtime::{
+    build_runtime_stores, start_assignment_reconcile_loop, start_cleanup_loop,
+};
 use crate::sms::registry::mcp::{delete_mcp_record, list_mcp_records, upsert_mcp_record};
-use crate::sms::registry::model_deployments::{
-    delete_model_deployment_record, list_model_deployments_page,
-    report_model_deployment_status_update, upsert_model_deployment_record,
-    watch_model_deployments_filtered,
-};
-use crate::sms::registry::state::{
-    BackendRegistryState, McpRegistryState, ModelDeploymentRegistryState,
-};
+use crate::sms::registry::state::{BackendRegistryState, McpRegistryState};
 use crate::sms::services::{
     node_service::NodeService, resource_service::ResourceService,
+    task_assignment_service::TaskAssignmentService as TaskAssignmentServiceImpl,
     task_service::TaskService as TaskServiceImpl,
 };
 use crate::sms::unified_events::UnifiedEventBus;
-use crate::storage::kv::{
-    create_kv_store_from_config, get_kv_store_factory, KvStoreConfig,
-};
 use anyhow::Context;
 use futures::{stream::unfold, StreamExt};
-use tokio::time::Duration;
 use tracing::{debug, warn};
 
-use crate::sms::admin_backends::AdminBackendsState;
+use crate::sms::ai_backends::KvAiBackendRepository;
 use crate::sms::admin_credentials::AdminCredentialsState;
 
 // Import proto types / 导入proto类型
 use crate::proto::sms::{
     admin_credential_service_server::AdminCredentialService as AdminCredentialServiceTrait,
-    admin_ai_config_service_server::AdminAiConfigService as AdminAiConfigServiceTrait,
     backend_registry_service_server::BackendRegistryService as BackendRegistryServiceTrait,
     events_service_server::EventsService as EventsServiceTrait,
     execution_index_service_server::ExecutionIndexService as ExecutionIndexServiceTrait,
@@ -50,23 +39,19 @@ use crate::proto::sms::{
     execution_registry_service_server::ExecutionRegistryService as ExecutionRegistryServiceTrait,
     instance_registry_service_server::InstanceRegistryService as InstanceRegistryServiceTrait,
     mcp_registry_service_server::McpRegistryService as McpRegistryServiceTrait,
-    model_deployment_registry_service_server::ModelDeploymentRegistryService as ModelDeploymentRegistryServiceTrait,
     node_service_server::NodeService as NodeServiceTrait,
     placement_service_server::PlacementService as PlacementServiceTrait,
-    task_service_server::TaskService as TaskServiceTrait,
     AppendExecutionLogsRequest,
     AppendExecutionLogsResponse,
     BackendStatus,
     DeleteCredentialRequest,
     DeleteCredentialResponse,
+    DeleteInstanceRequest,
+    DeleteInstanceResponse,
     DeleteMcpServerRequest,
     DeleteMcpServerResponse,
-    DeleteModelDeploymentRequest,
-    DeleteModelDeploymentResponse,
     DeleteNodeRequest,
     DeleteNodeResponse,
-    DeleteRemoteBackendRequest,
-    DeleteRemoteBackendResponse,
     EventEnvelope,
     EventOp,
     Execution,
@@ -84,8 +69,6 @@ use crate::proto::sms::{
     GetNodeResponse,
     GetNodeWithResourceRequest,
     GetNodeWithResourceResponse,
-    GetTaskRequest,
-    GetTaskResponse,
     HeartbeatRequest,
     HeartbeatResponse,
     Instance,
@@ -93,76 +76,50 @@ use crate::proto::sms::{
     ListCredentialMaterialsResponse,
     ListCredentialsRequest,
     ListCredentialsResponse,
+    ListExecutionsRequest,
+    ListExecutionsResponse,
     ListInstanceExecutionsRequest,
     ListInstanceExecutionsResponse,
     ListMcpServersRequest,
     ListMcpServersResponse,
-    ListModelDeploymentsRequest,
-    ListModelDeploymentsResponse,
     ListNodeBackendSnapshotsRequest,
     ListNodeBackendSnapshotsResponse,
     ListNodeResourcesRequest,
     ListNodeResourcesResponse,
     ListNodesRequest,
     ListNodesResponse,
-    ListRemoteBackendsRequest,
-    ListRemoteBackendsResponse,
     ListTaskInstancesRequest,
     ListTaskInstancesResponse,
-    ListTasksRequest,
-    ListTasksResponse,
     McpServerRecord,
     McpTransport,
     NodeBackendSnapshot,
-    NodeCandidate,
     PlaceInvocationRequest,
     PlaceInvocationResponse,
     // Node service messages / 节点服务消息
     RegisterNodeRequest,
     RegisterNodeResponse,
-    // Task service messages / 任务服务消息
-    RegisterTaskRequest,
-    RegisterTaskResponse,
     ReportExecutionResponse,
     ReportInstanceResponse,
     ReportInvocationOutcomeRequest,
     ReportInvocationOutcomeResponse,
-    ReportModelDeploymentStatusRequest,
-    ReportModelDeploymentStatusResponse,
     ReportNodeBackendsRequest,
     ReportNodeBackendsResponse,
-    ResolveEndpointRequest,
-    ResolveEndpointResponse,
+    BackendSpec,
     SubscribeEventsRequest,
-    UnregisterTaskRequest,
-    UnregisterTaskResponse,
     UpdateNodeRequest,
     UpdateNodeResourceRequest,
     UpdateNodeResourceResponse,
     UpdateNodeResponse,
-    UpdateTaskResultRequest,
-    UpdateTaskResultResponse,
-    UpdateTaskStatusRequest,
-    UpdateTaskStatusResponse,
     UpsertMcpServerRequest,
     UpsertMcpServerResponse,
-    UpsertModelDeploymentRequest,
-    UpsertModelDeploymentResponse,
     UpsertCredentialRequest,
     UpsertCredentialResponse,
-    UpsertRemoteBackendRequest,
-    UpsertRemoteBackendResponse,
     WatchCredentialMaterialsRequest,
     WatchCredentialMaterialsResponse,
     WatchCredentialsRequest,
     WatchCredentialsResponse,
     WatchMcpServersRequest,
     WatchMcpServersResponse,
-    WatchModelDeploymentsRequest,
-    WatchModelDeploymentsResponse,
-    BackendSpec,
-    WatchRemoteBackendsRequest,
-    WatchRemoteBackendsResponse,
 };
 
 use crate::proto::spearlet::router_filter_service_server::RouterFilterService as RouterFilterServiceTrait;
@@ -180,20 +137,19 @@ use crate::proto::spearlet::{
 
 #[derive(Debug, Clone)]
 pub struct SmsServiceImpl {
-    node_service: Arc<RwLock<NodeService>>,
-    resource_service: Arc<ResourceService>,
+    pub(crate) node_service: Arc<RwLock<NodeService>>,
+    pub(crate) resource_service: Arc<ResourceService>,
     #[allow(dead_code)]
-    config: Arc<SmsConfig>,
-    task_service: Arc<RwLock<TaskServiceImpl>>,
-    events: Arc<TaskEventBus>,
-    unified_events: Arc<UnifiedEventBus>,
-    instance_execution_index: Arc<InstanceExecutionIndex>,
-    placement_state: Arc<PlacementState>,
+    pub(crate) config: Arc<SmsConfig>,
+    pub(crate) task_service: Arc<RwLock<TaskServiceImpl>>,
+    pub(crate) task_assignment_service: Arc<TaskAssignmentServiceImpl>,
+    pub(crate) unified_events: Arc<UnifiedEventBus>,
+    pub(crate) instance_execution_index: Arc<InstanceExecutionIndex>,
+    pub(crate) placement_state: Arc<PlacementState>,
     mcp_registry: Arc<McpRegistryState>,
     backend_registry: Arc<BackendRegistryState>,
-    model_deployment_registry: Arc<ModelDeploymentRegistryState>,
-    admin_backends: Arc<AdminBackendsState>,
     admin_credentials: Arc<AdminCredentialsState>,
+    pub(crate) ai_backend_repository: Arc<KvAiBackendRepository>,
     router_filter_engine: Arc<RouterFilterEngine>,
 }
 
@@ -234,10 +190,6 @@ impl RouterFilterEngine {
 }
 
 impl SmsServiceImpl {
-    async fn upsert_mcp_record_inner(&self, record: McpServerRecord) -> Result<u64, Status> {
-        upsert_mcp_record(&self.mcp_registry, record).await
-    }
-
     pub async fn bootstrap_mcp_from_dir(&self, dir: &str) -> anyhow::Result<usize> {
         if dir.is_empty() {
             return Ok(0);
@@ -376,7 +328,7 @@ impl SmsServiceImpl {
                 updated_at_ms: 0,
             };
 
-            if self.upsert_mcp_record_inner(record).await.is_ok() {
+            if upsert_mcp_record(&self.mcp_registry, record).await.is_ok() {
                 count += 1;
             }
         }
@@ -394,62 +346,12 @@ impl SmsServiceImpl {
     ) -> Self {
         // Create task service / 创建任务服务
         let task_service = Arc::new(RwLock::new(TaskServiceImpl::new()));
-        // Create KV store for events via factory, allow separate config / 事件KV支持独立配置
-        let supported = get_kv_store_factory().supported_backends();
-        let kv_cfg = if let Some(ev) = &config.event_kv {
-            let backend = if supported.contains(&ev.backend) {
-                ev.backend.clone()
-            } else {
-                "memory".to_string()
-            };
-            KvStoreConfig {
-                backend,
-                params: ev.params.clone(),
-            }
-        } else {
-            KvStoreConfig {
-                backend: "memory".to_string(),
-                params: std::collections::HashMap::new(),
-            }
-        };
-        let kv_box = create_kv_store_from_config(&kv_cfg)
-            .await
-            .expect("Failed to create KV store from config");
-        let kv: Arc<dyn crate::storage::kv::KvStore> = Arc::from(kv_box);
-        let unified_events = Arc::new(UnifiedEventBus::new(kv.clone()));
-        let events = Arc::new(TaskEventBus::new(kv.clone()));
-        let stale_after_ms = (config.heartbeat_timeout as i64).saturating_mul(2_000);
-        let instance_execution_index =
-            Arc::new(InstanceExecutionIndex::new(kv, 256, 1000, stale_after_ms));
-
-        let admin_kv_cfg = {
-            let backend = if supported.contains(&config.database.db_type) {
-                config.database.db_type.clone()
-            } else {
-                "memory".to_string()
-            };
-            let mut params = std::collections::HashMap::new();
-            if backend != "memory" {
-                params.insert("path".to_string(), config.database.path.clone());
-            }
-            KvStoreConfig { backend, params }
-        };
-        let admin_kv_box = match create_kv_store_from_config(&admin_kv_cfg).await {
-            Ok(v) => v,
-            Err(_) => create_kv_store_from_config(&KvStoreConfig {
-                backend: "memory".to_string(),
-                params: std::collections::HashMap::new(),
-            })
-            .await
-            .expect("Failed to create admin KV store"),
-        };
-        let admin_kv: Arc<dyn crate::storage::kv::KvStore> = Arc::from(admin_kv_box);
-        let admin_backends = Arc::new(AdminBackendsState::new(admin_kv.clone()).await);
-        let admin_credentials = Arc::new(
-            AdminCredentialsState::new(admin_kv)
-                .await
-                .expect("Failed to create admin credential state"),
-        );
+        let task_assignment_service = Arc::new(TaskAssignmentServiceImpl::new());
+        let runtime = build_runtime_stores(config.clone()).await;
+        let unified_events = runtime.unified_events.clone();
+        let instance_execution_index = runtime.instance_execution_index.clone();
+        let admin_credentials = runtime.admin_credentials.clone();
+        let ai_backend_repository = runtime.ai_backend_repository.clone();
 
         {
             crate::sms::projectors::start_index_projectors(
@@ -458,63 +360,34 @@ impl SmsServiceImpl {
             );
         }
 
-        let cleanup_node_service = node_service.clone();
-        let cleanup_resource_service = resource_service.clone();
-        let cleanup_config = config.clone();
-        let cleanup_unified_events = unified_events.clone();
-        tokio::spawn(async move {
-            let mut t = tokio::time::interval(Duration::from_secs(cleanup_config.cleanup_interval));
-            loop {
-                t.tick().await;
-                let updated_nodes = {
-                    let mut svc = cleanup_node_service.write().await;
-                    svc.mark_unhealthy_nodes_offline(cleanup_config.heartbeat_timeout)
-                        .await
-                        .unwrap_or_default()
-                };
-                if !updated_nodes.is_empty() {
-                    tracing::info!(
-                        count = updated_nodes.len(),
-                        heartbeat_timeout_s = cleanup_config.heartbeat_timeout,
-                        nodes = ?updated_nodes,
-                        "Marked unhealthy nodes offline"
-                    );
-                    for mark in updated_nodes.iter() {
-                        if mark.previous_status.to_ascii_lowercase() == "offline" {
-                            continue;
-                        }
-                        if let Err(e) = cleanup_unified_events
-                            .publish_node_event(&mark.node, EventOp::Update)
-                            .await
-                        {
-                            warn!(error = %e, uuid = %mark.uuid, "Publish unified node offline event failed");
-                        }
-                    }
-                }
-                let _ = cleanup_resource_service
-                    .cleanup_stale_resources(cleanup_config.heartbeat_timeout)
-                    .await;
-            }
-        });
+        start_cleanup_loop(
+            node_service.clone(),
+            resource_service.clone(),
+            config.clone(),
+            unified_events.clone(),
+        );
 
-        Self {
+        let service = Self {
             node_service,
             resource_service,
             config,
             task_service,
-            events,
+            task_assignment_service,
             unified_events,
             instance_execution_index,
             placement_state: Arc::new(PlacementState::new()),
             mcp_registry: Arc::new(McpRegistryState::new(1024, 1024)),
             backend_registry: Arc::new(BackendRegistryState::new()),
-            model_deployment_registry: Arc::new(ModelDeploymentRegistryState::new(1024, 1024)),
-            admin_backends,
             admin_credentials,
+            ai_backend_repository,
             router_filter_engine: Arc::new(RouterFilterEngine::Builtin(
                 BuiltinRouterFilterEngine::default(),
             )),
-        }
+        };
+
+        start_assignment_reconcile_loop(service.clone());
+
+        service
     }
 
     /// Convert proto NodeResource to internal NodeResourceInfo / 将proto NodeResource转换为内部NodeResourceInfo
@@ -597,15 +470,6 @@ impl SmsServiceImpl {
         self.node_service.clone()
     }
 
-    /// Get resource service reference / 获取资源服务引用
-    pub fn resource_service(&self) -> Arc<ResourceService> {
-        self.resource_service.clone()
-    }
-
-    /// Get task service reference / 获取任务服务引用
-    pub fn task_service(&self) -> Arc<RwLock<TaskServiceImpl>> {
-        self.task_service.clone()
-    }
 }
 
 #[tonic::async_trait]
@@ -650,7 +514,7 @@ impl McpRegistryServiceTrait for SmsServiceImpl {
             .record
             .ok_or_else(|| Status::invalid_argument("record is required"))?;
 
-        let revision = self.upsert_mcp_record_inner(record).await?;
+        let revision = upsert_mcp_record(&self.mcp_registry, record).await?;
         Ok(Response::new(UpsertMcpServerResponse { revision }))
     }
 
@@ -660,78 +524,6 @@ impl McpRegistryServiceTrait for SmsServiceImpl {
     ) -> Result<Response<DeleteMcpServerResponse>, Status> {
         let revision = delete_mcp_record(&self.mcp_registry, request.into_inner().server_id).await?;
         Ok(Response::new(DeleteMcpServerResponse { revision }))
-    }
-}
-
-#[tonic::async_trait]
-impl ModelDeploymentRegistryServiceTrait for SmsServiceImpl {
-    type WatchModelDeploymentsStream = std::pin::Pin<
-        Box<
-            dyn tokio_stream::Stream<Item = Result<WatchModelDeploymentsResponse, Status>>
-                + Send
-                + 'static,
-        >,
-    >;
-
-    async fn list_model_deployments(
-        &self,
-        request: Request<ListModelDeploymentsRequest>,
-    ) -> Result<Response<ListModelDeploymentsResponse>, Status> {
-        Ok(Response::new(
-            list_model_deployments_page(&self.model_deployment_registry, request.into_inner()).await,
-        ))
-    }
-
-    async fn watch_model_deployments(
-        &self,
-        request: Request<WatchModelDeploymentsRequest>,
-    ) -> Result<Response<Self::WatchModelDeploymentsStream>, Status> {
-        Ok(Response::new(
-            watch_model_deployments_filtered(
-                self.model_deployment_registry.clone(),
-                request.into_inner(),
-            )
-            .await?,
-        ))
-    }
-
-    async fn upsert_model_deployment(
-        &self,
-        request: Request<UpsertModelDeploymentRequest>,
-    ) -> Result<Response<UpsertModelDeploymentResponse>, Status> {
-        let record = request
-            .into_inner()
-            .record
-            .ok_or_else(|| Status::invalid_argument("record is required"))?;
-        Ok(Response::new(
-            upsert_model_deployment_record(&self.model_deployment_registry, record).await?,
-        ))
-    }
-
-    async fn delete_model_deployment(
-        &self,
-        request: Request<DeleteModelDeploymentRequest>,
-    ) -> Result<Response<DeleteModelDeploymentResponse>, Status> {
-        Ok(Response::new(
-            delete_model_deployment_record(
-                &self.model_deployment_registry,
-                request.into_inner().deployment_id,
-            )
-            .await?,
-        ))
-    }
-
-    async fn report_model_deployment_status(
-        &self,
-        request: Request<ReportModelDeploymentStatusRequest>,
-    ) -> Result<Response<ReportModelDeploymentStatusResponse>, Status> {
-        Ok(Response::new(
-            report_model_deployment_status_update(
-                &self.model_deployment_registry,
-                request.into_inner(),
-            )
-            .await?,
-        ))
     }
 }
 
@@ -905,66 +697,6 @@ impl AdminCredentialServiceTrait for SmsServiceImpl {
     }
 }
 
-#[tonic::async_trait]
-impl AdminAiConfigServiceTrait for SmsServiceImpl {
-    type WatchRemoteBackendsStream = std::pin::Pin<
-        Box<
-            dyn tokio_stream::Stream<Item = Result<WatchRemoteBackendsResponse, Status>>
-                + Send
-                + 'static,
-        >,
-    >;
-
-    async fn list_remote_backends(
-        &self,
-        _request: Request<ListRemoteBackendsRequest>,
-    ) -> Result<Response<ListRemoteBackendsResponse>, Status> {
-        let snap = self.admin_backends.list().await;
-        let backends = snap.backends;
-        Ok(Response::new(ListRemoteBackendsResponse {
-            revision: snap.revision,
-            backends,
-        }))
-    }
-
-    async fn upsert_remote_backend(
-        &self,
-        request: Request<UpsertRemoteBackendRequest>,
-    ) -> Result<Response<UpsertRemoteBackendResponse>, Status> {
-        let backend = request
-            .into_inner()
-            .backend
-            .ok_or_else(|| Status::invalid_argument("backend is required"))?;
-        let revision = self.admin_backends.upsert(backend).await?;
-        Ok(Response::new(UpsertRemoteBackendResponse { revision }))
-    }
-
-    async fn delete_remote_backend(
-        &self,
-        request: Request<DeleteRemoteBackendRequest>,
-    ) -> Result<Response<DeleteRemoteBackendResponse>, Status> {
-        let name = request.into_inner().name;
-        let (revision, deleted) = self.admin_backends.delete(&name).await?;
-        Ok(Response::new(DeleteRemoteBackendResponse {
-            revision,
-            deleted,
-        }))
-    }
-
-    async fn watch_remote_backends(
-        &self,
-        request: Request<WatchRemoteBackendsRequest>,
-    ) -> Result<Response<Self::WatchRemoteBackendsStream>, Status> {
-        let since_revision = request.into_inner().since_revision;
-        let stream = self
-            .admin_backends
-            .watch_remote_backends(since_revision)
-            .await?
-            .map(|r| r.map(|event| WatchRemoteBackendsResponse { event: Some(event) }));
-        Ok(Response::new(Box::pin(stream)))
-    }
-}
-
 // Implement NodeService trait / 实现NodeService trait
 #[tonic::async_trait]
 impl NodeServiceTrait for SmsServiceImpl {
@@ -984,18 +716,21 @@ impl NodeServiceTrait for SmsServiceImpl {
         match node_service.register_node(node.clone()).await {
             Ok(()) => {
                 tracing::info!(uuid = %node.uuid, ip = %node.ip_address, port = %node.port, "SPEARlet registered");
-                if let Err(e) = self
-                    .unified_events
-                    .publish_node_event(&node, EventOp::Create)
-                    .await
-                {
-                    warn!(error = %e, uuid = %node.uuid, "Publish unified node create event failed");
-                }
+                self.publish_node_topology_event(
+                    &node,
+                    EventOp::Create,
+                    "Publish unified node create event failed",
+                )
+                .await;
                 let response = RegisterNodeResponse {
                     node_uuid: node.uuid.clone(),
                     success: true,
                     message: "Node registered successfully".to_string(),
                 };
+                self.reconcile_assignments_after_node_change(
+                    "RegisterNode: reconcile task assignments failed",
+                )
+                .await;
                 Ok(Response::new(response))
             }
             Err(e) => {
@@ -1025,17 +760,20 @@ impl NodeServiceTrait for SmsServiceImpl {
 
         match node_service.update_node(node).await {
             Ok(_) => {
-                if let Err(e) = self
-                    .unified_events
-                    .publish_node_event(&node_for_event, EventOp::Update)
-                    .await
-                {
-                    warn!(error = %e, uuid = %node_for_event.uuid, "Publish unified node update event failed");
-                }
+                self.publish_node_topology_event(
+                    &node_for_event,
+                    EventOp::Update,
+                    "Publish unified node update event failed",
+                )
+                .await;
                 let response = UpdateNodeResponse {
                     success: true,
                     message: "Node updated successfully".to_string(),
                 };
+                self.reconcile_assignments_after_node_change(
+                    "UpdateNode: reconcile task assignments failed",
+                )
+                .await;
                 Ok(Response::new(response))
             }
             Err(e) => Err(e.into()),
@@ -1057,17 +795,19 @@ impl NodeServiceTrait for SmsServiceImpl {
             Ok(_) => {
                 let _ = self.resource_service.remove_resource(&node_uuid).await;
                 tracing::info!(uuid = %node_uuid, "SPEARlet unregistered");
-                if let Err(e) = self
-                    .unified_events
-                    .publish_node_deleted(&node_uuid.to_string())
-                    .await
-                {
-                    warn!(error = %e, uuid = %node_uuid, "Publish unified node delete event failed");
-                }
+                self.publish_node_deleted_event(
+                    &node_uuid.to_string(),
+                    "Publish unified node delete event failed",
+                )
+                .await;
                 let response = DeleteNodeResponse {
                     success: true,
                     message: "Node deleted successfully".to_string(),
                 };
+                self.reconcile_assignments_after_node_change(
+                    "DeleteNode: reconcile task assignments failed",
+                )
+                .await;
                 Ok(Response::new(response))
             }
             Err(e) => Err(e.into()), // Use SmsError to tonic::Status conversion
@@ -1087,16 +827,21 @@ impl NodeServiceTrait for SmsServiceImpl {
             .await
         {
             Ok(changed) => {
-                if let Some(node) = changed {
-                    if let Err(e) = self
-                        .unified_events
-                        .publish_node_event(&node, EventOp::Update)
-                        .await
-                    {
-                        warn!(error = %e, uuid = %node.uuid, "Publish unified node online event failed");
-                    }
+                if let Some(ref node) = changed {
+                    self.publish_node_topology_event(
+                        node,
+                        EventOp::Update,
+                        "Publish unified node online event failed",
+                    )
+                    .await;
                 }
                 tracing::debug!(uuid = %req.uuid, "Heartbeat received");
+                if changed.is_some() {
+                    self.reconcile_assignments_after_node_change(
+                        "Heartbeat: reconcile task assignments failed",
+                    )
+                    .await;
+                }
                 let response = HeartbeatResponse {
                     success: true,
                     message: "Heartbeat received".to_string(),
@@ -1292,371 +1037,6 @@ impl NodeServiceTrait for SmsServiceImpl {
     }
 }
 
-// Implement TaskService trait / 实现TaskService trait
-#[tonic::async_trait]
-impl TaskServiceTrait for SmsServiceImpl {
-    type SubscribeTaskEventsStream = std::pin::Pin<
-        Box<
-            dyn tokio_stream::Stream<Item = Result<crate::proto::sms::TaskEvent, Status>>
-                + Send
-                + 'static,
-        >,
-    >;
-    /// Register a new task / 注册新任务
-    async fn register_task(
-        &self,
-        request: Request<RegisterTaskRequest>,
-    ) -> Result<Response<RegisterTaskResponse>, Status> {
-        let req = request.into_inner();
-
-        // Create task from request fields
-        let task = crate::proto::sms::Task {
-            task_id: uuid::Uuid::new_v4().to_string(),
-            name: req.name,
-            description: req.description,
-            status: crate::proto::sms::TaskStatus::Registered as i32,
-            priority: req.priority,
-            node_uuid: req.node_uuid,
-            endpoint: req.endpoint,
-            version: req.version,
-            capabilities: req.capabilities,
-            registered_at: chrono::Utc::now().timestamp(),
-            last_heartbeat: chrono::Utc::now().timestamp(),
-            metadata: req.metadata,
-            config: req.config,
-            executable: req.executable,
-            result_uris: Vec::new(),
-            last_result_uri: String::new(),
-            last_result_status: String::new(),
-            last_completed_at: 0,
-            last_result_metadata: std::collections::HashMap::new(),
-        };
-
-        let mut task_service = self.task_service.write().await;
-        match task_service.register_task(task.clone()).await {
-            Ok(_) => {
-                debug!(task_id = %task.task_id, node_uuid = %task.node_uuid, "RegisterTask: publishing create event");
-                // Publish create event / 发布创建事件
-                if let Err(e) = self.events.publish_create(&task).await {
-                    warn!(error = %e, "Publish create event failed");
-                }
-                if let Err(e) = self
-                    .unified_events
-                    .publish_task_event(&task, crate::proto::sms::TaskEventKind::Create)
-                    .await
-                {
-                    warn!(error = %e, "Publish unified create event failed");
-                }
-                let response = RegisterTaskResponse {
-                    success: true,
-                    message: "Task registered successfully".to_string(),
-                    task_id: task.task_id.clone(),
-                    task: Some(task),
-                };
-                Ok(Response::new(response))
-            }
-            Err(e) => {
-                let response = RegisterTaskResponse {
-                    success: false,
-                    message: format!("Failed to register task: {}", e),
-                    task_id: String::new(),
-                    task: None,
-                };
-                Ok(Response::new(response))
-            }
-        }
-    }
-
-    /// List tasks with optional filtering / 列出任务（可选过滤）
-    async fn list_tasks(
-        &self,
-        request: Request<ListTasksRequest>,
-    ) -> Result<Response<ListTasksResponse>, Status> {
-        let req = request.into_inner();
-
-        let task_service = self.task_service.read().await;
-
-        // Convert filter parameters / 转换过滤参数
-        let node_uuid = if req.node_uuid.is_empty() {
-            None
-        } else {
-            Some(req.node_uuid.as_str())
-        };
-        let status_filter = if req.status_filter < 0 {
-            None
-        } else {
-            Some(req.status_filter)
-        };
-        let priority_filter = if req.priority_filter < 0 {
-            None
-        } else {
-            Some(req.priority_filter)
-        };
-        let limit = if req.limit <= 0 {
-            None
-        } else {
-            Some(req.limit)
-        };
-        let offset = if req.offset < 0 {
-            None
-        } else {
-            Some(req.offset)
-        };
-
-        match task_service
-            .list_tasks_with_filters(node_uuid, status_filter, priority_filter, limit, offset)
-            .await
-        {
-            Ok(tasks) => {
-                // Get total count before filtering for pagination / 获取过滤前的总数用于分页
-                let all_tasks = task_service.list_tasks().await.unwrap_or_default();
-                let response = ListTasksResponse {
-                    tasks: tasks.clone(),
-                    total_count: all_tasks.len() as i32,
-                };
-                Ok(Response::new(response))
-            }
-            Err(e) => Err(Status::internal(format!("Failed to list tasks: {}", e))),
-        }
-    }
-
-    /// Get task details by ID / 根据ID获取任务详情
-    async fn get_task(
-        &self,
-        request: Request<GetTaskRequest>,
-    ) -> Result<Response<GetTaskResponse>, Status> {
-        let req = request.into_inner();
-
-        let task_service = self.task_service.read().await;
-        match task_service.get_task(&req.task_id).await {
-            Ok(Some(task)) => {
-                let response = GetTaskResponse {
-                    found: true,
-                    task: Some(task),
-                };
-                Ok(Response::new(response))
-            }
-            Ok(None) => {
-                let response = GetTaskResponse {
-                    found: false,
-                    task: None,
-                };
-                Ok(Response::new(response))
-            }
-            Err(e) => Err(Status::internal(format!("Failed to get task: {}", e))),
-        }
-    }
-
-    /// Resolve task by endpoint / 通过 endpoint 解析任务
-    async fn resolve_endpoint(
-        &self,
-        request: Request<ResolveEndpointRequest>,
-    ) -> Result<Response<ResolveEndpointResponse>, Status> {
-        let req = request.into_inner();
-        let task_service = self.task_service.read().await;
-        match task_service.get_task_by_endpoint(&req.endpoint).await {
-            Ok(Some(task)) => Ok(Response::new(ResolveEndpointResponse {
-                found: true,
-                task: Some(task),
-            })),
-            Ok(None) => Ok(Response::new(ResolveEndpointResponse {
-                found: false,
-                task: None,
-            })),
-            Err(e) => Err(Status::internal(format!(
-                "Failed to resolve endpoint: {}",
-                e
-            ))),
-        }
-    }
-
-    /// Unregister a task / 注销任务
-    async fn unregister_task(
-        &self,
-        request: Request<UnregisterTaskRequest>,
-    ) -> Result<Response<UnregisterTaskResponse>, Status> {
-        let req = request.into_inner();
-
-        let mut task_service = self.task_service.write().await;
-        match task_service.remove_task(&req.task_id).await {
-            Ok(_) => {
-                let response = UnregisterTaskResponse {
-                    success: true,
-                    message: "Task unregistered successfully".to_string(),
-                    task_id: req.task_id.clone(),
-                };
-                Ok(Response::new(response))
-            }
-            Err(e) => {
-                let response = UnregisterTaskResponse {
-                    success: false,
-                    message: format!("Failed to unregister task: {}", e),
-                    task_id: req.task_id.clone(),
-                };
-                Ok(Response::new(response))
-            }
-        }
-    }
-
-    /// Subscribe task events for a node / 订阅节点任务事件
-    async fn subscribe_task_events(
-        &self,
-        request: Request<crate::proto::sms::SubscribeTaskEventsRequest>,
-    ) -> Result<tonic::Response<Self::SubscribeTaskEventsStream>, Status> {
-        let req = request.into_inner();
-        if req.node_uuid.is_empty() {
-            return Err(Status::invalid_argument("node_uuid is required"));
-        }
-        let node_uuid = req.node_uuid;
-        let last = req.last_event_id;
-        // Durable replay first
-        let replay = self
-            .events
-            .replay_since(&node_uuid, last, 1000)
-            .await
-            .map_err(|e| Status::internal(format!("Replay failed: {}", e)))?;
-        debug!(node_uuid = %node_uuid, last_event_id = last, replay_count = replay.len(), "Subscribe: prepared replay events");
-        let replay_stream = tokio_stream::iter(replay.into_iter().map(Ok));
-        // Live broadcast
-        let rx = self.events.subscribe(&node_uuid).await;
-        debug!(node_uuid = %node_uuid, "Subscribe: live broadcast receiver created");
-        let live_stream = unfold(rx, |mut r| async move {
-            match r.recv().await {
-                Ok(ev) => Some((Ok(ev), r)),
-                Err(e) => {
-                    warn!(error = %e, "Broadcast receive error, ending live stream");
-                    None
-                }
-            }
-        });
-        let stream = replay_stream.chain(live_stream);
-        debug!(node_uuid = %node_uuid, "Subscribe: returning combined stream");
-        Ok(tonic::Response::new(Box::pin(stream)))
-    }
-
-    /// Update task status (observed state) / 更新任务状态（观测态）
-    async fn update_task_status(
-        &self,
-        request: Request<UpdateTaskStatusRequest>,
-    ) -> Result<Response<UpdateTaskStatusResponse>, Status> {
-        let req = request.into_inner();
-        debug!(task_id = %req.task_id, node_uuid = %req.node_uuid, status = req.status, status_version = req.status_version, updated_at = req.updated_at, reason = %req.reason, "UpdateTaskStatus: request received");
-        if req.task_id.is_empty() {
-            return Err(Status::invalid_argument("task_id is required"));
-        }
-
-        let mut task_service = self.task_service.write().await;
-        match task_service.get_task(&req.task_id).await {
-            Ok(Some(mut task)) => {
-                // Apply status update / 应用状态更新
-                let old_status = task.status;
-                task.status = req.status;
-                if req.updated_at > 0 {
-                    task.last_heartbeat = req.updated_at;
-                } else {
-                    task.last_heartbeat = chrono::Utc::now().timestamp();
-                }
-                debug!(task_id = %task.task_id, old_status = old_status, new_status = task.status, last_heartbeat = task.last_heartbeat, "UpdateTaskStatus: applied state change");
-                // Persist / 持久化
-                match task_service.register_task(task.clone()).await {
-                    Ok(_) => {
-                        debug!(task_id = %task.task_id, "UpdateTaskStatus: persisted");
-                    }
-                    Err(e) => {
-                        warn!(error = %e.to_string(), task_id = %task.task_id, "UpdateTaskStatus: persist failed");
-                    }
-                }
-
-                // Optionally publish update event / 可选发布更新事件
-                if let Err(e) = self.events.publish_update(&task).await {
-                    warn!(error = %e, task_id = %task.task_id, "Publish update event failed");
-                }
-                if let Err(e) = self
-                    .unified_events
-                    .publish_task_event(&task, crate::proto::sms::TaskEventKind::Update)
-                    .await
-                {
-                    warn!(error = %e, task_id = %task.task_id, "Publish unified update event failed");
-                }
-
-                let resp = UpdateTaskStatusResponse {
-                    success: true,
-                    message: "Task status updated".to_string(),
-                    task: Some(task),
-                };
-                Ok(Response::new(resp))
-            }
-            Ok(None) => {
-                debug!(task_id = %req.task_id, "UpdateTaskStatus: task not found");
-                let resp = UpdateTaskStatusResponse {
-                    success: false,
-                    message: "Task not found".to_string(),
-                    task: None,
-                };
-                Ok(Response::new(resp))
-            }
-            Err(e) => Err(Status::internal(format!("Failed to get task: {}", e))),
-        }
-    }
-
-    /// Update task result fields / 更新任务结果字段
-    async fn update_task_result(
-        &self,
-        request: Request<UpdateTaskResultRequest>,
-    ) -> Result<Response<UpdateTaskResultResponse>, Status> {
-        let req = request.into_inner();
-        if req.task_id.is_empty() {
-            return Err(Status::invalid_argument("task_id is required"));
-        }
-        let mut task_service = self.task_service.write().await;
-        match task_service.get_task(&req.task_id).await {
-            Ok(Some(mut task)) => {
-                if !req.result_uri.is_empty() {
-                    task.last_result_uri = req.result_uri.clone();
-                    if !task.result_uris.contains(&req.result_uri) {
-                        task.result_uris.push(req.result_uri.clone());
-                    }
-                }
-                task.last_result_status = req.result_status.clone();
-                task.last_completed_at = if req.completed_at > 0 {
-                    req.completed_at
-                } else {
-                    chrono::Utc::now().timestamp()
-                };
-                task.last_result_metadata = req.result_metadata.clone();
-
-                match task_service.register_task(task.clone()).await {
-                    Ok(_) => {}
-                    Err(e) => return Err(Status::internal(format!("Persist failed: {}", e))),
-                }
-
-                if let Err(e) = self.events.publish_update(&task).await {
-                    warn!(error = %e, task_id = %task.task_id, "Publish update event failed");
-                }
-                if let Err(e) = self
-                    .unified_events
-                    .publish_task_event(&task, crate::proto::sms::TaskEventKind::Update)
-                    .await
-                {
-                    warn!(error = %e, task_id = %task.task_id, "Publish unified update event failed");
-                }
-                let resp = UpdateTaskResultResponse {
-                    success: true,
-                    message: "Task result updated".to_string(),
-                    task: Some(task),
-                };
-                Ok(Response::new(resp))
-            }
-            Ok(None) => Ok(Response::new(UpdateTaskResultResponse {
-                success: false,
-                message: "Task not found".to_string(),
-                task: None,
-            })),
-            Err(e) => Err(Status::internal(format!("Failed to get task: {}", e))),
-        }
-    }
-}
-
 #[tonic::async_trait]
 impl EventsServiceTrait for SmsServiceImpl {
     type SubscribeEventsStream = std::pin::Pin<
@@ -1693,6 +1073,9 @@ impl EventsServiceTrait for SmsServiceImpl {
                     Ok(crate::proto::sms::ResourceType::Artifact) => "type.artifact".to_string(),
                     Ok(crate::proto::sms::ResourceType::Instance) => "type.instance".to_string(),
                     Ok(crate::proto::sms::ResourceType::Execution) => "type.execution".to_string(),
+                    Ok(crate::proto::sms::ResourceType::TaskAssignment) => {
+                        "type.task_assignment".to_string()
+                    }
                     _ => return Err(Status::invalid_argument("unsupported resource_type")),
                 };
                 s
@@ -1744,10 +1127,14 @@ impl InstanceRegistryServiceTrait for SmsServiceImpl {
         }
         let (accepted, stored_updated_at_ms) = self
             .instance_execution_index
-            .upsert_instance(inst.clone())
+            .upsert_instance_record(inst.clone())
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         if accepted {
+            self.instance_execution_index
+                .project_instance_views(&inst, inst.updated_at_ms)
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?;
             if let Err(e) = self
                 .unified_events
                 .publish_instance_event(&inst, EventOp::Upsert)
@@ -1757,6 +1144,49 @@ impl InstanceRegistryServiceTrait for SmsServiceImpl {
             }
         }
         Ok(Response::new(ReportInstanceResponse {
+            accepted,
+            stored_updated_at_ms,
+        }))
+    }
+
+    async fn delete_instance(
+        &self,
+        request: Request<DeleteInstanceRequest>,
+    ) -> Result<Response<DeleteInstanceResponse>, Status> {
+        let mut req = request.into_inner();
+        if req.deleted_at_ms == 0 {
+            req.deleted_at_ms = chrono::Utc::now().timestamp_millis();
+        }
+        let (accepted, stored_updated_at_ms) = self
+            .instance_execution_index
+            .tombstone_instance_record(&req.instance_id, &req.task_id, req.deleted_at_ms)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        if accepted {
+            let inst = Instance {
+                instance_id: req.instance_id,
+                task_id: req.task_id,
+                node_uuid: String::new(),
+                status: crate::proto::sms::InstanceStatus::Terminated as i32,
+                created_at_ms: 0,
+                updated_at_ms: req.deleted_at_ms,
+                last_seen_ms: req.deleted_at_ms,
+                current_execution_id: String::new(),
+                metadata: std::collections::HashMap::new(),
+            };
+            if let Err(e) = self
+                .unified_events
+                .publish_instance_event(&inst, EventOp::Delete)
+                .await
+            {
+                warn!(
+                    error = %e,
+                    instance_id = %inst.instance_id,
+                    "Publish unified instance delete event failed"
+                );
+            }
+        }
+        Ok(Response::new(DeleteInstanceResponse {
             accepted,
             stored_updated_at_ms,
         }))
@@ -1783,7 +1213,7 @@ impl ExecutionRegistryServiceTrait for SmsServiceImpl {
         }
         let (accepted, stored_updated_at_ms) = self
             .instance_execution_index
-            .upsert_execution(exe.clone())
+            .upsert_execution_record(exe.clone())
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         if accepted {
@@ -1848,6 +1278,23 @@ impl ExecutionIndexServiceTrait for SmsServiceImpl {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(ListInstanceExecutionsResponse {
+            executions,
+            next_page_token,
+        }))
+    }
+
+    async fn list_executions(
+        &self,
+        request: Request<ListExecutionsRequest>,
+    ) -> Result<Response<ListExecutionsResponse>, Status> {
+        let req = request.into_inner();
+        let limit = if req.limit <= 0 { 100 } else { req.limit as usize };
+        let (executions, next_page_token) = self
+            .instance_execution_index
+            .list_executions(Some(&req.task_id), Some(&req.status), limit, &req.page_token)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(ListExecutionsResponse {
             executions,
             next_page_token,
         }))
@@ -2005,34 +1452,10 @@ impl PlacementServiceTrait for SmsServiceImpl {
         } else {
             req.max_candidates
         };
-        let now = chrono::Utc::now().timestamp();
-        self.placement_state.maybe_prune_node_penalties(now);
-        let nodes = {
-            let svc = self.node_service.read().await;
-            svc.list_nodes()
-                .await
-                .map_err(|e| Status::internal(e.to_string()))?
-        };
-        let heartbeat_timeout = self.config.heartbeat_timeout as i64;
-        let mut candidates: Vec<NodeCandidate> = Vec::new();
-        for node in nodes {
-            if !is_candidate_node(&node, now, heartbeat_timeout, &self.placement_state) {
-                continue;
-            }
-
-            let uuid = uuid::Uuid::parse_str(&node.uuid).ok();
-            let resource = if let Some(u) = uuid {
-                self.resource_service.get_resource(&u).await.ok().flatten()
-            } else {
-                None
-            };
-            let score = score_node(
-                resource.as_ref(),
-                self.placement_state.penalty_score(&node.uuid, now),
-            );
-            candidates.push(build_candidate(&node, score));
-        }
-
+        let candidates = self
+            .list_scored_placement_candidates()
+            .await
+            .map_err(Status::internal)?;
         let candidates = select_top_candidates(candidates, max_candidates);
 
         let decision_id = Uuid::new_v4().to_string();
@@ -2076,6 +1499,31 @@ impl RouterFilterServiceTrait for SmsServiceImpl {
     ) -> Result<Response<RouterFilterResponse>, Status> {
         let r = request.into_inner();
         Ok(Response::new(self.router_filter_engine.filter(r)))
+    }
+}
+
+impl SmsServiceImpl {
+    async fn publish_node_topology_event(
+        &self,
+        node: &crate::proto::sms::Node,
+        op: EventOp,
+        failure_log: &'static str,
+    ) {
+        if let Err(e) = self.unified_events.publish_node_event(node, op).await {
+            warn!(error = %e, uuid = %node.uuid, "{failure_log}");
+        }
+    }
+
+    async fn publish_node_deleted_event(&self, node_uuid: &str, failure_log: &'static str) {
+        if let Err(e) = self.unified_events.publish_node_deleted(node_uuid).await {
+            warn!(error = %e, uuid = %node_uuid, "{failure_log}");
+        }
+    }
+
+    async fn reconcile_assignments_after_node_change(&self, reason: &'static str) {
+        if let Err(error) = self.reconcile_all_task_assignments().await {
+            warn!(error = %error, "{reason}");
+        }
     }
 }
 

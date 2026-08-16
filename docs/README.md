@@ -38,6 +38,11 @@ This directory contains project documentation and examples for the spear-next pr
 - **[rocksdb-support-en.md](./rocksdb-support-en.md)** - English documentation for RocksDB integration and usage
 - **[rocksdb-support-zh.md](./rocksdb-support-zh.md)** - 中文版RocksDB集成和使用文档
 
+### AI Backend Control Plane / AI Backend 控制面
+
+- **[ai-backend-unified-control-plane-design-en.md](./ai-backend-unified-control-plane-design-en.md)** - English design for the unified AI backend control plane
+- **[ai-backend-unified-control-plane-design-zh.md](./ai-backend-unified-control-plane-design-zh.md)** - 中文版统一 AI backend 控制面设计文档
+
 ## KV Abstraction Layer Overview / KV抽象层概述
 
 The KV abstraction layer is a key component of the spear-next project that provides:

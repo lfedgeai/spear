@@ -1,5 +1,6 @@
 import { fetchJson } from '@/api/client'
-import type { TaskDetail, TaskSummary } from '@/api/types'
+import { buildAdminPath } from '@/api/query'
+import type { DeleteTaskResponse, TaskDetail, TaskSummary } from '@/api/types'
 
 export type ListTasksParams = {
   /** Query string for fuzzy search / 模糊搜索关键词 */
@@ -17,13 +18,13 @@ export type ListTasksParams = {
  * 从 SMS 列出任务。
  */
 export async function listTasks(params: ListTasksParams) {
-  const url = new URL('/admin/api/tasks', window.location.origin)
-  if (params.q) url.searchParams.set('q', params.q)
-  if (params.sort_by) url.searchParams.set('sort_by', params.sort_by)
-  if (params.order) url.searchParams.set('order', params.order)
-  if (params.limit) url.searchParams.set('limit', String(params.limit))
   return fetchJson<{ tasks: TaskSummary[]; total_count: number }>(
-    url.pathname + url.search,
+    buildAdminPath('/admin/api/tasks', {
+      q: params.q,
+      sort_by: params.sort_by,
+      order: params.order,
+      limit: params.limit,
+    }),
   )
 }
 
@@ -42,8 +43,6 @@ export type CreateTaskPayload = {
   description?: string
   /** Task priority (optional) / 任务优先级（可选） */
   priority?: string
-  /** Target node uuid (optional) / 目标节点 uuid（可选） */
-  node_uuid?: string
   /** Task endpoint / 任务端点 */
   endpoint: string
   /** Task version / 任务版本 */
@@ -67,6 +66,10 @@ export type CreateTaskPayload = {
   }
   /** Task config map / Task 配置（map<string,string>） */
   config?: Record<string, string>
+  /** Desired replicas / 期望副本数 */
+  desired_replicas?: number
+  /** Scheduling strategy / 调度策略 */
+  scheduling_strategy?: string
 }
 
 /**
@@ -83,13 +86,38 @@ export function createTask(payload: CreateTaskPayload) {
         name: payload.name,
         description: payload.description,
         priority: payload.priority,
-        node_uuid: payload.node_uuid || '',
         endpoint: payload.endpoint,
         version: payload.version,
         capabilities: payload.capabilities,
         config: payload.config,
         executable: payload.executable,
+        desired_replicas: payload.desired_replicas ?? 1,
+        scheduling_strategy: payload.scheduling_strategy ?? 'spread',
       }),
     },
   )
+}
+
+export type DeleteTaskPayload = {
+  /** Task id / 任务 ID */
+  task_id: string
+  /** Deletion reason (optional) / 删除原因（可选） */
+  reason?: string
+  /** Whether to force runtime cleanup / 是否强制回收运行态 */
+  force?: boolean
+}
+
+/**
+ * Request coordinated task deletion.
+ * 请求协同删除 task。
+ */
+export function deleteTask(payload: DeleteTaskPayload) {
+  return fetchJson<DeleteTaskResponse>(`/admin/api/tasks/${encodeURIComponent(payload.task_id)}`, {
+    method: 'DELETE',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      reason: payload.reason,
+      force: payload.force ?? true,
+    }),
+  })
 }

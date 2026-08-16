@@ -30,6 +30,7 @@ mod tests {
             log_file: None,
             heartbeat_timeout: None,
             cleanup_interval: None,
+            assignment_reconcile_interval: None,
             max_upload_bytes: None,
             files_dir: None,
             execution_logs_dir: None,
@@ -46,6 +47,7 @@ mod tests {
         assert_eq!(args.log_level, None);
         assert_eq!(args.heartbeat_timeout, None);
         assert_eq!(args.cleanup_interval, None);
+        assert_eq!(args.assignment_reconcile_interval, None);
     }
 
     #[test]
@@ -61,6 +63,7 @@ mod tests {
         assert_eq!(config.database.path, "./data/sms");
         assert_eq!(config.database.pool_size, Some(10));
         assert!(config.enable_console);
+        assert_eq!(config.assignment_reconcile_interval, 60);
     }
 
     #[test]
@@ -96,6 +99,7 @@ mod tests {
             log_file: None,
             heartbeat_timeout: Some(30),
             cleanup_interval: Some(60),
+            assignment_reconcile_interval: None,
             max_upload_bytes: None,
             files_dir: None,
             execution_logs_dir: None,
@@ -112,6 +116,18 @@ mod tests {
         assert_eq!(config.database.pool_size, Some(5));
         assert!(config.enable_swagger);
         assert_eq!(config.logging.level, "debug");
+        assert_eq!(config.assignment_reconcile_interval, 60);
+    }
+
+    #[test]
+    fn test_sms_config_load_assignment_reconcile_interval_from_toml() {
+        let cfg: SmsConfig = toml::from_str(
+            r#"
+assignment_reconcile_interval = 15
+"#,
+        )
+        .expect("parse config");
+        assert_eq!(cfg.assignment_reconcile_interval, 15);
     }
 
     #[test]
@@ -137,6 +153,7 @@ mod tests {
             log_file: None,
             heartbeat_timeout: None,
             cleanup_interval: None,
+            assignment_reconcile_interval: None,
             max_upload_bytes: None,
             files_dir: None,
             execution_logs_dir: None,
@@ -172,6 +189,7 @@ mod tests {
             log_file: None,
             heartbeat_timeout: None,
             cleanup_interval: None,
+            assignment_reconcile_interval: None,
             max_upload_bytes: None,
             files_dir: None,
             execution_logs_dir: None,
@@ -204,6 +222,7 @@ mod tests {
             log_file: None,
             heartbeat_timeout: None,
             cleanup_interval: None,
+            assignment_reconcile_interval: None,
             max_upload_bytes: None,
             files_dir: None,
             execution_logs_dir: None,
@@ -254,6 +273,7 @@ mod tests {
             log_file: None,
             heartbeat_timeout: None,
             cleanup_interval: None,
+            assignment_reconcile_interval: None,
             max_upload_bytes: None,
             files_dir: None,
             execution_logs_dir: None,
@@ -326,6 +346,7 @@ pool_size = 20
             log_file: None,
             heartbeat_timeout: None,
             cleanup_interval: None,
+            assignment_reconcile_interval: None,
             max_upload_bytes: None,
             files_dir: None,
             execution_logs_dir: None,
@@ -375,6 +396,7 @@ pool_size = 20
             log_file: None,
             heartbeat_timeout: None,
             cleanup_interval: None,
+            assignment_reconcile_interval: None,
             max_upload_bytes: None,
             files_dir: None,
             execution_logs_dir: None,
@@ -450,6 +472,7 @@ addr = "127.0.0.1:9100"
             log_file: None,
             heartbeat_timeout: None,
             cleanup_interval: None,
+            assignment_reconcile_interval: None,
             max_upload_bytes: None,
             files_dir: None,
             execution_logs_dir: None,
@@ -490,6 +513,7 @@ addr = "127.0.0.1:9100"
             log_file: None,
             heartbeat_timeout: Some(1),
             cleanup_interval: Some(1),
+            assignment_reconcile_interval: None,
             max_upload_bytes: None,
             files_dir: None,
             execution_logs_dir: None,
@@ -528,6 +552,7 @@ addr = "127.0.0.1:9100"
             log_file: None,
             heartbeat_timeout: None,
             cleanup_interval: None,
+            assignment_reconcile_interval: None,
             max_upload_bytes: None,
             files_dir: None,
             execution_logs_dir: None,

@@ -94,28 +94,27 @@ mod http_test_utils {
             spear_next::proto::sms::backend_registry_service_client::BackendRegistryServiceClient::new(
                 channel.clone(),
             );
+        let ai_backend_control_plane_client =
+            spear_next::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::new(
+                channel.clone(),
+            );
         let admin_credential_client =
             spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::new(
                 channel.clone(),
             );
-        let admin_ai_config_client =
-            spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::new(
-                channel.clone(),
-            );
-        let model_deployment_registry_client = spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::new(channel.clone());
         let state = GatewayState {
             config: Arc::new(SmsConfig::default()),
             node_client: sms_client,
             task_client,
+            task_assignment_client: spear_next::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(channel.clone()),
             placement_client,
             instance_registry_client,
             execution_registry_client,
             execution_index_client,
             mcp_registry_client,
             backend_registry_client,
+            ai_backend_control_plane_client,
             admin_credential_client,
-            admin_ai_config_client,
-            model_deployment_registry_client,
             stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
             execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
             cancel_token: CancellationToken::new(),
@@ -290,28 +289,27 @@ async fn test_http_node_lifecycle() {
         spear_next::proto::sms::backend_registry_service_client::BackendRegistryServiceClient::new(
             channel_filter.clone(),
         );
+    let ai_backend_control_plane_client_filter =
+        spear_next::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::new(
+            channel_filter.clone(),
+        );
     let admin_credential_client_filter =
         spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::new(
             channel_filter.clone(),
         );
-    let admin_ai_config_client_filter =
-        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::new(
-            channel_filter.clone(),
-        );
-    let model_deployment_registry_client_filter = spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::new(channel_filter.clone());
     let filter_state = GatewayState {
         config: Arc::new(SmsConfig::default()),
         node_client: sms_client_filter,
         task_client: task_client_filter,
+        task_assignment_client: spear_next::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(channel_filter.clone()),
         placement_client: placement_client_filter,
         instance_registry_client: instance_registry_client_filter,
         execution_registry_client: execution_registry_client_filter,
         execution_index_client: execution_index_client_filter,
         mcp_registry_client: mcp_registry_client_filter,
         backend_registry_client: backend_registry_client_filter,
+        ai_backend_control_plane_client: ai_backend_control_plane_client_filter,
         admin_credential_client: admin_credential_client_filter,
-        admin_ai_config_client: admin_ai_config_client_filter,
-        model_deployment_registry_client: model_deployment_registry_client_filter,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
         cancel_token: CancellationToken::new(),
@@ -445,28 +443,27 @@ async fn test_http_resource_management() {
         spear_next::proto::sms::backend_registry_service_client::BackendRegistryServiceClient::new(
             channel_filter.clone(),
         );
+    let ai_backend_control_plane_client_filter =
+        spear_next::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::new(
+            channel_filter.clone(),
+        );
     let admin_credential_client_filter =
         spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::new(
             channel_filter.clone(),
         );
-    let admin_ai_config_client_filter =
-        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::new(
-            channel_filter.clone(),
-        );
-    let model_deployment_registry_client_filter = spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::new(channel_filter.clone());
     let state = GatewayState {
         config: Arc::new(SmsConfig::default()),
         node_client: sms_client_filter,
         task_client: task_client_filter,
+        task_assignment_client: spear_next::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(channel_filter.clone()),
         placement_client: placement_client_filter,
         instance_registry_client: instance_registry_client_filter,
         execution_registry_client: execution_registry_client_filter,
         execution_index_client: execution_index_client_filter,
         mcp_registry_client: mcp_registry_client_filter,
         backend_registry_client: backend_registry_client_filter,
+        ai_backend_control_plane_client: ai_backend_control_plane_client_filter,
         admin_credential_client: admin_credential_client_filter,
-        admin_ai_config_client: admin_ai_config_client_filter,
-        model_deployment_registry_client: model_deployment_registry_client_filter,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
         cancel_token: CancellationToken::new(),

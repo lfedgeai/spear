@@ -11,6 +11,7 @@ enable_web_admin = false
 enable_console = true
 heartbeat_timeout = 120
 cleanup_interval = 300
+assignment_reconcile_interval = 60
 max_upload_bytes = 67108864
 files_dir = "./data/files"
 execution_logs_dir = "./data/files/execution_logs"

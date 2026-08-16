@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { HashRouter, Link, NavLink, Route, Routes } from 'react-router-dom'
-import { LayoutDashboard, Moon, Server, Settings, Sun, FileBox, ListTodo, Plug, Boxes } from 'lucide-react'
+import { LayoutDashboard, Moon, Server, Settings, Sun, FileBox, ListTodo, Plug, Boxes, History } from 'lucide-react'
 import { Toaster } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -11,21 +11,26 @@ import NodesPage from '@/features/nodes/NodesPage'
 import NodeDetailPage from '@/features/nodes/NodeDetailPage'
 import TasksPage from '@/features/tasks/TasksPage'
 import TaskDetailPage from '@/features/tasks/TaskDetailPage'
+import TaskInstancesPage from '@/features/tasks/TaskInstancesPage'
 import FilesPage from '@/features/files/FilesPage'
 import FileDetailPage from '@/features/files/FileDetailPage'
+import AiBackendsPage from '@/features/ai-backends/AiBackendsPage'
+import AiBackendDetailPage from '@/features/ai-backends/AiBackendDetailPage'
+import CredentialsPage from '@/features/ai-credentials/CredentialsPage'
 import AiModelsPage from '@/features/ai-models/AiModelsPage'
 import AiModelDetailPage from '@/features/ai-models/AiModelDetailPage'
-import CredentialsPanel from '@/features/ai-models/CredentialsPanel'
 import McpPage from '@/features/mcp/McpPage'
 import McpServerDetailPage from '@/features/mcp/McpServerDetailPage'
 import SettingsPage from '@/features/settings/SettingsPage'
 import InstanceDetailPage from '@/features/instances/InstanceDetailPage'
+import ExecutionHistoryPage from '@/features/executions/ExecutionHistoryPage'
 import ExecutionDetailPage from '@/features/executions/ExecutionDetailPage'
 
 type NavItem = {
   label: string
   icon: typeof Boxes
   to?: string
+  end?: boolean
   children?: NavItem[]
 }
 
@@ -36,14 +41,14 @@ function Shell() {
       { to: '/', label: 'Dashboard', icon: LayoutDashboard },
       { to: '/nodes', label: 'Nodes', icon: Server },
       { to: '/tasks', label: 'Tasks', icon: ListTodo },
+      { to: '/executions', label: 'Execution History', icon: History },
       { to: '/files', label: 'Files', icon: FileBox },
       {
-        label: 'AI Models',
+        label: 'AI Backends',
         icon: Boxes,
         children: [
-          { to: '/ai-models/remote', label: 'Remote', icon: Boxes },
-          { to: '/ai-models/local', label: 'Local', icon: Boxes },
-          { to: '/ai-models/credentials', label: 'Credentials', icon: Boxes },
+          { to: '/ai-backends', label: 'Backends', icon: Boxes, end: true },
+          { to: '/ai-backends/credentials', label: 'Credentials', icon: Boxes, end: true },
         ],
       },
       { to: '/mcp', label: 'MCP', icon: Plug },
@@ -82,6 +87,7 @@ function Shell() {
                       <NavLink
                         key={child.to}
                         to={child.to || '/'}
+                        end={child.end}
                         data-testid={`nav-${child.label.toLowerCase()}`}
                         className={({ isActive }) =>
                           cn(
@@ -102,6 +108,7 @@ function Shell() {
                 <NavLink
                   key={item.to}
                   to={item.to || '/'}
+                  end={item.end}
                   data-testid={`nav-${item.label.toLowerCase()}`}
                   className={({ isActive }) =>
                     cn(
@@ -173,13 +180,17 @@ function Shell() {
                 <Route path="/nodes/:uuid" element={<NodeDetailPage />} />
                 <Route path="/tasks" element={<TasksPage />} />
                 <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
+                <Route path="/tasks/:taskId/instances" element={<TaskInstancesPage />} />
                 <Route path="/instances/:instanceId" element={<InstanceDetailPage />} />
+                <Route path="/executions" element={<ExecutionHistoryPage />} />
                 <Route path="/executions/:executionId" element={<ExecutionDetailPage />} />
                 <Route path="/files" element={<FilesPage />} />
                 <Route path="/files/:id" element={<FileDetailPage />} />
+                <Route path="/ai-backends" element={<AiBackendsPage />} />
+                <Route path="/ai-backends/:backendId" element={<AiBackendDetailPage />} />
+                <Route path="/ai-backends/credentials" element={<CredentialsPage />} />
                 <Route path="/ai-models/remote" element={<AiModelsPage hosting="remote" />} />
                 <Route path="/ai-models/local" element={<AiModelsPage hosting="local" />} />
-                <Route path="/ai-models/credentials" element={<CredentialsPanel />} />
                 <Route
                   path="/ai-models/:hosting/:provider/:model"
                   element={<AiModelDetailPage />}

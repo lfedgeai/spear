@@ -4,5 +4,4 @@
 export * from './types'
 export * from './micCapture'
 export * from './voiceStreamSender'
-export * from './PressToTalkButton'
 export * from './MicSplitControl'

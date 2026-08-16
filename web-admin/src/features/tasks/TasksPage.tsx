@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Plus, Search } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { createTask, listTasks } from '@/api/tasks'
-import { createExecution } from '@/api/executions'
-import { listNodes } from '@/api/nodes'
 import { listFiles } from '@/api/files'
 import { listMcpServers } from '@/api/mcp'
 import type { TaskSummary } from '@/api/types'
@@ -15,6 +13,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { TaskStatusBadge } from '@/features/shared/status-badges'
+import DeleteTaskDialog from '@/features/tasks/DeleteTaskDialog'
 import { cn, isValidEndpointName, normalizeEndpointName } from '@/lib/utils'
 
 function formatTs(ts: number) {
@@ -23,18 +23,19 @@ function formatTs(ts: number) {
   return d.toLocaleString()
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const s = (status || '').toLowerCase()
-  if (s === 'active' || s === 'registered') return <Badge>{status}</Badge>
-  if (s === 'inactive') return <Badge variant="secondary">{status}</Badge>
-  return <Badge variant="destructive">{status || 'unknown'}</Badge>
+function ReplicaHealthBadge(props: { reconciling?: boolean; underprovisioned?: boolean }) {
+  if (props.reconciling || props.underprovisioned) {
+    return <Badge variant="secondary">reconciling</Badge>
+  }
+  return <Badge variant="success">at target</Badge>
 }
 
 type CreateForm = {
   name: string
   description: string
   priority: string
-  node_uuid: string
+  desired_replicas: string
+  scheduling_strategy: string
   endpoint: string
   version: string
   capabilities: string
@@ -82,17 +83,52 @@ function parseEnv(v: string) {
   return out
 }
 
+function CreateTaskField(props: {
+  label: string
+  children: ReactNode
+  className?: string
+  hint?: string
+}) {
+  return (
+    <div className={cn('space-y-1', props.className)}>
+      <div className="text-sm font-medium">{props.label}</div>
+      {props.children}
+      {props.hint ? (
+        <div className="text-xs text-[hsl(var(--muted-foreground))]">{props.hint}</div>
+      ) : null}
+    </div>
+  )
+}
+
+function CreateTaskSection(props: {
+  title: string
+  description?: string
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        'col-span-2 space-y-3 rounded-[var(--radius)] border border-[hsl(var(--border))] p-3',
+        props.className,
+      )}
+    >
+      <div>
+        <div className="text-sm font-medium">{props.title}</div>
+        {props.description ? (
+          <div className="text-xs text-[hsl(var(--muted-foreground))]">{props.description}</div>
+        ) : null}
+      </div>
+      {props.children}
+    </div>
+  )
+}
+
 function CreateTaskDialog(props: {
   open: boolean
   onOpenChange: (v: boolean) => void
   onCreated: () => void
 }) {
-  const nodesQuery = useQuery({
-    queryKey: ['nodes-for-task'],
-    queryFn: () => listNodes({ limit: 200, sort_by: 'last_heartbeat', order: 'desc' }),
-    staleTime: 15_000,
-  })
-
   const mcpServersQuery = useQuery({
     queryKey: ['mcp-servers-for-task'],
     queryFn: listMcpServers,
@@ -133,7 +169,8 @@ function CreateTaskDialog(props: {
     name: '',
     description: '',
     priority: 'normal',
-    node_uuid: '',
+    desired_replicas: '1',
+    scheduling_strategy: 'spread',
     endpoint: '',
     version: 'v1',
     capabilities: '',
@@ -154,7 +191,6 @@ function CreateTaskDialog(props: {
     [form.endpoint],
   )
 
-  const nodes = nodesQuery.data?.nodes || []
   const mcpServers = useMemo(() => {
     if (!mcpServersQuery.data?.success) return []
     return mcpServersQuery.data.servers ?? []
@@ -180,7 +216,8 @@ function CreateTaskDialog(props: {
       name: '',
       description: '',
       priority: 'normal',
-      node_uuid: '',
+      desired_replicas: '1',
+      scheduling_strategy: 'spread',
       endpoint: '',
       version: 'v1',
       capabilities: '',
@@ -208,8 +245,6 @@ function CreateTaskDialog(props: {
   const mcpCanSubmit = !form.mcp_enabled || mcpDefaultIds.length > 0
   const canSubmit = !!(form.name && endpointOk && form.version && mcpCanSubmit)
 
-  const [runAfterCreate, setRunAfterCreate] = useState(true)
-
   const filteredMcpServers = useMemo(() => {
     const needle = mcpFilter.trim().toLowerCase()
     if (!needle) return mcpServers
@@ -224,75 +259,71 @@ function CreateTaskDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent>
         <DialogHeader title="Create task" description="Register a task in SMS" />
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2">
-            <Input
-              placeholder="Name"
-              value={form.name}
-              onChange={(e) => {
-                const nextName = e.target.value
-                setForm((f) => ({
-                  ...f,
-                  name: nextName,
-                  endpoint: endpointTouched
-                    ? f.endpoint
-                    : normalizeEndpointName(nextName),
-                }))
-              }}
-            />
-          </div>
-          <div className="col-span-2">
-            <Input
-              placeholder="Description"
-              value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            />
-          </div>
-
-          <select
-            className="h-9 w-full rounded-[calc(var(--radius)-4px)] border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 text-sm"
-            value={form.priority}
-            onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}
-          >
-            <option value="low">low</option>
-            <option value="normal">normal</option>
-            <option value="high">high</option>
-            <option value="urgent">urgent</option>
-          </select>
-
-          <div className="col-span-2">
-            <select
-              className="h-9 w-full rounded-[calc(var(--radius)-4px)] border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 text-sm"
-              value={form.node_uuid}
-              onChange={(e) => setForm((f) => ({ ...f, node_uuid: e.target.value }))}
-              data-testid="task-node"
-              aria-label="Pinned node"
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <div className="grid grid-cols-2 gap-3">
+            <CreateTaskSection
+              title="Task Basics"
+              description="Identify the task and define default scheduling behavior."
             >
-              <option value="">Auto schedule</option>
-              {nodes.map((n) => (
-                <option key={n.uuid} value={n.uuid}>
-                  {(n.name ? `${n.name} ` : '') + n.uuid}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <label className="col-span-2 flex items-center justify-between rounded-[var(--radius)] border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-3 py-2">
-            <div>
-              <div className="text-sm font-medium">Run after create</div>
-              <div className="text-xs text-[hsl(var(--muted-foreground))]">
-                Auto-schedule execution via SMS placement
+              <div className="grid grid-cols-2 gap-3">
+                <CreateTaskField label="Name" className="col-span-2">
+                  <Input
+                    placeholder="Name"
+                    value={form.name}
+                    onChange={(e) => {
+                      const nextName = e.target.value
+                      setForm((f) => ({
+                        ...f,
+                        name: nextName,
+                        endpoint: endpointTouched
+                          ? f.endpoint
+                          : normalizeEndpointName(nextName),
+                      }))
+                    }}
+                  />
+                </CreateTaskField>
+                <CreateTaskField label="Description" className="col-span-2">
+                  <Input
+                    placeholder="Description"
+                    value={form.description}
+                    onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                  />
+                </CreateTaskField>
+                <CreateTaskField label="Priority">
+                  <select
+                    className="h-9 w-full rounded-[calc(var(--radius)-4px)] border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 text-sm"
+                    value={form.priority}
+                    onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}
+                  >
+                    <option value="low">low</option>
+                    <option value="normal">normal</option>
+                    <option value="high">high</option>
+                    <option value="urgent">urgent</option>
+                  </select>
+                </CreateTaskField>
+                <CreateTaskField label="Desired Replicas">
+                  <Input
+                    type="number"
+                    min={1}
+                    placeholder="Desired replicas"
+                    value={form.desired_replicas}
+                    onChange={(e) => setForm((f) => ({ ...f, desired_replicas: e.target.value }))}
+                  />
+                </CreateTaskField>
+                <CreateTaskField label="Scheduling Strategy" className="col-span-2">
+                  <select
+                    className="h-9 w-full rounded-[calc(var(--radius)-4px)] border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 text-sm"
+                    value={form.scheduling_strategy}
+                    onChange={(e) => setForm((f) => ({ ...f, scheduling_strategy: e.target.value }))}
+                    aria-label="Scheduling strategy"
+                  >
+                    <option value="spread">spread</option>
+                  </select>
+                </CreateTaskField>
               </div>
-            </div>
-            <input
-              type="checkbox"
-              checked={runAfterCreate}
-              onChange={(e) => setRunAfterCreate(e.target.checked)}
-              data-testid="task-run-after-create"
-            />
-          </label>
+            </CreateTaskSection>
 
-          <div className="col-span-2 overflow-hidden rounded-[var(--radius)] border border-[hsl(var(--border))]">
+            <div className="col-span-2 overflow-hidden rounded-[var(--radius)] border border-[hsl(var(--border))]">
             <div className="flex items-center justify-between bg-[hsl(var(--muted))] px-3 py-2">
               <div>
                 <div className="text-sm font-medium">MCP tools</div>
@@ -438,253 +469,274 @@ function CreateTaskDialog(props: {
                 )}
               </div>
             ) : null}
-          </div>
+            </div>
 
-          <div className="col-span-2">
-            <Input
-              placeholder="Endpoint (e.g. echo_01)"
-              value={form.endpoint}
-              onChange={(e) => {
-                setEndpointTouched(true)
-                setForm((f) => ({ ...f, endpoint: e.target.value }))
-              }}
-            />
-            {form.endpoint && !endpointOk ? (
-              <div className="mt-1 text-xs text-[hsl(var(--destructive))]">
-                Endpoint must match ^[A-Za-z0-9_-]+$
-              </div>
-            ) : null}
-          </div>
-          <div className="col-span-2">
-            <Input
-              placeholder="Version"
-              value={form.version}
-              onChange={(e) => setForm((f) => ({ ...f, version: e.target.value }))}
-            />
-          </div>
-          <div className="col-span-2">
-            <Input
-              placeholder="Capabilities (comma separated)"
-              value={form.capabilities}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, capabilities: e.target.value }))
-              }
-            />
-          </div>
-
-          <div className="col-span-2">
-            <select
-              className="h-9 w-full rounded-[calc(var(--radius)-4px)] border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 text-sm"
-              value={form.executable_type}
-              onChange={(e) => {
-                const nextType = e.target.value
-                setForm((f) => ({
-                  ...f,
-                  executable_type: nextType,
-                  executable_uri:
-                    nextType === 'no-executable'
-                      ? ''
-                      : f.executable_uri || schemePrefix(scheme),
-                }))
-                setPickerOpen(false)
-              }}
-              data-testid="task-executable-type"
-              aria-label="Executable Type"
+            <CreateTaskSection
+              title="Routing"
+              description="Define how callers address this task and what capabilities it exposes."
             >
-              <option value="no-executable">no-executable</option>
-              <option value="binary">binary</option>
-              <option value="script">script</option>
-              <option value="container">container</option>
-              <option value="wasm">wasm</option>
-              <option value="process">process</option>
-            </select>
-          </div>
-
-          {form.executable_type !== 'no-executable' ? (
-            <>
-              <div className="col-span-2 grid grid-cols-3 gap-2">
-                <select
-                  className="h-9 w-full rounded-[calc(var(--radius)-4px)] border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 text-sm"
-                  value={scheme}
-                  onChange={(e) => {
-                    const next = e.target.value as UriScheme
-                    setScheme(next)
-                    setForm((f) => {
-                      const nextPrefix = schemePrefix(next)
-                      const knownPrefixes = [
-                        schemePrefix('smsfile'),
-                        schemePrefix('https'),
-                        schemePrefix('s3'),
-                        schemePrefix('minio'),
-                      ]
-                      if (
-                        !f.executable_uri ||
-                        knownPrefixes.includes(f.executable_uri)
-                      ) {
-                        return { ...f, executable_uri: nextPrefix }
-                      }
-                      return f
-                    })
-                    setPickerOpen(false)
-                  }}
-                  data-testid="task-uri-scheme"
-                  aria-label="Scheme"
-                >
-                  <option value="smsfile">smsfile</option>
-                  <option value="https">https</option>
-                  <option value="s3">s3</option>
-                  <option value="minio">minio</option>
-                </select>
-                <div className="col-span-2">
+              <div className="grid grid-cols-2 gap-3">
+                <CreateTaskField label="Endpoint" className="col-span-2" hint="Must match ^[A-Za-z0-9_-]+$">
                   <Input
-                    placeholder="Executable URI"
-                    value={form.executable_uri}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, executable_uri: e.target.value }))
-                    }
-                    data-testid="task-executable-uri"
+                    placeholder="Endpoint (e.g. echo_01)"
+                    value={form.endpoint}
+                    onChange={(e) => {
+                      setEndpointTouched(true)
+                      setForm((f) => ({ ...f, endpoint: e.target.value }))
+                    }}
                   />
-                </div>
-              </div>
-
-              {scheme === 'smsfile' ? (
-                <div className="col-span-2">
-                  <div className="flex items-center justify-between rounded-[var(--radius)] border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-3 py-2">
-                    <div className="text-xs text-[hsl(var(--muted-foreground))]">
-                      Pick an embedded file and insert smsfile:// URI
-                    </div>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setPickerOpen((v) => !v)}
-                      data-testid="task-choose-local"
-                    >
-                      Choose Local
-                    </Button>
-                  </div>
-
-                  {pickerOpen ? (
-                    <div className="mt-2 overflow-hidden rounded-[var(--radius)] border border-[hsl(var(--border))] bg-[hsl(var(--background))]">
-                      <div className="border-b border-[hsl(var(--border))] bg-[hsl(var(--background))] p-2">
-                        <Input
-                          value={fileQ}
-                          onChange={(e) => setFileQ(e.target.value)}
-                          placeholder="Filter by name or id"
-                          data-testid="task-file-filter"
-                        />
-                      </div>
-                      <div className="grid grid-cols-12 border-b border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-3 py-2 text-xs font-medium text-[hsl(var(--muted-foreground))]">
-                        <div className="col-span-7">Name / ID</div>
-                        <div className="col-span-3">Modified</div>
-                        <div className="col-span-2">Action</div>
-                      </div>
-                      {filesQuery.isLoading ? (
-                        <div className="p-3 text-sm text-[hsl(var(--muted-foreground))]">
-                          Loading...
-                        </div>
-                      ) : filesQuery.isError ? (
-                        <div className="p-3 text-sm text-[hsl(var(--muted-foreground))]">
-                          Failed to load files
-                        </div>
-                      ) : fileRows.length === 0 ? (
-                        <div className="p-3 text-sm text-[hsl(var(--muted-foreground))]">
-                          No files
-                        </div>
-                      ) : (
-                        <div className="max-h-[220px] overflow-auto">
-                          {fileRows.map((f) => (
-                            <div
-                              key={f.id}
-                              className="grid grid-cols-12 items-center gap-2 border-b border-[hsl(var(--border))] px-3 py-2 text-sm last:border-b-0"
-                            >
-                              <div className="col-span-7 min-w-0">
-                                <div className="truncate font-medium">
-                                  {f.name || '(unknown)'}
-                                </div>
-                                <div className="mt-1 truncate text-xs text-[hsl(var(--muted-foreground))]">
-                                  {f.id}
-                                </div>
-                              </div>
-                              <div className="col-span-3 text-xs text-[hsl(var(--muted-foreground))]">
-                                {formatTs(f.modified_at)}
-                              </div>
-                              <div className="col-span-2 flex justify-end">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    setForm((cur) => ({
-                                      ...cur,
-                                      executable_uri: `smsfile://${f.id}`,
-                                      executable_name: f.name || cur.executable_name,
-                                    }))
-                                    setPickerOpen(false)
-                                  }}
-                                  data-testid={`task-use-file-${f.id}`}
-                                >
-                                  Use
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                          {fileTotal !== null && fileRows.length < fileTotal ? (
-                            <div className="flex items-center justify-end border-t border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2">
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => setFileOffset((v) => v + fileLimit)}
-                                disabled={filesQuery.isFetching}
-                                data-testid="task-files-load-more"
-                              >
-                                Load more
-                              </Button>
-                            </div>
-                          ) : null}
-                        </div>
-                      )}
+                  {form.endpoint && !endpointOk ? (
+                    <div className="mt-1 text-xs text-[hsl(var(--destructive))]">
+                      Endpoint must match ^[A-Za-z0-9_-]+$
                     </div>
                   ) : null}
-                </div>
-              ) : null}
+                </CreateTaskField>
+                <CreateTaskField label="Version" className="col-span-2">
+                  <Input
+                    placeholder="Version"
+                    value={form.version}
+                    onChange={(e) => setForm((f) => ({ ...f, version: e.target.value }))}
+                  />
+                </CreateTaskField>
+                <CreateTaskField label="Capabilities" className="col-span-2" hint="Comma separated">
+                  <Input
+                    placeholder="Capabilities (comma separated)"
+                    value={form.capabilities}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, capabilities: e.target.value }))
+                    }
+                  />
+                </CreateTaskField>
+              </div>
+            </CreateTaskSection>
 
-              <div className="col-span-2">
-                <Input
-                  placeholder="Executable name (optional)"
-                  value={form.executable_name}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, executable_name: e.target.value }))
-                  }
-                />
+            <CreateTaskSection
+              title="Executable"
+              description="Choose the artifact type and locate the binary, script, container, or wasm module."
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <CreateTaskField label="Executable Type" className="col-span-2">
+                  <select
+                    className="h-9 w-full rounded-[calc(var(--radius)-4px)] border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 text-sm"
+                    value={form.executable_type}
+                    onChange={(e) => {
+                      const nextType = e.target.value
+                      setForm((f) => ({
+                        ...f,
+                        executable_type: nextType,
+                        executable_uri:
+                          nextType === 'no-executable'
+                            ? ''
+                            : f.executable_uri || schemePrefix(scheme),
+                      }))
+                      setPickerOpen(false)
+                    }}
+                    data-testid="task-executable-type"
+                    aria-label="Executable Type"
+                  >
+                    <option value="no-executable">no-executable</option>
+                    <option value="binary">binary</option>
+                    <option value="script">script</option>
+                    <option value="container">container</option>
+                    <option value="wasm">wasm</option>
+                    <option value="process">process</option>
+                  </select>
+                </CreateTaskField>
+
+                {form.executable_type !== 'no-executable' ? (
+                  <>
+                    <div className="col-span-2 grid grid-cols-3 gap-2">
+                      <CreateTaskField label="Artifact Scheme">
+                        <select
+                          className="h-9 w-full rounded-[calc(var(--radius)-4px)] border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 text-sm"
+                          value={scheme}
+                          onChange={(e) => {
+                            const next = e.target.value as UriScheme
+                            setScheme(next)
+                            setForm((f) => {
+                              const nextPrefix = schemePrefix(next)
+                              const knownPrefixes = [
+                                schemePrefix('smsfile'),
+                                schemePrefix('https'),
+                                schemePrefix('s3'),
+                                schemePrefix('minio'),
+                              ]
+                              if (
+                                !f.executable_uri ||
+                                knownPrefixes.includes(f.executable_uri)
+                              ) {
+                                return { ...f, executable_uri: nextPrefix }
+                              }
+                              return f
+                            })
+                            setPickerOpen(false)
+                          }}
+                          data-testid="task-uri-scheme"
+                          aria-label="Scheme"
+                        >
+                          <option value="smsfile">smsfile</option>
+                          <option value="https">https</option>
+                          <option value="s3">s3</option>
+                          <option value="minio">minio</option>
+                        </select>
+                      </CreateTaskField>
+                      <CreateTaskField label="Executable URI" className="col-span-2">
+                        <Input
+                          placeholder="Executable URI"
+                          value={form.executable_uri}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, executable_uri: e.target.value }))
+                          }
+                          data-testid="task-executable-uri"
+                        />
+                      </CreateTaskField>
+                    </div>
+
+                    {scheme === 'smsfile' ? (
+                      <div className="col-span-2">
+                        <div className="flex items-center justify-between rounded-[var(--radius)] border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-3 py-2">
+                          <div className="text-xs text-[hsl(var(--muted-foreground))]">
+                            Pick an embedded file and insert smsfile:// URI
+                          </div>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setPickerOpen((v) => !v)}
+                            data-testid="task-choose-local"
+                          >
+                            Choose Local
+                          </Button>
+                        </div>
+
+                        {pickerOpen ? (
+                          <div className="mt-2 overflow-hidden rounded-[var(--radius)] border border-[hsl(var(--border))] bg-[hsl(var(--background))]">
+                            <div className="border-b border-[hsl(var(--border))] bg-[hsl(var(--background))] p-2">
+                              <Input
+                                value={fileQ}
+                                onChange={(e) => setFileQ(e.target.value)}
+                                placeholder="Filter by name or id"
+                                data-testid="task-file-filter"
+                              />
+                            </div>
+                            <div className="grid grid-cols-12 border-b border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-3 py-2 text-xs font-medium text-[hsl(var(--muted-foreground))]">
+                              <div className="col-span-7">Name / ID</div>
+                              <div className="col-span-3">Modified</div>
+                              <div className="col-span-2">Action</div>
+                            </div>
+                            {filesQuery.isLoading ? (
+                              <div className="p-3 text-sm text-[hsl(var(--muted-foreground))]">
+                                Loading...
+                              </div>
+                            ) : filesQuery.isError ? (
+                              <div className="p-3 text-sm text-[hsl(var(--muted-foreground))]">
+                                Failed to load files
+                              </div>
+                            ) : fileRows.length === 0 ? (
+                              <div className="p-3 text-sm text-[hsl(var(--muted-foreground))]">
+                                No files
+                              </div>
+                            ) : (
+                              <div className="max-h-[220px] overflow-auto">
+                                {fileRows.map((f) => (
+                                  <div
+                                    key={f.id}
+                                    className="grid grid-cols-12 items-center gap-2 border-b border-[hsl(var(--border))] px-3 py-2 text-sm last:border-b-0"
+                                  >
+                                    <div className="col-span-7 min-w-0">
+                                      <div className="truncate font-medium">
+                                        {f.name || '(unknown)'}
+                                      </div>
+                                      <div className="mt-1 truncate text-xs text-[hsl(var(--muted-foreground))]">
+                                        {f.id}
+                                      </div>
+                                    </div>
+                                    <div className="col-span-3 text-xs text-[hsl(var(--muted-foreground))]">
+                                      {formatTs(f.modified_at)}
+                                    </div>
+                                    <div className="col-span-2 flex justify-end">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => {
+                                          setForm((cur) => ({
+                                            ...cur,
+                                            executable_uri: `smsfile://${f.id}`,
+                                            executable_name: f.name || cur.executable_name,
+                                          }))
+                                          setPickerOpen(false)
+                                        }}
+                                        data-testid={`task-use-file-${f.id}`}
+                                      >
+                                        Use
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                                {fileTotal !== null && fileRows.length < fileTotal ? (
+                                  <div className="flex items-center justify-end border-t border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2">
+                                    <Button
+                                      variant="secondary"
+                                      size="sm"
+                                      onClick={() => setFileOffset((v) => v + fileLimit)}
+                                      disabled={filesQuery.isFetching}
+                                      data-testid="task-files-load-more"
+                                    >
+                                      Load more
+                                    </Button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    <CreateTaskField label="Executable Name" className="col-span-2" hint="Optional">
+                      <Input
+                        placeholder="Executable name (optional)"
+                        value={form.executable_name}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, executable_name: e.target.value }))
+                        }
+                      />
+                    </CreateTaskField>
+                    <CreateTaskField label="Checksum (SHA-256)" className="col-span-2" hint="Optional">
+                      <Input
+                        placeholder="Checksum sha256 (optional)"
+                        value={form.checksum}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, checksum: e.target.value }))
+                        }
+                      />
+                    </CreateTaskField>
+                    <CreateTaskField label="Arguments" className="col-span-2" hint="Comma separated">
+                      <Input
+                        placeholder="Args (comma separated)"
+                        value={form.args}
+                        onChange={(e) => setForm((f) => ({ ...f, args: e.target.value }))}
+                      />
+                    </CreateTaskField>
+                    <CreateTaskField label="Environment Variables" className="col-span-2" hint="One key=value pair per line">
+                      <textarea
+                        className="h-24 w-full resize-none rounded-[calc(var(--radius)-4px)] border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm"
+                        placeholder="Env (key=value per line)"
+                        value={form.env}
+                        onChange={(e) => setForm((f) => ({ ...f, env: e.target.value }))}
+                      />
+                    </CreateTaskField>
+                  </>
+                ) : (
+                  <div className="col-span-2 rounded-[calc(var(--radius)-4px)] border border-dashed border-[hsl(var(--border))] px-3 py-3 text-sm text-[hsl(var(--muted-foreground))]">
+                    No executable selected. This task will rely on control-plane metadata only.
+                  </div>
+                )}
               </div>
-              <div className="col-span-2">
-                <Input
-                  placeholder="Checksum sha256 (optional)"
-                  value={form.checksum}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, checksum: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="col-span-2">
-                <Input
-                  placeholder="Args (comma separated)"
-                  value={form.args}
-                  onChange={(e) => setForm((f) => ({ ...f, args: e.target.value }))}
-                />
-              </div>
-              <div className="col-span-2">
-                <textarea
-                  className="h-24 w-full resize-none rounded-[calc(var(--radius)-4px)] border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm"
-                  placeholder="Env (key=value per line)"
-                  value={form.env}
-                  onChange={(e) => setForm((f) => ({ ...f, env: e.target.value }))}
-                />
-              </div>
-            </>
-          ) : null}
+            </CreateTaskSection>
+          </div>
         </div>
 
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-[hsl(var(--border))] pt-3">
           <Button variant="secondary" onClick={() => props.onOpenChange(false)}>
             Cancel
           </Button>
@@ -716,9 +768,10 @@ function CreateTaskDialog(props: {
                   name: form.name,
                   description: form.description || undefined,
                   priority: form.priority,
-                  node_uuid: form.node_uuid || undefined,
                   endpoint: form.endpoint,
                   version: form.version,
+                  desired_replicas: Math.max(1, Number(form.desired_replicas || '1') || 1),
+                  scheduling_strategy: form.scheduling_strategy || 'spread',
                   capabilities: parseCsv(form.capabilities),
                   executable:
                     form.executable_type === 'no-executable'
@@ -736,28 +789,6 @@ function CreateTaskDialog(props: {
                 const res = await createTask(payload)
                 if (!res.success) throw new Error(res.message || 'Create failed')
                 toast.success(`Task created: ${res.task_id || ''}`)
-
-                const shouldRun =
-                  runAfterCreate &&
-                  form.executable_type !== 'no-executable' &&
-                  !!res.task_id
-                if (shouldRun) {
-                  try {
-                    const exec = await createExecution({
-                      task_id: res.task_id!,
-                      node_uuid: form.node_uuid || undefined,
-                      execution_mode: 'async',
-                      max_candidates: 3,
-                    })
-                    if (exec.success) {
-                      toast.success(`Execution scheduled on ${exec.node_uuid || ''}`)
-                    } else {
-                      toast.warning(exec.message || 'Execution not started')
-                    }
-                  } catch (e) {
-                    toast.warning((e as Error).message)
-                  }
-                }
 
                 props.onCreated()
                 props.onOpenChange(false)
@@ -778,7 +809,7 @@ export default function TasksPage() {
   const navigate = useNavigate()
   const [q, setQ] = useState('')
   const [creating, setCreating] = useState(false)
-  const [runningTaskId, setRunningTaskId] = useState<string | null>(null)
+  const [deletingTask, setDeletingTask] = useState<TaskSummary | null>(null)
 
   const tasksQuery = useQuery({
     queryKey: ['tasks', q],
@@ -790,40 +821,13 @@ export default function TasksPage() {
   const total = tasksQuery.data?.total_count ?? 0
   const title = useMemo(() => `Tasks (${rows.length}/${total})`, [rows.length, total])
 
-  function runDisabledReason(task: TaskSummary) {
-    void task
-    return null
-  }
-
-  async function runTask(task: TaskSummary) {
-    if (runningTaskId) return
-    setRunningTaskId(task.task_id)
-    try {
-      const exec = await createExecution({
-        task_id: task.task_id,
-        node_uuid: task.node_uuid || undefined,
-        execution_mode: 'async',
-        max_candidates: 3,
-      })
-      if (exec.success) {
-        toast.success(`Execution scheduled on ${exec.node_uuid || ''}`)
-      } else {
-        toast.warning(exec.message || 'Execution not started')
-      }
-    } catch (e) {
-      toast.error((e as Error).message)
-    } finally {
-      setRunningTaskId(null)
-    }
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <div className="text-lg font-semibold">Tasks</div>
           <div className="text-sm text-[hsl(var(--muted-foreground))]">
-            Registered tasks
+            Observe workload specs, replica targets, and current replica convergence
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -848,7 +852,7 @@ export default function TasksPage() {
               <Input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Search task/name/pinned-node/endpoint"
+                placeholder="Search task/name/endpoint"
                 className="pl-9"
               />
             </div>
@@ -856,11 +860,12 @@ export default function TasksPage() {
 
           <div className="overflow-hidden rounded-[var(--radius)] border border-[hsl(var(--border))] bg-[hsl(var(--background))]">
             <div className="grid grid-cols-12 border-b border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-3 py-2 text-xs font-medium text-[hsl(var(--muted-foreground))]">
-              <div className="col-span-3">Name / Task ID</div>
+              <div className="col-span-3">Task / Endpoint</div>
               <div className="col-span-2">Status</div>
+              <div className="col-span-2">Replica state</div>
+              <div className="col-span-2">Replica policy</div>
               <div className="col-span-2">Priority</div>
-              <div className="col-span-2">Pinned node</div>
-              <div className="col-span-3">Registered / Run</div>
+              <div className="col-span-3">Registered / Actions</div>
             </div>
 
             {rows.length === 0 ? (
@@ -896,37 +901,50 @@ export default function TasksPage() {
                     <div className="col-span-3 min-w-0">
                       <div className="truncate font-medium">{t.name}</div>
                       <div className="mt-1 truncate text-xs text-[hsl(var(--muted-foreground))]">
+                        {t.endpoint || t.task_id}
+                      </div>
+                      <div className="mt-1 truncate font-mono text-[10px] text-[hsl(var(--muted-foreground))]">
                         {t.task_id}
                       </div>
                     </div>
                     <div className="col-span-2">
-                      <StatusBadge status={t.status} />
+                      <TaskStatusBadge status={t.status} />
+                    </div>
+                    <div className="col-span-2">
+                      <div className="flex flex-col gap-1">
+                        <ReplicaHealthBadge
+                          reconciling={t.reconciling}
+                          underprovisioned={t.underprovisioned}
+                        />
+                        <div className="text-xs text-[hsl(var(--muted-foreground))]">
+                          active {t.active_instances ?? 0} / ready {t.ready_instances ?? 0}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="col-span-2 truncate text-sm text-[hsl(var(--muted-foreground))]">
+                      <div>{(t.desired_replicas || 1) + ' x ' + (t.scheduling_strategy || 'spread')}</div>
+                      <div className="text-xs">target replicas</div>
                     </div>
                     <div className="col-span-2 text-sm text-[hsl(var(--muted-foreground))]">
                       {t.priority}
                     </div>
-                    <div className="col-span-2 truncate text-sm text-[hsl(var(--muted-foreground))]">
-                      {t.node_uuid || '-'}
+                    <div className="col-span-3 flex items-center justify-between gap-2 text-sm text-[hsl(var(--muted-foreground))]">
+                      <div className="min-w-0 truncate">{formatTs(t.registered_at)}</div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setDeletingTask(t)
+                          }}
+                          data-testid={`task-delete-${t.task_id}`}
+                        >
+                          Delete
+                        </Button>
+                      </div>
                     </div>
-                  <div className="col-span-3 flex items-center justify-between gap-2 text-sm text-[hsl(var(--muted-foreground))]">
-                    <div className="min-w-0 truncate">{formatTs(t.registered_at)}</div>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={
-                        runningTaskId === t.task_id || !!runDisabledReason(t)
-                      }
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        runTask(t)
-                      }}
-                      data-testid={`task-run-${t.task_id}`}
-                      title={runDisabledReason(t) || undefined}
-                    >
-                      Run
-                    </Button>
-                  </div>
                   </div>
                 ))}
               </div>
@@ -939,6 +957,18 @@ export default function TasksPage() {
         open={creating}
         onOpenChange={setCreating}
         onCreated={() => tasksQuery.refetch()}
+      />
+      <DeleteTaskDialog
+        open={!!deletingTask}
+        onOpenChange={(open) => {
+          if (!open) setDeletingTask(null)
+        }}
+        taskId={deletingTask?.task_id || ''}
+        taskName={deletingTask?.name}
+        onDeleted={() => {
+          setDeletingTask(null)
+          void tasksQuery.refetch()
+        }}
       />
     </div>
   )
