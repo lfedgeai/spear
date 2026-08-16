@@ -25,8 +25,10 @@ use crate::spearlet::execution::ai::router::filter_decision::{
 use crate::spearlet::execution::ai::router::policy::SelectionPolicy;
 use crate::spearlet::execution::ai::router::registry::{BackendInstance, BackendRegistry};
 use crate::spearlet::execution::ai::router::selection::{select_backend, snapshot_candidates};
+#[cfg(not(test))]
+use crate::spearlet::ai::dynamic_backend_registry::global_dynamic_backends;
 use crate::spearlet::ai::dynamic_backend_registry::{
-    global_dynamic_backends, DynamicBackendRegistry, DynamicBackendSource,
+    DynamicBackendRegistry, DynamicBackendSource,
 };
 use parking_lot::RwLock;
 use tracing::debug;

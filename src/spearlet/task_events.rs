@@ -227,17 +227,48 @@ impl TaskEventSubscriber {
 mod tests {
     use super::*;
     use crate::proto::sms::{
+        task_service_server::TaskServiceServer,
         Task, TaskEvent, TaskEventKind, TaskExecutable, TaskPriority, TaskStatus,
     };
+    use crate::sms::service::SmsServiceImpl;
     use crate::spearlet::execution::instance;
     use crate::spearlet::execution::runtime::{Runtime, RuntimeCapabilities, RuntimeType};
     use crate::spearlet::execution::TaskExecutionManagerConfig;
     use async_trait::async_trait;
     use sha2::Digest;
     use std::collections::HashMap as StdHashMap;
+    use tokio::net::TcpListener;
+    use tonic::transport::{Channel, Server};
 
     struct DummyRuntime {
         ty: RuntimeType,
+    }
+
+    async fn start_task_sms_grpc() -> (tokio::task::JoinHandle<()>, String, Channel) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let sms_service =
+            SmsServiceImpl::with_storage_config(&crate::config::base::StorageConfig {
+                backend: "memory".to_string(),
+                ..Default::default()
+            })
+            .await;
+
+        let handle = tokio::spawn(async move {
+            Server::builder()
+                .add_service(TaskServiceServer::new(sms_service))
+                .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+                .await
+                .unwrap();
+        });
+
+        let sms_addr = format!("127.0.0.1:{}", addr.port());
+        let channel = Channel::from_shared(format!("http://{}", sms_addr))
+            .unwrap()
+            .connect()
+            .await
+            .unwrap();
+        (handle, sms_addr, channel)
     }
 
     #[async_trait]
@@ -539,6 +570,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_stale_update_event_for_missing_task_is_ignored() {
+        let (sms_handle, sms_addr, sms_channel) = start_task_sms_grpc().await;
         let mut rm = crate::spearlet::execution::runtime::RuntimeManager::new();
         rm.register_runtime(
             RuntimeType::Process,
@@ -547,17 +579,19 @@ mod tests {
             }),
         )
         .unwrap();
+        let mut cfg = SpearletConfig::default();
+        cfg.sms_grpc_addr = sms_addr;
         let mgr = TaskExecutionManager::new(
             TaskExecutionManagerConfig::default(),
             Arc::new(rm),
-            Arc::new(SpearletConfig::default()),
-            None,
+            Arc::new(cfg.clone()),
+            Some(sms_channel),
         )
         .await
         .unwrap();
 
         let result = TaskEventSubscriber::dispatch_task_event(
-            &SpearletConfig::default(),
+            &cfg,
             &mgr,
             TaskEvent {
                 event_id: 5,
@@ -571,5 +605,6 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(mgr.get_task_by_id("missing-task").is_none());
+        sms_handle.abort();
     }
 }
