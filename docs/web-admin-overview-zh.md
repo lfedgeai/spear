@@ -1,6 +1,6 @@
 # 管理页面概览
 
-本文概述 `spear-next` 新增的 Web 管理页面。
+本文概述 `spear-next` 当前版本的 Web 管理页面。
 
 ## 能力
 
@@ -8,6 +8,16 @@
 - 节点列表（搜索、排序、分页）
 - AI Backends 控制页（backend 定义、placement 与 credentials）
 - AI Models 列表（只读聚合视图；区分 Local/Remote，并支持详情页）
+- AI Backends 页面内置 `Backends` / `Model Views` 双视图切换
+- 独立的 backend 创建入口：
+  - `Create Remote Backend`
+  - `Create Local Backend`
+- backend 详情页面板：
+  - placements
+  - node status
+  - read model views
+- MCP server 管理
+- Execution History 页面
 - 统计卡片（总数、在线、离线、最近 60s 心跳）
 - SSE 流 `GET /admin/api/nodes/stream`
   - 测试友好：`?once=true` 返回单次快照事件后结束
@@ -37,6 +47,8 @@
 - `GET /admin/api/ai-backends` → 返回 canonical AI backend 列表（控制面写入口对应资源）
 - `GET /admin/api/ai-backend-placements` → 返回 AI backend placement 列表
 - `GET /admin/api/ai-backend-statuses` → 返回节点侧 runtime 状态列表
+- `GET /admin/api/ai-backend-statuses/{backend_id}` → 返回指定 backend 的节点侧 runtime 状态
+- `GET /admin/api/ai-backend-assignments/{node_uuid}` → 返回某个节点上已物化的 assignment
 - `GET /admin/api/ai/credentials` → 返回 AI backends 复用的 credential 注册表
 
 ### 历史接口（已下线）
@@ -90,3 +102,17 @@ Web Admin 将“创建任务（注册 Task）”与“执行任务（调度 + �
 
 - SSE 集成测试使用 `?once=true` 避免阻塞
 - 前端已包含 Playwright UI 测试（`make test-ui`）
+
+## 当前交互特征
+
+- 长表单对话框统一采用视口内 modal 布局：
+  - sticky header
+  - 可滚动 body
+  - 固定 footer 操作区
+- `Create Task`、`Create Local Backend` 这类长表单已按区块分组，便于扫描与填写。
+
+## 相关当前文档
+
+- [web-admin-ui-guide-zh.md](./web-admin-ui-guide-zh.md) 说明具体操作流程
+- [backend-support-matrix-zh.md](./backend-support-matrix-zh.md) 说明当前 backend 能力与创建矩阵
+- [ai-backend-unified-control-plane-design-zh.md](./ai-backend-unified-control-plane-design-zh.md) 说明背后的控制面模型

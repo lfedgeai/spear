@@ -1,6 +1,6 @@
 # Web Admin Overview
 
-This document summarizes the new Web Admin in `spear-next`.
+This document summarizes the current Web Admin in `spear-next`.
 
 ## What It Provides
 
@@ -8,6 +8,16 @@ This document summarizes the new Web Admin in `spear-next`.
 - Nodes list with search, sort, pagination
 - AI Backends control page for backend definitions, placements, and credentials
 - AI Models list (read-only aggregated view; split into Local/Remote with a model detail page)
+- AI Backends page-level `Backends` / `Model Views` switch
+- Dedicated create flows for:
+  - `Create Remote Backend`
+  - `Create Local Backend`
+- Backend detail page panels for:
+  - placements
+  - node status
+  - read-model views
+- MCP server management
+- Execution history page
 - Stats cards (total, online, offline, recent 60s)
 - SSE stream `GET /admin/api/nodes/stream`
   - For testing: `?once=true` returns a single snapshot event
@@ -37,6 +47,8 @@ This document summarizes the new Web Admin in `spear-next`.
 - `GET /admin/api/ai-backends` → canonical AI backend list (control-plane write resources)
 - `GET /admin/api/ai-backend-placements` → AI backend placement list
 - `GET /admin/api/ai-backend-statuses` → node-side runtime status list
+- `GET /admin/api/ai-backend-statuses/{backend_id}` → node-side runtime status list for one backend
+- `GET /admin/api/ai-backend-assignments/{node_uuid}` → assignments materialized onto one node
 - `GET /admin/api/ai/credentials` → reusable credential registry for AI backends
 
 ### Historical Endpoints (Removed)
@@ -90,3 +102,17 @@ If you add an “API key configuration” component to Web Admin, design it as �
 
 - Integration test for SSE uses `?once=true` to avoid blocking
 - Frontend includes Playwright UI tests (`make test-ui`)
+
+## Current UX Notes
+
+- Dialogs use a viewport-constrained modal layout:
+  - sticky header
+  - scrollable body
+  - fixed footer actions
+- Long forms such as `Create Task` and `Create Local Backend` are grouped into explicit sections to reduce scanning cost.
+
+## Related Current Docs
+
+- [web-admin-ui-guide-en.md](./web-admin-ui-guide-en.md) for step-by-step user flows
+- [backend-support-matrix-en.md](./backend-support-matrix-en.md) for the current backend capability / create matrix
+- [ai-backend-unified-control-plane-design-en.md](./ai-backend-unified-control-plane-design-en.md) for the underlying control-plane model

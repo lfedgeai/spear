@@ -13,7 +13,7 @@ Related docs:
 
 - Backend registry/discovery and config: [backend-adapter/backends-en.md](./backend-adapter/backends-en.md)
 - LLM `credential_ref` rules: [implementation/llm-credentials-implementation-en.md](./implementation/llm-credentials-implementation-en.md)
-- Backend availability aggregation (node push): [backend-registry-api-design-en.md](./backend-registry-api-design-en.md)
+- Backend availability aggregation and current control-plane model: [ai-backend-unified-control-plane-design-en.md](./ai-backend-unified-control-plane-design-en.md)
 
 ## Goals
 

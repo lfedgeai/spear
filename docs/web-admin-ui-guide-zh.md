@@ -1,6 +1,6 @@
 # Web 管理页面使用指南
 
-本文介绍 `spear-next` 管理页面的实际使用与交互细节，覆盖节点、文件与任务创建等功能。
+本文介绍当前 `spear-next` 管理页面的实际使用与交互细节，覆盖节点、文件、任务、AI backend 与相关控制面操作。
 
 ## 访问与鉴权
 
@@ -32,6 +32,15 @@
 
 ## 任务创建（Tasks → Create Task）
 
+- 当前弹窗已按区块组织：
+  - `Task Basics`
+  - `MCP tools`
+  - `Routing`
+  - `Executable`
+- 长表单对话框统一采用：
+  - sticky header
+  - 可滚动 body
+  - 固定 footer 操作区
 - 可执行类型：`No Executable | Binary | Script | Container | WASM | Process`
 - Scheme：`smsfile | s3 | minio | https`
   - 切到 `smsfile` 会自动预填 `smsfile://`
@@ -49,6 +58,64 @@
 - AI Models 现为只读聚合页。创建、编辑、placement、启停和删除动作统一在 `AI Backends` 中执行。
 - Remote AI Models 页面提供跳转到共享 credentials 页的入口：`AI Backends → Credentials`
 
+## AI Backends
+
+- 这是 backend 定义、placement 与 credentials 的控制面写入口。
+- 页面顶部可切换：
+  - `Backends`
+  - `Model Views`
+- 创建入口拆成两条显式流程：
+  - `Create Remote Backend`
+  - `Create Local Backend`
+- backend 行内仍可继续编辑已有配置。
+
+### Create Remote Backend
+
+- 用于 OpenAI、Ollama 或其他外部 endpoint 类型的 adapter。
+- 常见输入包括：
+  - `Display name`
+  - `Provider`
+  - `Model`
+  - `Backend kind`
+  - `Base URL`
+  - `Credential ref`
+  - `Operations`
+  - `Features`
+  - `Transports`
+  - `Placement`
+
+### Create Local Backend
+
+- 用于 `llamacpp`、`vllm` 等节点本地 runtime。
+- placement 默认是 `Single Node`。
+- 对于 `local + llamacpp`，UI 已直接暴露常用 runtime 字段，不再要求手写 JSON：
+  - `Model URL`
+  - `Model Path`
+  - `Skip Download`
+  - `Download Timeout (s)`
+  - `Threads`
+  - `Context Size`
+- 这些字段保存时会自动写回 backend metadata，以兼容当前运行时实现。
+
+### Placement
+
+- backend 创建时即可配置 placement。
+- 当前支持：
+  - `All Nodes`
+  - `Single Node`
+  - `Selected Nodes`
+- 还支持每条 placement 的 override：
+  - `Weight override`
+  - `Priority override`
+
+### Backend 详情页
+
+- 详情页可查看：
+  - backend 摘要
+  - placements
+  - node status
+  - read model views
+
 ## Credentials
 
 - 入口：`AI Backends` → `Credentials`
@@ -63,6 +130,8 @@
 
 ## 相关文档
 
-- `docs/web-admin-overview-zh.md`
-- `docs/ui-tests-guide-zh.md`
-- `docs/ollama-discovery-zh.md`
+- [web-admin-overview-zh.md](./web-admin-overview-zh.md) 说明当前页面与 API 结构
+- [backend-support-matrix-zh.md](./backend-support-matrix-zh.md) 说明当前支持的 backend kind、provider 与 operation
+- [ai-backend-unified-control-plane-design-zh.md](./ai-backend-unified-control-plane-design-zh.md) 说明 AI Backends / AI Models 背后的控制面模型
+- [ui-tests-guide-zh.md](./ui-tests-guide-zh.md) 说明前端测试方式
+- [ollama-discovery-zh.md](./ollama-discovery-zh.md) 说明 Ollama 发现逻辑

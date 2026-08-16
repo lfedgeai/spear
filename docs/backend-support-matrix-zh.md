@@ -28,14 +28,42 @@
 
 ## Web Admin 当前创建能力
 
-当前 `Create remote backend` 弹窗只暴露两种 remote kind：
+当前 Web Admin 已拆分为两条创建链路：
 
-| Web Admin Kind | 默认 / 可选 operations | 说明 |
-|---|---|---|
-| `openai_chat_completion` | `chat_completions` | 当前 remote HTTP chat backend |
-| `openai_realtime_ws` | `speech_to_text` | 当前 remote realtime websocket ASR backend |
+- `Create Remote Backend`
+- `Create Local Backend`
 
-也就是说，当前 Web Admin 不会再把未落地 operation 暴露成可选项。
+### Remote
+
+当前 remote 创建流支持的 provider / kind 组合：
+
+| Hosting | Provider | Backend Kind | 默认 / 常见 operations | 说明 |
+|---|---|---|---|---|
+| `remote` | `openai` | `openai_chat_completion` | `chat_completions` | 标准 OpenAI HTTP chat backend |
+| `remote` | `openai` | `openai_realtime_ws` | `speech_to_text` | 当前 realtime websocket ASR backend |
+| `remote` | `ollama` | `ollama_chat` | `chat_completions` | 指向外部 Ollama-compatible endpoint |
+
+### Local
+
+当前 local 创建流支持的 provider / kind 组合：
+
+| Hosting | Provider | Backend Kind | 当前能力 | 说明 |
+|---|---|---|---|---|
+| `local` | `llamacpp` | `llamacpp` | `chat_completions` | 节点本地 `llama-server` 管理模式 |
+| `local` | `vllm` | `vllm` | scaffolded / external-endpoint oriented | 当前更偏脚手架与 external endpoint 场景，不是完整托管进程模式 |
+
+也就是说，当前 Web Admin 不再只暴露 remote backend，而是已经把 local / remote 都纳入统一创建入口，并附带 placement 配置。
+
+### Local llama.cpp 显式字段
+
+对于 `local + llamacpp`，Web Admin 当前已显式暴露常用 runtime 参数，并在保存时自动写回 metadata：
+
+- `model_url`
+- `model_path`
+- `skip_download`
+- `download_timeout_s`
+- `threads`
+- `ctx_size`
 
 ## IR / 协议里已出现但当前未落地的 operation
 
@@ -80,3 +108,9 @@
 3. 最后再把它暴露到 Web Admin 的可选项中
 
 不要反过来先把 operation 暴露给用户，否则很容易出现“UI 可选但运行时不可用”的伪能力。
+
+## 相关当前文档
+
+- [web-admin-overview-zh.md](./web-admin-overview-zh.md) 说明当前 Web Admin 页面与 API 范围
+- [web-admin-ui-guide-zh.md](./web-admin-ui-guide-zh.md) 说明实际操作流程
+- [ai-backend-unified-control-plane-design-zh.md](./ai-backend-unified-control-plane-design-zh.md) 说明 backend 标识、placement 与 status 背后的控制面模型
