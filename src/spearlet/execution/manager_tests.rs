@@ -295,11 +295,15 @@ async fn test_execution_status_tracking() {
     tokio::time::timeout(Duration::from_secs(1), async {
         loop {
             if let Some(s) = manager.get_execution_status("exec-long-1") {
-                if crate::spearlet::execution::execution_status::ExecutionPublicStatus::from_public_str(
-                    &s.status,
-                )
-                .is_in_progress()
-                {
+                let status =
+                    crate::spearlet::execution::execution_status::ExecutionPublicStatus::from_public_str(
+                        &s.status,
+                    );
+                if matches!(
+                    status,
+                    crate::spearlet::execution::execution_status::ExecutionPublicStatus::Pending
+                        | crate::spearlet::execution::execution_status::ExecutionPublicStatus::Running
+                ) {
                     break;
                 }
             }

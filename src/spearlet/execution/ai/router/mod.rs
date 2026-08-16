@@ -66,11 +66,15 @@ struct ManagedBackendCache {
 
 impl Router {
     pub fn new(registry: BackendRegistry, policy: SelectionPolicy) -> Self {
+        #[cfg(test)]
+        let dynamic_backends = DynamicBackendRegistry::new();
+        #[cfg(not(test))]
+        let dynamic_backends = global_dynamic_backends();
         Self {
             registry,
             policy,
             grpc_filter_stream: None,
-            dynamic_backends: global_dynamic_backends(),
+            dynamic_backends,
             dynamic_cache: Arc::new(RwLock::new(ManagedBackendCache {
                 revision: 0,
                 instances: Arc::new(Vec::new()),
@@ -83,6 +87,10 @@ impl Router {
         policy: SelectionPolicy,
         grpc_filter_stream: Option<Arc<grpc_filter_stream::RouterFilterStreamHub>>,
     ) -> Self {
+        #[cfg(test)]
+        let dynamic_backends = DynamicBackendRegistry::new();
+        #[cfg(not(test))]
+        let dynamic_backends = global_dynamic_backends();
         if let Some(h) = grpc_filter_stream.as_ref() {
             h.start_background();
         }
@@ -90,7 +98,7 @@ impl Router {
             registry,
             policy,
             grpc_filter_stream,
-            dynamic_backends: global_dynamic_backends(),
+            dynamic_backends,
             dynamic_cache: Arc::new(RwLock::new(ManagedBackendCache {
                 revision: 0,
                 instances: Arc::new(Vec::new()),

@@ -1,6 +1,8 @@
 use crate::spearlet::execution::ai::router::Router;
 use crate::spearlet::execution::ai::AiEngine;
-use crate::spearlet::execution::ai::engine_holder::{global as global_engine_holder, EngineHolder};
+#[cfg(not(test))]
+use crate::spearlet::execution::ai::engine_holder::global as global_engine_holder;
+use crate::spearlet::execution::ai::engine_holder::EngineHolder;
 use crate::spearlet::execution::host_api::iface::{HttpCallResult, SpearHostApi};
 use crate::spearlet::execution::hostcall::fd_table::FdTable;
 use crate::spearlet::execution::ExecutionError;
@@ -212,8 +214,36 @@ pub struct DefaultHostApi {
 
 impl DefaultHostApi {
     pub fn new(runtime_config: super::super::runtime::RuntimeConfig) -> Self {
-        let ai_engine_holder = global_engine_holder().unwrap_or_else(|| {
+        #[cfg(test)]
+        let ai_engine_holder = {
             let (registry, policy) = crate::spearlet::execution::ai::router::builder::build_registry_from_runtime_config(&runtime_config);
+            let grpc_filter_stream = runtime_config
+                .spearlet_config
+                .as_ref()
+                .and_then(|cfg| {
+                    cfg.ai.router_grpc_filter_stream.clone().map(|mut f| {
+                        if f.enabled && f.addr.trim().is_empty() {
+                            f.addr = cfg.sms_grpc_addr.clone();
+                        }
+                        f
+                    })
+                })
+                .map(
+                    crate::spearlet::execution::ai::router::grpc_filter_stream::RouterFilterStreamHub::init_global,
+                )
+                .or_else(crate::spearlet::execution::ai::router::grpc_filter_stream::RouterFilterStreamHub::global)
+                .filter(|h| h.config.enabled);
+            let router = Router::new_with_filter(registry, policy, grpc_filter_stream);
+            let engine = Arc::new(AiEngine::new(router));
+            Arc::new(EngineHolder::new(engine, 0))
+        };
+
+        #[cfg(not(test))]
+        let ai_engine_holder = global_engine_holder().unwrap_or_else(|| {
+            let (registry, policy) =
+                crate::spearlet::execution::ai::router::builder::build_registry_from_runtime_config(
+                    &runtime_config,
+                );
             let grpc_filter_stream = runtime_config
                 .spearlet_config
                 .as_ref()
