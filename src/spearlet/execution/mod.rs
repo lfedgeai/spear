@@ -37,6 +37,8 @@ pub mod ai;
 pub mod artifact;
 pub mod artifact_fetch;
 pub mod communication;
+mod execution_finalize;
+pub(crate) mod execution_status;
 pub mod host_api;
 pub mod hostcall;
 pub mod http_adapter;
@@ -45,7 +47,12 @@ pub mod manager;
 pub mod pool;
 pub mod runtime;
 pub mod scheduler;
+mod sms_status_adapter;
+mod sms_reporter;
 pub mod task;
+pub(crate) mod task_public_status;
+mod task_materializer;
+mod task_runtime_cleanup;
 
 /// Default entry function name placeholder.
 /// 默认入口函数名占位符。
@@ -115,12 +122,13 @@ pub struct ExecutionResponse {
 impl ExecutionResponse {
     /// Check if execution is completed / 检查执行是否完成
     pub fn is_completed(&self) -> bool {
-        self.status == "completed" || self.status == "failed"
+        execution_status::ExecutionPublicStatus::from_public_str(&self.status).is_terminal()
     }
 
     /// Check if execution is successful / 检查执行是否成功
     pub fn is_successful(&self) -> bool {
-        self.status == "completed" && self.error_message.is_none()
+        execution_status::ExecutionPublicStatus::from_public_str(&self.status).is_successful()
+            && self.error_message.is_none()
     }
 }
 

@@ -1,13 +1,23 @@
 # 管理页面概览
 
-本文概述 `spear-next` 新增的 Web 管理页面。
+本文概述 `spear-next` 当前版本的 Web 管理页面。
 
 ## 能力
 
 - 独立端口（默认 `127.0.0.1:8081`），Axum 路由提供接口
 - 节点列表（搜索、排序、分页）
-- AI Models 列表（聚合视图；区分 Local/Remote，并支持详情页）
-- Local AI Models：创建/删除 model deployment，并展示 provisioning 状态
+- AI Backends 控制页（backend 定义、placement 与 credentials）
+- AI Models 列表（只读聚合视图；区分 Local/Remote，并支持详情页）
+- AI Backends 页面内置 `Backends` / `Model Views` 双视图切换
+- 独立的 backend 创建入口：
+  - `Create Remote Backend`
+  - `Create Local Backend`
+- backend 详情页面板：
+  - placements
+  - node status
+  - read model views
+- MCP server 管理
+- Execution History 页面
 - 统计卡片（总数、在线、离线、最近 60s 心跳）
 - SSE 流 `GET /admin/api/nodes/stream`
   - 测试友好：`?once=true` 返回单次快照事件后结束
@@ -33,19 +43,25 @@
 - `GET /admin/api/nodes/:uuid` → 返回节点与（可选）资源信息
 - `GET /admin/api/stats` → 统计总数/在线/离线/最近 60s
 - `GET /admin/api/nodes/stream[?once=true]` → SSE 快照事件
-- `GET /admin/api/ai-models` → 返回聚合后的 AI Models 列表（按 provider/model/hosting 汇总，并包含各节点可用性）
-- `GET /admin/api/ai-models/:provider/:model` → 返回单个 AI Model 的详情（包含各节点实例）
+- `GET /admin/api/ai-model-views` → 返回 unified read model 视角的 AI Models 聚合列表（按 provider/model/hosting 汇总，并包含 placement/runtime 视图）
+- `GET /admin/api/ai-backends` → 返回 canonical AI backend 列表（控制面写入口对应资源）
+- `GET /admin/api/ai-backend-placements` → 返回 AI backend placement 列表
+- `GET /admin/api/ai-backend-statuses` → 返回节点侧 runtime 状态列表
+- `GET /admin/api/ai-backend-statuses/{backend_id}` → 返回指定 backend 的节点侧 runtime 状态
+- `GET /admin/api/ai-backend-assignments/{node_uuid}` → 返回某个节点上已物化的 assignment
+- `GET /admin/api/ai/credentials` → 返回 AI backends 复用的 credential 注册表
 
-### Local AI Models（Model Deployments）
+### 历史接口（已下线）
 
-- `POST /admin/api/nodes/:node_uuid/ai-models` → 创建本地 model deployment（body: `{ provider, model, params }`）
-- `GET /admin/api/nodes/:node_uuid/ai-models/deployments` → 列出该节点相关的 deployments（含 phase/message）
-- `DELETE /admin/api/nodes/:node_uuid/ai-models/deployments/:deployment_id` → 删除 deployment（Spearlet 下一轮 reconcile 停止进程并移除 backend）
+- 以下旧 AI Models / model deployments / remote backends Web Admin 入口已下线：
+- `/admin/api/ai-models`
+- `/admin/api/nodes/:node_uuid/ai-models*`
+- `/admin/api/ai/remote-backends*`
 
 ### 任务接口
 
 - `GET /admin/api/tasks` → 返回任务列表，包含字段：
-  - `task_id`、`name`、`description`、`status`、`priority`、`node_uuid`、`endpoint`、`version`
+  - `task_id`、`name`、`description`、`status`、`priority`、`desired_replicas`、`scheduling_strategy`、`endpoint`、`version`
 
 #### 创建与执行（两条链路）
 
@@ -53,21 +69,20 @@ Web Admin 将“创建任务（注册 Task）”与“执行任务（调度 + �
 
 - 第一步：创建/注册任务
   - `POST /admin/api/tasks`
-  - `node_uuid` 有两种用法：
-    - 指定节点：`node_uuid=<uuid>`
-    - 自动调度：`node_uuid=""`（空字符串）
+  - 请求体声明 task spec，而不是 task 所属节点
+  - 当前最小调度相关字段为：
+    - `desired_replicas`
+    - `scheduling_strategy`（当前支持 `spread`）
 - 第二步：触发执行（可选）
-  - `POST /admin/api/executions`
-  - 由 SMS placement 选择候选节点，并按顺序调用 Spearlet 执行（spillback）
+  - `POST /admin/api/invocations`
+  - 只会在已有 ready replica 的 node 上发起执行；如果副本仍在收敛，会返回 warming up / no ready replicas
 
 两种模式的差异：
 
-- 指定节点（node_uuid 非空）：
-  - 表示 pinned node（任务归属/固定节点，便于观察与过滤；不等同于“本次/最近一次执行落点”）
-  - 是否执行由 `POST /admin/api/executions` 决定；UI 的 `Run after create` 会在创建成功后直接对该 node 发起执行
-- 自动调度（node_uuid 为空）：
-  - 表示“任务不固定节点”
-  - 是否执行由 `POST /admin/api/executions` 决定；UI 的 `Run after create` 会在创建成功后调用该接口，让 BFF 通过 SMS placement 选择节点并运行
+- task 不再有 pinned node / owner node 语义：
+  - `task` 表达 workload spec
+  - `instance` 才绑定具体 `node_uuid`
+  - 是否执行由 `POST /admin/api/invocations` 决定；UI 的 `Run after create` 会在创建成功后调用该接口；若 assignment 对应副本尚未 ready，则返回 warming up，由控制面/节点收敛后再重试
 
 ## Secret/Key 管理建议
 
@@ -81,9 +96,23 @@ Web Admin 将“创建任务（注册 Task）”与“执行任务（调度 + �
   - `result_uris`、`last_result_uri`、`last_result_status`、`last_completed_at`、`last_result_metadata`
 - `GET /admin/api/tasks/{task_id}` → 返回任务详情（字段同上）
 - `POST /admin/api/tasks` → 创建任务
-  - 请求体包含 `name`、`description`、`priority`、`node_uuid`、`endpoint`、`version`、`capabilities`、`metadata`、`config`、可选 `executable`
+  - 请求体包含 `name`、`description`、`priority`、`desired_replicas`、`scheduling_strategy`、`endpoint`、`version`、`capabilities`、`metadata`、`config`、可选 `executable`
 
 ## 测试
 
 - SSE 集成测试使用 `?once=true` 避免阻塞
 - 前端已包含 Playwright UI 测试（`make test-ui`）
+
+## 当前交互特征
+
+- 长表单对话框统一采用视口内 modal 布局：
+  - sticky header
+  - 可滚动 body
+  - 固定 footer 操作区
+- `Create Task`、`Create Local Backend` 这类长表单已按区块分组，便于扫描与填写。
+
+## 相关当前文档
+
+- [web-admin-ui-guide-zh.md](./web-admin-ui-guide-zh.md) 说明具体操作流程
+- [backend-support-matrix-zh.md](./backend-support-matrix-zh.md) 说明当前 backend 能力与创建矩阵
+- [ai-backend-unified-control-plane-design-zh.md](./ai-backend-unified-control-plane-design-zh.md) 说明背后的控制面模型

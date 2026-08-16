@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use crate::sms::handlers::{
     health_check, HttpHeartbeatRequest, HttpRegisterNodeRequest, HttpUpdateNodeRequest,
     HttpUpdateNodeResourceRequest, ListNodeResourcesQuery, ListNodesQuery, ListTasksParams,
-    RegisterTaskParams, UnregisterTaskParams,
+    DeleteTaskParams, RegisterTaskParams,
 };
 
 // Mock tests for handlers that don't require gRPC clients / 不需要gRPC客户端的处理器模拟测试
@@ -178,7 +178,8 @@ fn test_register_task_params_serialization() {
         name: "test_task".to_string(),
         description: Some("A test task".to_string()),
         priority: Some("high".to_string()),
-        node_uuid: Some("node-123".to_string()),
+        desired_replicas: Some(2),
+        scheduling_strategy: Some("spread".to_string()),
         endpoint: "http://localhost:8080/task".to_string(),
         version: "1.0.0".to_string(),
         capabilities: Some(vec!["cpu".to_string(), "memory".to_string()]),
@@ -191,7 +192,7 @@ fn test_register_task_params_serialization() {
     let json_str = serde_json::to_string(&params).unwrap();
     assert!(json_str.contains("test_task"));
     assert!(json_str.contains("high"));
-    assert!(json_str.contains("node-123"));
+    assert!(json_str.contains("spread"));
 
     // Test deserialization / 测试反序列化
     let deserialized: RegisterTaskParams = serde_json::from_str(&json_str).unwrap();
@@ -204,10 +205,9 @@ fn test_register_task_params_serialization() {
 #[test]
 fn test_list_tasks_params_deserialization() {
     // Test list tasks params deserialization / 测试列出任务参数反序列化
-    let query_str = "node_uuid=node-123&status=active&priority=high&limit=10&offset=0";
+    let query_str = "status=active&priority=high&limit=10&offset=0";
     let params: ListTasksParams = serde_urlencoded::from_str(query_str).unwrap();
 
-    assert_eq!(params.node_uuid.unwrap(), "node-123");
     assert_eq!(params.status.unwrap(), "active");
     assert_eq!(params.priority.unwrap(), "high");
     assert_eq!(params.limit.unwrap(), 10);
@@ -216,7 +216,6 @@ fn test_list_tasks_params_deserialization() {
     // Test partial query / 测试部分查询
     let partial_query_str = "status=inactive&limit=5";
     let partial_params: ListTasksParams = serde_urlencoded::from_str(partial_query_str).unwrap();
-    assert!(partial_params.node_uuid.is_none());
     assert_eq!(partial_params.status.unwrap(), "inactive");
     assert!(partial_params.priority.is_none());
     assert_eq!(partial_params.limit.unwrap(), 5);
@@ -224,10 +223,11 @@ fn test_list_tasks_params_deserialization() {
 }
 
 #[test]
-fn test_unregister_task_params_serialization() {
-    // Test unregister task params serialization / 测试注销任务参数序列化
-    let params = UnregisterTaskParams {
+ fn test_delete_task_params_serialization() {
+    // Test delete task params serialization / 测试删除任务参数序列化
+    let params = DeleteTaskParams {
         reason: Some("Task completed successfully".to_string()),
+        force: Some(true),
     };
 
     // Test serialization / 测试序列化
@@ -235,15 +235,19 @@ fn test_unregister_task_params_serialization() {
     assert!(json_str.contains("Task completed successfully"));
 
     // Test deserialization / 测试反序列化
-    let deserialized: UnregisterTaskParams = serde_json::from_str(&json_str).unwrap();
+    let deserialized: DeleteTaskParams = serde_json::from_str(&json_str).unwrap();
     assert_eq!(deserialized.reason.unwrap(), "Task completed successfully");
+    assert_eq!(deserialized.force, Some(true));
 
     // Test with no reason / 测试无原因情况
-    let no_reason_params = UnregisterTaskParams { reason: None };
+    let no_reason_params = DeleteTaskParams {
+        reason: None,
+        force: None,
+    };
     let no_reason_json = serde_json::to_string(&no_reason_params).unwrap();
-    let no_reason_deserialized: UnregisterTaskParams =
-        serde_json::from_str(&no_reason_json).unwrap();
+    let no_reason_deserialized: DeleteTaskParams = serde_json::from_str(&no_reason_json).unwrap();
     assert!(no_reason_deserialized.reason.is_none());
+    assert!(no_reason_deserialized.force.is_none());
 }
 
 #[test]
@@ -345,7 +349,8 @@ fn test_task_params_edge_cases() {
         name: "".to_string(),
         description: Some("".to_string()),
         priority: Some("".to_string()),
-        node_uuid: Some("".to_string()),
+        desired_replicas: Some(1),
+        scheduling_strategy: Some("spread".to_string()),
         endpoint: "".to_string(),
         version: "".to_string(),
         capabilities: Some(vec![]),
@@ -366,7 +371,8 @@ fn test_task_params_edge_cases() {
         name: long_string.clone(),
         description: Some(long_string.clone()),
         priority: Some("normal".to_string()),
-        node_uuid: Some(long_string.clone()),
+        desired_replicas: Some(3),
+        scheduling_strategy: Some("spread".to_string()),
         endpoint: format!("http://localhost:8080/{}", long_string),
         version: long_string.clone(),
         capabilities: Some(vec![long_string.clone()]),

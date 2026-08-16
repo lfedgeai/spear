@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::Notify;
 use tokio::time::{interval, timeout};
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
@@ -13,16 +14,31 @@ use crate::proto::sms::{
 };
 use crate::spearlet::ai::backend_assembly::backend_spec_from_config;
 use crate::spearlet::ai::credential_resolver::{CredentialResolution, CredentialResolver};
+use crate::spearlet::ai::dynamic_backend_registry::global_dynamic_backends;
 use crate::spearlet::config::SpearletConfig;
-use crate::spearlet::local_models::ManagedBackendRegistry;
 use crate::spearlet::ai::dynamic_backend_registry::DynamicBackendSource;
 use crate::spearlet::controller::Controller;
+
+#[derive(Clone, Debug, Default)]
+pub struct BackendReportTrigger {
+    notify: Arc<Notify>,
+}
+
+impl BackendReportTrigger {
+    pub fn trigger(&self) {
+        self.notify.notify_one();
+    }
+
+    async fn notified(&self) {
+        self.notify.notified().await;
+    }
+}
 
 #[derive(Debug)]
 pub struct BackendReporterService {
     config: Arc<SpearletConfig>,
     sms_channel: Option<Channel>,
-    managed_backends: Option<ManagedBackendRegistry>,
+    trigger: BackendReportTrigger,
     cancel: CancellationToken,
 }
 
@@ -30,12 +46,12 @@ impl BackendReporterService {
     pub fn new(
         config: Arc<SpearletConfig>,
         sms_channel: Option<Channel>,
-        managed_backends: Option<ManagedBackendRegistry>,
+        trigger: BackendReportTrigger,
     ) -> Self {
         Self {
             config,
             sms_channel,
-            managed_backends,
+            trigger,
             cancel: CancellationToken::new(),
         }
     }
@@ -47,11 +63,11 @@ impl BackendReporterService {
     pub fn start(&self) {
         let config = self.config.clone();
         let sms_channel = self.sms_channel.clone();
-        let managed_backends = self.managed_backends.clone();
+        let trigger = self.trigger.clone();
         let cancel = self.cancel.clone();
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
-                report_loop(config, sms_channel, managed_backends, cancel).await;
+                report_loop(config, sms_channel, trigger, cancel).await;
             });
             return;
         }
@@ -62,7 +78,7 @@ impl BackendReporterService {
                 .build();
             if let Ok(rt) = rt {
                 rt.block_on(async move {
-                    report_loop(config, sms_channel, managed_backends, cancel).await;
+                    report_loop(config, sms_channel, trigger, cancel).await;
                 });
             }
         });
@@ -120,10 +136,7 @@ fn build_backend_info_list(cfg: &SpearletConfig) -> Vec<BackendInfo> {
     out
 }
 
-fn collect_reportable_backends(
-    cfg: &SpearletConfig,
-    managed_backends: Option<&ManagedBackendRegistry>,
-) -> Vec<BackendInfo> {
+fn collect_reportable_backends(cfg: &SpearletConfig) -> Vec<BackendInfo> {
     let static_backends = build_backend_info_list(cfg);
     let mut by_name: HashMap<String, BackendInfo> = HashMap::new();
     for b in static_backends.into_iter() {
@@ -137,24 +150,21 @@ fn collect_reportable_backends(
         by_name.insert(name.to_string(), b);
     }
 
-    if let Some(m) = managed_backends {
-        // Report dynamic runtime backend facts back to SMS, including SMS-synced remote
-        // backends, so the Web Admin catalog can reflect what nodes can actually serve.
-        // 将动态运行时 backend 状态回报给 SMS（包含从 SMS 同步的 remote backends），
-        // 以便 Web Admin 目录能反映节点真实可用性。
-        for b in m
-            .list_merged_sorted(&[DynamicBackendSource::LocalController, DynamicBackendSource::Sms])
-            .into_iter()
-        {
-            let Some(spec) = b.spec.as_ref() else {
-                continue;
-            };
-            let name = spec.name.trim();
-            if name.is_empty() {
-                continue;
-            }
-            by_name.insert(name.to_string(), b);
+    // Report dynamic runtime backend facts back to SMS so the Web Admin
+    // catalog can reflect what nodes can actually serve.
+    // 将动态运行时 backend 状态回报给 SMS，以便 Web Admin 目录能反映节点真实可用性。
+    for b in global_dynamic_backends()
+        .list_merged_sorted(&[DynamicBackendSource::AiControlPlane])
+        .into_iter()
+    {
+        let Some(spec) = b.spec.as_ref() else {
+            continue;
+        };
+        let name = spec.name.trim();
+        if name.is_empty() {
+            continue;
         }
+        by_name.insert(name.to_string(), b);
     }
 
     by_name.into_values().collect::<Vec<_>>()
@@ -163,11 +173,13 @@ fn collect_reportable_backends(
 async fn report_loop(
     config: Arc<SpearletConfig>,
     sms_channel: Option<Channel>,
-    managed_backends: Option<ManagedBackendRegistry>,
+    trigger: BackendReportTrigger,
     cancel: CancellationToken,
 ) {
     let mut backoff_ms = config.sms_connect_retry_ms.max(200);
-    let mut ticker = interval(Duration::from_secs(30));
+    let mut ticker = interval(Duration::from_millis(
+        config.ai.backend_report_interval_ms.max(1_000),
+    ));
     let node_uuid = config.compute_node_uuid();
     let mut revision: u64 = 0;
 
@@ -176,15 +188,18 @@ async fn report_loop(
     };
 
     loop {
-        if cancel.is_cancelled() {
-            return;
+        tokio::select! {
+            _ = cancel.cancelled() => return,
+            _ = ticker.tick() => {}
+            _ = trigger.notified() => {
+                debug!(node_uuid = %node_uuid, "backend snapshot fast-path report triggered");
+            }
         }
-        ticker.tick().await;
 
         let mut client = BackendRegistryServiceClient::new(channel.clone());
 
         revision = revision.saturating_add(1);
-        let backends = collect_reportable_backends(&config, managed_backends.as_ref());
+        let backends = collect_reportable_backends(&config);
         let snapshot = NodeBackendSnapshot {
             node_uuid: node_uuid.clone(),
             revision,
@@ -225,7 +240,6 @@ async fn report_loop(
 mod tests {
     use super::*;
     use crate::proto::sms::{BackendHosting, BackendOrigin, BackendSpec, CredentialMaterial};
-    use crate::spearlet::ai::dynamic_backend_registry::DynamicBackendRegistry;
     use crate::spearlet::config::AiBackendConfig;
 
     fn mk_backend(name: &str, kind: &str, origin: BackendOrigin) -> BackendInfo {
@@ -252,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn collect_reportable_backends_includes_sms_dynamic_backends() {
+    fn collect_reportable_backends_includes_dynamic_backends() {
         let mut cfg = SpearletConfig::default();
         cfg.ai.backends.push(AiBackendConfig {
             name: "static-openai".to_string(),
@@ -271,21 +285,13 @@ mod tests {
             transports: vec!["http".to_string()],
         });
 
-        let managed = DynamicBackendRegistry::new();
-        managed.set_backends(
-            DynamicBackendSource::LocalController,
-            vec![mk_backend(
-                "local-managed",
-                "ollama_chat",
-                BackendOrigin::LocalController,
-            )],
-        );
-        managed.set_backends(
-            DynamicBackendSource::Sms,
-            vec![mk_backend("sms-remote", "openai_chat_completion", BackendOrigin::Sms)],
+        let global = crate::spearlet::ai::dynamic_backend_registry::global_dynamic_backends();
+        global.set_backends(
+            DynamicBackendSource::AiControlPlane,
+            vec![mk_backend("cp-remote", "openai_chat_completion", BackendOrigin::Sms)],
         );
 
-        let reported = collect_reportable_backends(&cfg, Some(&managed));
+        let reported = collect_reportable_backends(&cfg);
         let mut names = reported
             .into_iter()
             .filter_map(|b| b.spec.map(|s| s.name))
@@ -295,8 +301,7 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                "local-managed".to_string(),
-                "sms-remote".to_string(),
+                "cp-remote".to_string(),
                 "static-openai".to_string()
             ]
         );

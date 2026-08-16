@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::proto::sms::Task;
+use crate::proto::sms::{Task, TaskStatus};
 use crate::sms::error::{SmsError, SmsResult};
+use crate::sms::task_semantics::is_routable_task;
 
 const ENDPOINT_MAX_LEN: usize = 64;
 
@@ -29,7 +30,7 @@ impl TaskService {
 
     /// Register a task / 注册任务
     pub async fn register_task(&mut self, mut task: Task) -> SmsResult<()> {
-        let normalized_endpoint = normalize_endpoint(&task.endpoint)?;
+        let normalized_endpoint = normalize_gateway_endpoint(&task.endpoint)?;
         task.endpoint = normalized_endpoint.clone();
 
         let old_task = {
@@ -53,7 +54,7 @@ impl TaskService {
             }
 
             if let Some(old) = old_task.as_ref() {
-                let old_norm = normalize_endpoint(&old.endpoint)?;
+                let old_norm = normalize_gateway_endpoint(&old.endpoint)?;
                 if !old_norm.is_empty()
                     && old_norm != normalized_endpoint
                     && idx
@@ -76,13 +77,17 @@ impl TaskService {
         Ok(tasks.get(task_id).cloned())
     }
 
-    /// Get a task by endpoint / 根据 endpoint 获取任务
-    pub async fn get_task_by_endpoint(&self, endpoint: &str) -> SmsResult<Option<Task>> {
-        let normalized = normalize_endpoint(endpoint)?;
+    /// Resolve a routable task by endpoint.
+    /// 根据 endpoint 解析当前可路由的 task。
+    pub async fn resolve_routable_task_by_endpoint(&self, endpoint: &str) -> SmsResult<Option<Task>> {
+        let normalized = normalize_gateway_endpoint(endpoint)?;
         let idx = self.endpoint_index.read().await;
         if let Some(task_id) = idx.get(&normalized).cloned() {
             drop(idx);
-            return self.get_task(&task_id).await;
+            return Ok(self
+                .get_task(&task_id)
+                .await?
+                .filter(is_routable_task));
         }
         Ok(None)
     }
@@ -108,7 +113,7 @@ impl TaskService {
         let removed = tasks.remove(task_id);
         drop(tasks);
         if let Some(task) = removed.as_ref() {
-            let normalized = normalize_endpoint(&task.endpoint)?;
+            let normalized = normalize_gateway_endpoint(&task.endpoint)?;
             if !normalized.is_empty() {
                 let mut idx = self.endpoint_index.write().await;
                 idx.remove(&normalized);
@@ -117,10 +122,45 @@ impl TaskService {
         Ok(removed.is_some())
     }
 
+    /// Mark a task as deleting while preserving endpoint reservation / 将任务标记为删除中，同时保留 endpoint 占用
+    pub async fn mark_task_deleting(
+        &mut self,
+        task_id: &str,
+        reason: &str,
+        requested_at: i64,
+    ) -> SmsResult<Option<Task>> {
+        let mut tasks = self.tasks.write().await;
+        let Some(task) = tasks.get_mut(task_id) else {
+            return Ok(None);
+        };
+
+        task.status = TaskStatus::Deleting as i32;
+        task.deletion_requested_at = requested_at;
+        task.deletion_reason = reason.to_string();
+        task.desired_replicas = 0;
+
+        Ok(Some(task.clone()))
+    }
+
+    /// Complete a pending task deletion / 完成处于删除中的任务删除
+    pub async fn complete_task_deletion(&mut self, task_id: &str) -> SmsResult<bool> {
+        let task = match self.get_task(task_id).await? {
+            Some(task) => task,
+            None => return Ok(false),
+        };
+        if task.status != TaskStatus::Deleting as i32 {
+            return Err(SmsError::InvalidRequest(format!(
+                "task {} is not deleting",
+                task_id
+            )));
+        }
+        self.remove_task(task_id).await
+    }
+
+
     /// List tasks with filters / 使用过滤器列出任务
     pub async fn list_tasks_with_filters(
         &self,
-        node_uuid: Option<&str>,
         status_filter: Option<i32>,
         priority_filter: Option<i32>,
         limit: Option<i32>,
@@ -130,13 +170,6 @@ impl TaskService {
         let mut filtered_tasks: Vec<Task> = tasks
             .values()
             .filter(|task| {
-                // Filter by node UUID if specified / 如果指定则按节点UUID过滤
-                if let Some(uuid) = node_uuid {
-                    if !uuid.is_empty() && task.node_uuid != uuid {
-                        return false;
-                    }
-                }
-
                 // Filter by status if specified / 如果指定则按状态过滤
                 if let Some(status) = status_filter {
                     if status >= 0 && task.status != status {
@@ -173,15 +206,6 @@ impl TaskService {
         Ok(filtered_tasks)
     }
 
-    /// List tasks by node / 根据节点列出任务
-    pub async fn list_tasks_by_node(&self, node_uuid: &str) -> SmsResult<Vec<Task>> {
-        let tasks = self.tasks.read().await;
-        Ok(tasks
-            .values()
-            .filter(|task| task.node_uuid == node_uuid)
-            .cloned()
-            .collect())
-    }
 }
 
 impl Default for TaskService {
@@ -214,10 +238,6 @@ fn normalize_gateway_endpoint(v: &str) -> SmsResult<String> {
     Ok(trimmed.to_ascii_lowercase())
 }
 
-fn normalize_endpoint(v: &str) -> SmsResult<String> {
-    normalize_gateway_endpoint(v)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,11 +254,11 @@ mod tests {
         let mut svc = TaskService::new();
         svc.register_task(make_task("t1", "Echo_01")).await.unwrap();
 
-        let t = svc.get_task_by_endpoint("echo_01").await.unwrap();
+        let t = svc.resolve_routable_task_by_endpoint("echo_01").await.unwrap();
         assert!(t.is_some());
         assert_eq!(t.unwrap().task_id, "t1");
 
-        let t2 = svc.get_task_by_endpoint("ECHO_01").await.unwrap();
+        let t2 = svc.resolve_routable_task_by_endpoint("ECHO_01").await.unwrap();
         assert!(t2.is_some());
         assert_eq!(t2.unwrap().endpoint, "echo_01");
     }
@@ -262,11 +282,49 @@ mod tests {
     async fn remove_task_removes_endpoint_index() {
         let mut svc = TaskService::new();
         svc.register_task(make_task("t1", "echo")).await.unwrap();
-        assert!(svc.get_task_by_endpoint("echo").await.unwrap().is_some());
+        assert!(svc.resolve_routable_task_by_endpoint("echo").await.unwrap().is_some());
 
         let removed = svc.remove_task("t1").await.unwrap();
         assert!(removed);
-        assert!(svc.get_task_by_endpoint("echo").await.unwrap().is_none());
+        assert!(svc.resolve_routable_task_by_endpoint("echo").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn deleting_task_is_hidden_from_endpoint_resolution() {
+        let mut svc = TaskService::new();
+        svc.register_task(make_task("t1", "echo")).await.unwrap();
+        let ts = chrono::Utc::now().timestamp();
+        let deleting = svc
+            .mark_task_deleting("t1", "delete requested", ts)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(deleting.status, TaskStatus::Deleting as i32);
+        assert_eq!(deleting.deletion_reason, "delete requested");
+        assert_eq!(deleting.deletion_requested_at, ts);
+        assert!(svc.resolve_routable_task_by_endpoint("echo").await.unwrap().is_none());
+        assert!(svc.get_task("t1").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn complete_task_deletion_requires_deleting_state() {
+        let mut svc = TaskService::new();
+        let task = make_task("t1", "echo");
+        svc.register_task(task).await.unwrap();
+
+        let err = svc.complete_task_deletion("t1").await.unwrap_err();
+        match err {
+            SmsError::InvalidRequest(_) => {}
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        svc.mark_task_deleting("t1", "delete requested", 1)
+            .await
+            .unwrap();
+        let removed = svc.complete_task_deletion("t1").await.unwrap();
+        assert!(removed);
+        assert!(svc.get_task("t1").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -295,7 +353,7 @@ mod tests {
         svc.register_task(make_task("t1", "echo")).await.unwrap();
         svc.register_task(make_task("t1", "echo2")).await.unwrap();
 
-        assert!(svc.get_task_by_endpoint("echo").await.unwrap().is_none());
-        assert!(svc.get_task_by_endpoint("echo2").await.unwrap().is_some());
+        assert!(svc.resolve_routable_task_by_endpoint("echo").await.unwrap().is_none());
+        assert!(svc.resolve_routable_task_by_endpoint("echo2").await.unwrap().is_some());
     }
 }

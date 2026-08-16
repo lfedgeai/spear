@@ -1,6 +1,6 @@
 # Web Admin UI Guide
 
-This document explains how to use the `spear-next` Web Admin, covering nodes, files, and task creation.
+This document explains how to use the current `spear-next` Web Admin, covering nodes, files, tasks, AI backends, and related control-plane workflows.
 
 ## Access & Auth
 
@@ -31,6 +31,12 @@ This document explains how to use the `spear-next` Web Admin, covering nodes, fi
 
 ## Task Creation (Tasks → Create Task)
 
+- The dialog is grouped into:
+  - `Task Basics`
+  - `MCP tools`
+  - `Routing`
+  - `Executable`
+- Long dialogs use a sticky header, scrollable body, and fixed footer actions.
 - Executable type: `No Executable | Binary | Script | Container | WASM | Process`
 - Executable URI accepts `smsfile://<id>` for embedded file artifacts
 - Parameters: `Capabilities` (comma), `Args` (comma), `Env` (`key=value` per line)
@@ -45,23 +51,72 @@ This document explains how to use the `spear-next` Web Admin, covering nodes, fi
 - AI Models page is split into `Local` and `Remote`
 - List supports search and availability filtering (available/unavailable)
 - Click a row to navigate to the model detail page and inspect per-node instances
+- AI Models is read-only. Create, edit, place, enable, disable, and delete backends from `AI Backends`.
+- Remote AI Models includes a shortcut to the shared credentials page at `AI Backends → Credentials`
 
-### Local: Create a deployment
+## AI Backends
 
-- Entry: Local → AI Models → `Create`
-- Form:
-  - Node: which node to deploy to
-  - Provider: defaults to `LLaMA CPP`
-  - Model name: display name
-  - Model URL: required for llamacpp, a direct `.gguf` URL (http/https)
-- On success the UI focuses the created deployment (via `deployment_id=...`) and shows progress in the `Provisioning` panel
+- The page is the write surface for backend definitions, placements, and credentials.
+- The top-level view can switch between:
+  - `Backends`
+  - `Model Views`
+- Creation is split into two explicit flows:
+  - `Create Remote Backend`
+  - `Create Local Backend`
+- Editing remains available from each backend row.
 
-### Local: Delete a deployment (even if available)
+### Create Remote Backend
 
-- Entry: Local → AI Models table → `Actions` → `Delete`
-- Behavior:
-  - Deletes matching deployments for the selected `(provider, model)` across the associated node(s)
-  - Spearlet will stop the local process and remove it from the backend registry on the next reconcile loop
+- Use this for OpenAI-, Ollama-, or other external endpoint-backed adapters.
+- Common fields:
+  - `Display name`
+  - `Provider`
+  - `Model`
+  - `Backend kind`
+  - `Base URL`
+  - `Credential ref`
+  - `Operations`
+  - `Features`
+  - `Transports`
+  - `Placement`
+
+### Create Local Backend
+
+- Use this for node-local runtimes such as `llamacpp` and `vllm`.
+- Placement defaults to `Single Node`.
+- For `local + llamacpp`, the UI surfaces runtime fields directly instead of requiring manual JSON editing:
+  - `Model URL`
+  - `Model Path`
+  - `Skip Download`
+  - `Download Timeout (s)`
+  - `Threads`
+  - `Context Size`
+- These fields are persisted back into backend metadata for the current runtime implementation.
+
+### Placement
+
+- Placement is configured during backend creation.
+- Supported scopes:
+  - `All Nodes`
+  - `Single Node`
+  - `Selected Nodes`
+- Per-placement overrides:
+  - `Weight override`
+  - `Priority override`
+
+### Backend Detail Page
+
+- The detail page shows:
+  - backend summary
+  - placements
+  - node status
+  - read-model views
+
+## Credentials
+
+- Entry: `AI Backends` → `Credentials`
+- Use this page to create, rotate, disable, and delete reusable secret refs for AI backends
+- Credentials are shared control-plane resources and are no longer nested under the AI Models area
 
 ## Known Issues & Fixes
 
@@ -69,6 +124,8 @@ This document explains how to use the `spear-next` Web Admin, covering nodes, fi
 
 ## Related Docs
 
-- `docs/web-admin-overview-en.md`
-- `docs/ui-tests-guide-en.md`
-- `docs/ollama-discovery-en.md`
+- [web-admin-overview-en.md](./web-admin-overview-en.md) for the current page and API surface
+- [backend-support-matrix-en.md](./backend-support-matrix-en.md) for supported backend kinds, providers, and operations
+- [ai-backend-unified-control-plane-design-en.md](./ai-backend-unified-control-plane-design-en.md) for the control-plane model behind AI Backends / AI Models
+- [ui-tests-guide-en.md](./ui-tests-guide-en.md) for frontend test guidance
+- [ollama-discovery-en.md](./ollama-discovery-en.md) for Ollama-specific discovery behavior

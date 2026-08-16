@@ -1,5 +1,8 @@
 import { useMemo } from 'react'
 import { type ExecutionSummary, type InstanceSummary, type TaskSummary } from '../api/spearApi'
+import { Button } from '../../../web-admin/src/shared/components/ui/button'
+import { Input } from '../../../web-admin/src/shared/components/ui/input'
+import { Select } from '../../../web-admin/src/shared/components/ui/select'
 
 export function ConnectDrawer(props: {
   tab: 'execution' | 'endpoint'
@@ -65,57 +68,66 @@ export function ConnectDrawer(props: {
         }}
       >
         <div className="cw-drawerHeader">
-          <div className="cw-drawerTitle">Connect</div>
+          <div className="cw-drawerHeading">
+            <div className="cw-drawerEyebrow">Connection Setup</div>
+            <div className="cw-drawerTitle">Connect</div>
+            <div className="cw-drawerDescription">
+              Pick an execution or endpoint target, then open a live console session.
+            </div>
+          </div>
           <div className="cw-drawerHeaderRight">
-            <button
-              className="cw-iconBtn"
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={props.onOpenInfo}
               disabled={props.tab === 'execution' ? !props.selectedExecutionId.trim() : false}
             >
               <span className="cw-btnGlyph">i</span>
               <span className="cw-btnText">Info</span>
-            </button>
-            <button className="cw-iconBtn" onClick={props.onClose}>
+            </Button>
+            <Button variant="secondary" size="sm" onClick={props.onClose}>
               <span className="cw-btnGlyph">×</span>
               <span className="cw-btnText">Close</span>
-            </button>
+            </Button>
           </div>
         </div>
 
         <div className="cw-drawerBody">
           <div className="cw-tabs">
-            <button
-              className={props.tab === 'execution' ? 'cw-tab cw-tabActive' : 'cw-tab'}
+            <Button
+              variant={props.tab === 'execution' ? 'default' : 'secondary'}
+              size="sm"
               onClick={() => props.onChangeTab('execution')}
             >
               By Execution
-            </button>
-            <button
-              className={props.tab === 'endpoint' ? 'cw-tab cw-tabActive' : 'cw-tab'}
+            </Button>
+            <Button
+              variant={props.tab === 'endpoint' ? 'default' : 'secondary'}
+              size="sm"
               onClick={() => props.onChangeTab('endpoint')}
             >
               By Endpoint
-            </button>
+            </Button>
           </div>
 
           {props.tab === 'execution' ? (
             <div className="cw-drawerSection">
+              <div className="cw-sectionTitle">Execution target</div>
               <div className="cw-modalRow">
                 <div className="cw-label">Task</div>
-                <select className="cw-select" value={props.selectedTaskId} onChange={(e) => props.onChangeTask(e.target.value)}>
+                <Select value={props.selectedTaskId} onChange={(e) => props.onChangeTask(e.target.value)}>
                   <option value="">Select a task…</option>
                   {props.tasks.map((t) => (
                     <option key={t.task_id} value={t.task_id}>
                       {t.name} ({t.task_id})
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
 
               <div className="cw-modalRow">
                 <div className="cw-label">Instance</div>
-                <select
-                  className="cw-select"
+                <Select
                   value={props.selectedInstanceId}
                   onChange={(e) => props.onChangeInstance(e.target.value)}
                   disabled={!props.selectedTaskId}
@@ -126,13 +138,12 @@ export function ConnectDrawer(props: {
                       {i.instance_id} ({i.status})
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
 
               <div className="cw-modalRow">
                 <div className="cw-label">Execution</div>
-                <select
-                  className="cw-select"
+                <Select
                   value={props.selectedExecutionId}
                   onChange={(e) => props.onChangeExecution(e.target.value)}
                   disabled={!props.selectedInstanceId}
@@ -143,15 +154,15 @@ export function ConnectDrawer(props: {
                       {x.execution_id} ({x.status}) {x.function_name ? `- ${x.function_name}` : ''}
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
             </div>
           ) : (
             <div className="cw-drawerSection">
+              <div className="cw-sectionTitle">Endpoint target</div>
               <div className="cw-modalRow">
                 <div className="cw-label">Endpoint</div>
-                <input
-                  className="cw-textInput"
+                <Input
                   value={props.endpointSearch}
                   onChange={(e) => props.onChangeEndpointSearch(e.target.value)}
                   placeholder="Search gateway_endpoint…"
@@ -190,7 +201,7 @@ export function ConnectDrawer(props: {
           )}
 
           <div className="cw-drawerSection">
-            <div className="cw-label">Connection details</div>
+            <div className="cw-sectionTitle">Connection details</div>
             <div className="cw-connDetails">
               <div className="cw-connDetailsRow">
                 <div className="cw-connDetailsKey">Target</div>
@@ -210,14 +221,14 @@ export function ConnectDrawer(props: {
         </div>
 
         <div className="cw-drawerFooter">
-          <button className="cw-btn" onClick={props.onClose}>
+          <Button variant="secondary" size="sm" onClick={props.onClose}>
             <span className="cw-btnGlyph">↩</span>
             <span className="cw-btnText">Cancel</span>
-          </button>
-          <button className="cw-btn cw-btnPrimary" onClick={props.onConnect} disabled={!canConnect}>
+          </Button>
+          <Button size="sm" onClick={props.onConnect} disabled={!canConnect}>
             <span className="cw-btnGlyph">↗</span>
             <span className="cw-btnText">Connect</span>
-          </button>
+          </Button>
         </div>
       </div>
     </div>

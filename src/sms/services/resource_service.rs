@@ -151,7 +151,7 @@ impl ResourceService {
     /// Create a new resource service with RocksDB backend / 创建使用RocksDB后端的新资源服务
     #[cfg(feature = "rocksdb")]
     pub fn new_with_rocksdb(db_path: &str) -> Result<Self, SmsError> {
-        let kv_store = create_kv_store(KvStoreType::RocksDb {
+        let kv_store = crate::storage::create_kv_store(crate::storage::KvStoreType::RocksDb {
             path: db_path.to_string(),
         })?;
         Ok(Self {
@@ -162,7 +162,7 @@ impl ResourceService {
     /// Create a new resource service with Sled backend / 创建使用Sled后端的新资源服务
     #[cfg(feature = "sled")]
     pub fn new_with_sled(db_path: &str) -> Result<Self, SmsError> {
-        let kv_store = create_kv_store(KvStoreType::Sled {
+        let kv_store = crate::storage::create_kv_store(crate::storage::KvStoreType::Sled {
             path: db_path.to_string(),
         })?;
         Ok(Self {

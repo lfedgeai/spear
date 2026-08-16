@@ -3,23 +3,28 @@
 
 import { decodeSsfV1Frame, encodeSsfV1Frame, SsfMsgType } from './ssf'
 
-export type StreamSession = {
+type StreamSession = {
   execution_id: string
   token: string
   ws_url: string
   expires_in_ms: number
 }
 
-export type AutoOpenStream = {
+type AutoOpenStream = {
   streamId: number
   meta: unknown
 }
 
-export type SpearStreamClientCallbacks = {
+type SpearStreamClientCallbacks = {
   onOpen?: () => void
   onClose?: (ev: CloseEvent) => void
   onError?: (ev: Event) => void
   onFrame?: (frame: { streamId: number; msgType: number; data: Uint8Array; meta: Uint8Array }) => void
+}
+
+export function sameOriginWebSocketUrl(path: string): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return new URL(path, `${protocol}//${window.location.host}`).toString()
 }
 
 export class SpearStreamClient {

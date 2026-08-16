@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package sms;
+
+import "sms/ai_backend.proto";
+
+// Placement record for enabling a backend on a node / 在节点上启用 backend 的 placement 记录
+message AiBackendPlacementRecord {
+  string placement_id = 1;
+  string backend_id = 2;
+  string node_uuid = 3;
+  AiBackendDesiredState desired_state = 4;
+  optional int32 weight_override = 5;
+  optional int32 priority_override = 6;
+  uint64 generation = 7;
+  int64 created_at_ms = 8;
+  int64 updated_at_ms = 9;
+}

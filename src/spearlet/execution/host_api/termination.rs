@@ -35,12 +35,12 @@ impl TerminationState {
 }
 
 #[derive(Clone, Debug)]
-pub struct WasmTerminationRegistry {
+pub struct TerminationRequestRegistry {
     scope: TerminationScope,
     inner: Arc<DashMap<String, Arc<TerminationState>>>,
 }
 
-impl WasmTerminationRegistry {
+impl TerminationRequestRegistry {
     fn new(scope: TerminationScope) -> Self {
         Self {
             scope,
@@ -48,7 +48,7 @@ impl WasmTerminationRegistry {
         }
     }
 
-    pub fn mark(&self, key: &str, errno: i32, message: Option<String>) {
+    pub fn request_termination(&self, key: &str, errno: i32, message: Option<String>) {
         let entry = self.inner.entry(key.to_string()).or_insert_with(|| {
             Arc::new(TerminationState {
                 terminated: AtomicBool::new(false),
@@ -61,11 +61,11 @@ impl WasmTerminationRegistry {
         *entry.message.lock() = message;
     }
 
-    pub fn clear(&self, key: &str) {
+    pub fn clear_termination_request(&self, key: &str) {
         self.inner.remove(key);
     }
 
-    pub fn check(&self, key: &str) -> Option<TerminationSnapshot> {
+    pub fn read_termination_request(&self, key: &str) -> Option<TerminationSnapshot> {
         let entry = self.inner.get(key)?;
         if !entry.terminated.load(Ordering::Acquire) {
             return None;
@@ -74,31 +74,39 @@ impl WasmTerminationRegistry {
     }
 }
 
-static EXEC_REGISTRY: OnceLock<Arc<WasmTerminationRegistry>> = OnceLock::new();
-static INSTANCE_REGISTRY: OnceLock<Arc<WasmTerminationRegistry>> = OnceLock::new();
+static EXEC_REGISTRY: OnceLock<Arc<TerminationRequestRegistry>> = OnceLock::new();
+static INSTANCE_REGISTRY: OnceLock<Arc<TerminationRequestRegistry>> = OnceLock::new();
 
-pub fn exec_registry() -> Arc<WasmTerminationRegistry> {
+pub fn execution_termination_registry() -> Arc<TerminationRequestRegistry> {
     EXEC_REGISTRY
-        .get_or_init(|| Arc::new(WasmTerminationRegistry::new(TerminationScope::Execution)))
+        .get_or_init(|| Arc::new(TerminationRequestRegistry::new(TerminationScope::Execution)))
         .clone()
 }
 
-pub fn instance_registry() -> Arc<WasmTerminationRegistry> {
+pub fn instance_termination_registry() -> Arc<TerminationRequestRegistry> {
     INSTANCE_REGISTRY
-        .get_or_init(|| Arc::new(WasmTerminationRegistry::new(TerminationScope::Instance)))
+        .get_or_init(|| Arc::new(TerminationRequestRegistry::new(TerminationScope::Instance)))
         .clone()
 }
 
-pub fn mark_execution_terminated(execution_id: &str, errno: i32, reason: Option<String>) {
-    exec_registry().mark(execution_id, errno, reason);
+pub fn register_execution_termination_request(
+    execution_id: &str,
+    errno: i32,
+    reason: Option<String>,
+) {
+    execution_termination_registry().request_termination(execution_id, errno, reason);
 }
 
-pub fn clear_execution_termination(execution_id: &str) {
-    exec_registry().clear(execution_id);
+pub fn clear_execution_termination_request(execution_id: &str) {
+    execution_termination_registry().clear_termination_request(execution_id);
 }
 
-pub fn mark_instance_destroyed(instance_id: &str, errno: i32, reason: Option<String>) {
-    instance_registry().mark(instance_id, errno, reason);
+pub fn register_instance_destruction_request(
+    instance_id: &str,
+    errno: i32,
+    reason: Option<String>,
+) {
+    instance_termination_registry().request_termination(instance_id, errno, reason);
 }
 
 #[cfg(test)]
@@ -121,58 +129,58 @@ mod tests {
     #[test]
     fn test_exec_registry_mark_check_clear() {
         let exec_id = "exec-test-1";
-        let reg = exec_registry();
-        reg.clear(exec_id);
+        let reg = execution_termination_registry();
+        reg.clear_termination_request(exec_id);
 
-        assert!(reg.check(exec_id).is_none());
+        assert!(reg.read_termination_request(exec_id).is_none());
 
-        reg.mark(exec_id, -11, Some("terminated".to_string()));
-        let s = reg.check(exec_id).unwrap();
+        reg.request_termination(exec_id, -11, Some("terminated".to_string()));
+        let s = reg.read_termination_request(exec_id).unwrap();
         assert_eq!(s.scope, TerminationScope::Execution);
         assert_eq!(s.errno, -11);
         assert_eq!(s.message.as_deref(), Some("terminated"));
 
-        reg.clear(exec_id);
-        assert!(reg.check(exec_id).is_none());
+        reg.clear_termination_request(exec_id);
+        assert!(reg.read_termination_request(exec_id).is_none());
     }
 
     #[test]
     fn test_instance_registry_mark_check_clear() {
         let instance_id = "inst-test-1";
-        let reg = instance_registry();
-        reg.clear(instance_id);
+        let reg = instance_termination_registry();
+        reg.clear_termination_request(instance_id);
 
-        assert!(reg.check(instance_id).is_none());
+        assert!(reg.read_termination_request(instance_id).is_none());
 
-        reg.mark(instance_id, -123, Some("destroyed".to_string()));
-        let s = reg.check(instance_id).unwrap();
+        reg.request_termination(instance_id, -123, Some("destroyed".to_string()));
+        let s = reg.read_termination_request(instance_id).unwrap();
         assert_eq!(s.scope, TerminationScope::Instance);
         assert_eq!(s.errno, -123);
         assert_eq!(s.message.as_deref(), Some("destroyed"));
 
-        reg.clear(instance_id);
-        assert!(reg.check(instance_id).is_none());
+        reg.clear_termination_request(instance_id);
+        assert!(reg.read_termination_request(instance_id).is_none());
     }
 
     #[test]
     fn test_default_host_api_prefers_execution_over_instance() {
         let exec_id = "exec-test-2";
         let instance_id = "inst-test-2";
-        exec_registry().clear(exec_id);
-        instance_registry().clear(instance_id);
+        execution_termination_registry().clear_termination_request(exec_id);
+        instance_termination_registry().clear_termination_request(instance_id);
 
-        mark_execution_terminated(exec_id, -libc::ECANCELED, Some("e".to_string()));
-        mark_instance_destroyed(instance_id, -libc::ECANCELED, Some("i".to_string()));
+        register_execution_termination_request(exec_id, -libc::ECANCELED, Some("e".to_string()));
+        register_instance_destruction_request(instance_id, -libc::ECANCELED, Some("i".to_string()));
 
         let mut api =
             DefaultHostApi::new(test_runtime_config()).with_instance_id(instance_id.to_string());
         api.set_execution_id(Some(exec_id.to_string()));
 
-        let s = api.check_wasm_termination().unwrap();
+        let s = api.read_wasm_termination_request().unwrap();
         assert_eq!(s.scope, TerminationScope::Execution);
         assert_eq!(s.message.as_deref(), Some("e"));
 
-        exec_registry().clear(exec_id);
-        instance_registry().clear(instance_id);
+        execution_termination_registry().clear_termination_request(exec_id);
+        instance_termination_registry().clear_termination_request(instance_id);
     }
 }

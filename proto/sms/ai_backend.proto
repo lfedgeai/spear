@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package sms;
+
+import "google/protobuf/struct.proto";
+import "sms/backend_spec.proto";
+
+// Hosting mode for an AI backend / AI backend 的托管模式
+enum AiBackendHosting {
+  AI_BACKEND_HOSTING_UNSPECIFIED = 0;
+  AI_BACKEND_HOSTING_REMOTE = 1;
+  AI_BACKEND_HOSTING_LOCAL = 2;
+}
+
+// Desired lifecycle state / 期望生命周期状态
+enum AiBackendDesiredState {
+  AI_BACKEND_DESIRED_STATE_UNSPECIFIED = 0;
+  AI_BACKEND_DESIRED_STATE_ENABLED = 1;
+  AI_BACKEND_DESIRED_STATE_DISABLED = 2;
+}
+
+// Management ownership mode / 管理归属模式
+enum AiBackendManagementMode {
+  AI_BACKEND_MANAGEMENT_MODE_UNSPECIFIED = 0;
+  AI_BACKEND_MANAGEMENT_MODE_SMS_REMOTE = 1;
+  AI_BACKEND_MANAGEMENT_MODE_SMS_LOCAL = 2;
+}
+
+// Canonical control-plane backend record / 控制面的规范 backend 记录
+message AiBackendRecord {
+  string backend_id = 1;
+  string display_name = 2;
+  string provider = 3;
+  string model = 4;
+  AiBackendHosting hosting = 5;
+  string backend_kind = 6;
+  AiBackendDesiredState desired_state = 7;
+  AiBackendManagementMode management_mode = 8;
+  optional string credential_ref = 9;
+  BackendSpec spec = 10;
+  map<string, string> labels = 11;
+  google.protobuf.Struct metadata = 12;
+  uint64 generation = 13;
+  int64 created_at_ms = 14;
+  int64 updated_at_ms = 15;
+}

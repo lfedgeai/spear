@@ -76,6 +76,17 @@ message ReportInstanceResponse {
   int64 stored_updated_at_ms = 2;
 }
 
+message DeleteInstanceRequest {
+  string instance_id = 1;
+  string task_id = 2;
+  int64 deleted_at_ms = 3;
+}
+
+message DeleteInstanceResponse {
+  bool accepted = 1;
+  int64 stored_updated_at_ms = 2;
+}
+
 message ReportExecutionResponse {
   bool accepted = 1;
   int64 stored_updated_at_ms = 2;
@@ -103,6 +114,18 @@ message ListInstanceExecutionsResponse {
   string next_page_token = 2;
 }
 
+message ListExecutionsRequest {
+  string task_id = 1;
+  int32 limit = 2;
+  string page_token = 3;
+  string status = 4;
+}
+
+message ListExecutionsResponse {
+  repeated Execution executions = 1;
+  string next_page_token = 2;
+}
+
 message GetInstanceRequest {
   string instance_id = 1;
 }
@@ -124,6 +147,7 @@ message GetExecutionResponse {
 
 service InstanceRegistryService {
   rpc ReportInstance(Instance) returns (ReportInstanceResponse);
+  rpc DeleteInstance(DeleteInstanceRequest) returns (DeleteInstanceResponse);
 }
 
 service ExecutionRegistryService {
@@ -133,6 +157,7 @@ service ExecutionRegistryService {
 service ExecutionIndexService {
   rpc ListTaskInstances(ListTaskInstancesRequest) returns (ListTaskInstancesResponse);
   rpc ListInstanceExecutions(ListInstanceExecutionsRequest) returns (ListInstanceExecutionsResponse);
+  rpc ListExecutions(ListExecutionsRequest) returns (ListExecutionsResponse);
   rpc GetInstance(GetInstanceRequest) returns (GetInstanceResponse);
   rpc GetExecution(GetExecutionRequest) returns (GetExecutionResponse);
 }

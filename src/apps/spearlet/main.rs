@@ -3,14 +3,14 @@
 
 use clap::Parser;
 use spear_next::config::init_tracing;
+use spear_next::spearlet::backend_reporter::BackendReportTrigger;
 use spear_next::spearlet::backend_reporter::BackendReporterService;
 use spear_next::spearlet::config::CliArgs;
 use spear_next::spearlet::controller::ControllerGroup;
 use spear_next::spearlet::grpc_server::GrpcServer;
 use spear_next::spearlet::http_gateway::HttpGateway;
 use spear_next::spearlet::ai::credential_sync::CredentialSyncService;
-use spear_next::spearlet::local_models::{global_managed_backends, LocalModelController};
-use spear_next::spearlet::ai::remote_backend_sync::RemoteBackendSyncService;
+use spear_next::spearlet::ai::backend_assignment_controller::BackendAssignmentController;
 use spear_next::spearlet::mcp::registry_sync::global_mcp_registry_sync_with_channel;
 use spear_next::spearlet::ollama_discovery::maybe_import_ollama_serving_models;
 use spear_next::spearlet::registration::RegistrationService;
@@ -20,7 +20,6 @@ use spear_next::spearlet::execution::ai::router::grpc_filter_stream::RouterFilte
 use spear_next::spearlet::execution::ai::router::Router;
 use spear_next::spearlet::execution::ai::AiEngine;
 use spear_next::spearlet::execution::runtime::{ResourcePoolConfig, RuntimeConfig, RuntimeType};
-use spear_next::spearlet::ai::RemoteBackendMergePolicy;
 use tonic::transport::Channel;
 
 use std::sync::Arc;
@@ -66,9 +65,8 @@ async fn run(
     } else {
         Some(sms_channel_lazy(&spearlet_cfg)?)
     };
-    let base_cfg_for_remote_sync = Arc::new(spearlet_cfg.clone());
+    let config = Arc::new(spearlet_cfg.clone());
 
-    let config = Arc::new(spearlet_cfg);
     let _ = spear_next::spearlet::ai::credential_resolver::init_global(&config);
 
     tracing::info!("Starting SPEARlet with args: {}", log_args);
@@ -81,7 +79,13 @@ async fn run(
     tracing::info!("  - Storage backend: {:?}", config.storage.backend);
     tracing::info!("  - Auto register: {}", config.auto_register);
 
-    let sms_channel = sms_channel;
+    let connect_requested = config.auto_register
+        || args.sms_grpc_addr.is_some()
+        || std::env::var("SPEARLET_SMS_GRPC_ADDR")
+            .ok()
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+
 
     global_mcp_registry_sync_with_channel(config.clone(), sms_channel.clone());
 
@@ -116,25 +120,22 @@ async fn run(
     let _holder = init_global(std::sync::Arc::new(EngineHolder::new(engine, 0)));
 
     let mut controllers = ControllerGroup::new();
+    let backend_report_trigger = BackendReportTrigger::default();
 
     if let Some(ch) = sms_channel.clone() {
-        let poll_ms = config.ai.remote_backend_sync.poll_interval_ms;
+        let poll_ms = config.ai.backend_control_plane_sync.poll_interval_ms;
         let credential_sync =
             CredentialSyncService::new(ch.clone(), std::time::Duration::from_millis(poll_ms));
         controllers.register(credential_sync);
 
-        if config.ai.remote_backend_sync.enabled {
-            let merge_policy =
-                RemoteBackendMergePolicy::parse(&config.ai.remote_backend_sync.merge_policy)
-                    .unwrap_or(RemoteBackendMergePolicy::SmsWinsByName);
-            let remote_backend_sync = RemoteBackendSyncService::new(
-                base_cfg_for_remote_sync,
-                ch,
-                std::time::Duration::from_millis(poll_ms),
-                merge_policy,
-            );
-            controllers.register(remote_backend_sync);
-        }
+        let backend_assignment_controller = BackendAssignmentController::new(
+            config.clone(),
+            ch.clone(),
+            std::time::Duration::from_millis(poll_ms),
+            backend_report_trigger.clone(),
+        );
+        controllers.register(backend_assignment_controller);
+
     }
 
     let grpc_server = GrpcServer::new(config.clone(), sms_channel.clone()).await?;
@@ -186,14 +187,7 @@ async fn run(
         }
     });
 
-    let connect_requested = config.auto_register
-        || args.sms_grpc_addr.is_some()
-        || std::env::var("SPEARLET_SMS_GRPC_ADDR")
-            .ok()
-            .map(|v| !v.is_empty())
-            .unwrap_or(false);
     if connect_requested {
-        let managed_backends = global_managed_backends();
         let registration_service = RegistrationService::new(config.clone(), sms_channel.clone());
         if let Err(e) = registration_service.start().await {
             tracing::error!("Registration service start failed: {}", e);
@@ -207,21 +201,20 @@ async fn run(
         let subscriber = spear_next::spearlet::task_events::TaskEventSubscriber::new(
             config.clone(),
             sms_channel.clone(),
-            execution_manager,
+            execution_manager.clone(),
         );
         subscriber.start().await;
-
-        let local_models = LocalModelController::new(
+        let assignment_subscriber = spear_next::spearlet::task_assignments::TaskAssignmentSubscriber::new(
             config.clone(),
             sms_channel.clone(),
-            managed_backends.clone(),
+            execution_manager,
         );
-        controllers.register(std::sync::Arc::new(local_models));
+        assignment_subscriber.start().await;
 
         let backend_reporter = BackendReporterService::new(
             config.clone(),
             sms_channel.clone(),
-            Some(managed_backends),
+            backend_report_trigger,
         );
         controllers.register(std::sync::Arc::new(backend_reporter));
     }

@@ -29,6 +29,7 @@ import { useVoiceController } from './hooks/useVoiceController'
 const APP_TITLE = 'SPEAR Console'
 
 export default function App() {
+  const pageRef = useRef<HTMLDivElement | null>(null)
   const [input, setInput] = useState<string>('')
   const {
     conversations,
@@ -62,6 +63,9 @@ export default function App() {
   })
   const [sidebarMode, setSidebarMode] = useState<'expanded' | 'collapsed'>('expanded')
   const [inspectorMode, setInspectorMode] = useState<'expanded' | 'collapsed'>('expanded')
+  const [sidebarWidth, setSidebarWidth] = useState(292)
+  const [inspectorWidth, setInspectorWidth] = useState(276)
+  const [resizingPane, setResizingPane] = useState<'sidebar' | 'inspector' | null>(null)
   const theme = useTheme()
   const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -159,6 +163,40 @@ export default function App() {
     endRef.current?.scrollIntoView({ block: 'end' })
   }, [activeMessagesLen])
 
+  useEffect(() => {
+    if (!resizingPane) return
+
+    function onMouseMove(event: MouseEvent) {
+      const pageRect = pageRef.current?.getBoundingClientRect()
+      if (!pageRect) return
+
+      if (resizingPane === 'sidebar') {
+        const nextWidth = Math.min(360, Math.max(240, event.clientX - pageRect.left))
+        setSidebarWidth(nextWidth)
+        return
+      }
+
+      const nextWidth = Math.min(360, Math.max(240, pageRect.right - event.clientX))
+      setInspectorWidth(nextWidth)
+    }
+
+    function onMouseUp() {
+      setResizingPane(null)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [resizingPane])
+
   const openConnectDrawer = useCallback(async (init?: { taskId?: string; instanceId?: string }) => {
     setConnectError('')
     setConnectLoading(true)
@@ -251,26 +289,44 @@ export default function App() {
   )
 
   return (
-    <div className="cw-page">
-      <ChatSidebar
-        mode={sidebarMode}
-        appTitle={APP_TITLE}
-        conversations={conversations}
-        activeId={activeId}
-        onToggle={() => setSidebarMode((m) => (m === 'expanded' ? 'collapsed' : 'expanded'))}
-        onNewChat={createBlankChat}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onSwitch={switchConversation}
-        onRename={(id, title) => {
-          setRenameId(id)
-          setRenameValue(title)
-          setRenameOpen(true)
-        }}
-        onDelete={(id) => {
-          disconnectConversation(id)
-          removeConversation(id)
-        }}
-      />
+    <div className={resizingPane ? 'cw-page cw-pageResizing' : 'cw-page'} ref={pageRef}>
+      <div
+        className="cw-sidebarShell"
+        style={
+          sidebarMode === 'expanded'
+            ? { width: `${sidebarWidth}px`, minWidth: `${sidebarWidth}px` }
+            : undefined
+        }
+      >
+        <ChatSidebar
+          mode={sidebarMode}
+          appTitle={APP_TITLE}
+          conversations={conversations}
+          activeId={activeId}
+          onToggle={() => setSidebarMode((m) => (m === 'expanded' ? 'collapsed' : 'expanded'))}
+          onNewChat={createBlankChat}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onSwitch={switchConversation}
+          onRename={(id, title) => {
+            setRenameId(id)
+            setRenameValue(title)
+            setRenameOpen(true)
+          }}
+          onDelete={(id) => {
+            disconnectConversation(id)
+            removeConversation(id)
+          }}
+        />
+        {sidebarMode === 'expanded' ? (
+          <div
+            className="cw-resizeHandle cw-resizeHandleSidebar"
+            onMouseDown={() => setResizingPane('sidebar')}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize left sidebar"
+          />
+        ) : null}
+      </div>
 
       <main className="cw-main">
         <ChatHeader
@@ -318,17 +374,35 @@ export default function App() {
           onCancel={() => disconnectConversation(activeId)}
         />
       </main>
-      <Inspector
-        mode={inspectorMode}
-        onToggle={() => setInspectorMode((m) => (m === 'expanded' ? 'collapsed' : 'expanded'))}
-        active={active ?? null}
-        targetText={activeTargetText}
-        status={activeStatus}
-        error={activeError}
-        micMode={voice.micMode}
-        voiceRecording={voice.voiceRecording}
-        voiceError={voice.voiceError}
-      />
+      <div
+        className="cw-inspectorShell"
+        style={
+          inspectorMode === 'expanded'
+            ? { width: `${inspectorWidth}px`, minWidth: `${inspectorWidth}px` }
+            : undefined
+        }
+      >
+        {inspectorMode === 'expanded' ? (
+          <div
+            className="cw-resizeHandle cw-resizeHandleInspector"
+            onMouseDown={() => setResizingPane('inspector')}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize right sidebar"
+          />
+        ) : null}
+        <Inspector
+          mode={inspectorMode}
+          onToggle={() => setInspectorMode((m) => (m === 'expanded' ? 'collapsed' : 'expanded'))}
+          active={active ?? null}
+          targetText={activeTargetText}
+          status={activeStatus}
+          error={activeError}
+          micMode={voice.micMode}
+          voiceRecording={voice.voiceRecording}
+          voiceError={voice.voiceError}
+        />
+      </div>
       {isConnectOpen ? (
         <ConnectDrawer
           tab={connectTab}

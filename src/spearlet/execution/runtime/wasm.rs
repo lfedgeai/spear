@@ -461,13 +461,13 @@ impl WasmRuntime {
                             match out {
                                 Ok(values) => Ok(format!("{:?}", values).into_bytes()),
                                 Err(e) => {
-                                    if let Some(s) = crate::spearlet::execution::host_api::termination::instance_registry().check(&instance_id) {
+                                    if let Some(s) = crate::spearlet::execution::host_api::termination::instance_termination_registry().read_termination_request(&instance_id) {
                                         Err(ExecutionError::InstanceDestroyed {
                                             message: s
                                                 .message
                                                 .unwrap_or_else(|| "instance destroyed".to_string()),
                                         })
-                                    } else if let Some(s) = crate::spearlet::execution::host_api::termination::exec_registry().check(&execution_id) {
+                                    } else if let Some(s) = crate::spearlet::execution::host_api::termination::execution_termination_registry().read_termination_request(&execution_id) {
                                         Err(ExecutionError::ExecutionTerminated {
                                             message: s
                                                 .message
@@ -482,7 +482,7 @@ impl WasmRuntime {
                             }
                         };
                         crate::spearlet::execution::host_api::set_current_wasm_execution_id(None);
-                        crate::spearlet::execution::host_api::termination::clear_execution_termination(&execution_id);
+                        crate::spearlet::execution::host_api::termination::clear_execution_termination_request(&execution_id);
                         let elapsed_ms = start.elapsed().as_millis() as u64;
                         tracing::debug!(
                             execution_id = %execution_id,

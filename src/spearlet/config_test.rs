@@ -47,6 +47,19 @@ mod tests {
         assert!(!config.auto_register);
         assert_eq!(config.heartbeat_interval, 30);
         assert_eq!(config.cleanup_interval, 300);
+        assert_eq!(config.ai.backend_report_interval_ms, 60_000);
+    }
+
+    #[test]
+    fn test_backend_report_interval_from_toml() {
+        let cfg: AppConfig = toml::from_str(
+            r#"
+[spearlet.ai]
+backend_report_interval_ms = 12345
+"#,
+        )
+        .expect("parse config");
+        assert_eq!(cfg.spearlet.ai.backend_report_interval_ms, 12_345);
     }
 
     #[test]

@@ -40,6 +40,7 @@ English README: [README.md](./README.md)
 使用仓库自带 Compose 文件：
 
 - `deploy/docker/compose.local.yaml`
+- 本地 Compose 栈会用 `rocksdb` feature 构建 SMS，并把 admin metadata 与 event KV 一起持久化到 `sms-data` volume。
 
 启动：
 
@@ -170,19 +171,40 @@ SPEARlet 支持在启动时从本机 Ollama 导入模型并生成对应的 AI ba
 
 ## Web Admin
 
-Web Admin 提供 Nodes/Tasks/Files/AI Models 等页面。
+Web Admin 提供 Nodes、Tasks、Files、AI Backends、AI Models、Credentials、MCP 和 Execution History 等页面。
 
-- AI Models 提供跨节点聚合视图，并区分 Local/Remote
-- Local AI Models 支持在节点上创建/删除 model deployment
+- AI Backends 是 backend 定义、placement 与 credentials 的控制面写入口
+- AI Models 提供跨节点只读聚合视图，并区分 Local / Remote
+- AI Backends 页面现在提供两条创建入口：
+  - `Create Remote Backend`
+  - `Create Local Backend`
+- backend 创建时会一并配置 placement：
+  - remote 默认 `All Nodes`
+  - local 默认 `Single Node`
+- backend 详情页可查看：
+  - placements
+  - 按节点的 runtime status
+  - read model views
 
-本地模型拉取（llamacpp）：
+本地模型拉起（`llamacpp`）：
 
-- `model` 只是展示用 key；当本地模型文件不存在时，实际下载取决于 `params.model_url`。
-- 支持参数：
-  - `model_url`：指向 `.gguf` 的 http/https URL（支持大文件）。
-  - `download_timeout_s`：总下载超时预算（秒，默认 3600）。
+- `model` 是路由 / 展示用 key；节点侧运行时使用 metadata 中的本地运行参数。
+- Web Admin 的 local 创建对话框已经把最常用的 `llamacpp` 字段提成显式输入，并在保存时自动写回 backend metadata。
+- 常用字段：
+  - `model_url`：指向 `.gguf` 的 http/https URL。
   - `model_path`：绝对路径，或相对于 `spearlet.local_models_dir` 的相对路径。
-  - `skip_download=1`：模型文件不存在时直接失败（不下载）。
+  - `skip_download=1`：模型文件不存在时直接失败，不执行下载。
+  - `download_timeout_s`：总下载超时预算（秒，默认 3600）。
+  - `threads`：映射到 `llama-server --threads`。
+  - `ctx_size`：映射到 `llama-server --ctx-size`。
+- 运行时仍支持的高级 metadata 字段：
+  - `server_mode`
+  - `server_cmd`
+  - `server_cmd_args`
+  - `ready_probe`
+  - `start_timeout_s`
+
+本地 `vllm` 当前仍以脚手架 / external endpoint 场景为主，并非完整托管的本地进程模式。
 
 文档：
 

@@ -1,30 +1,25 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 
 import { destroyInstance } from '@/api/control'
 import { getTaskDetail } from '@/api/tasks'
-import { listTaskInstances } from '@/api/instanceExecution'
-import type { InstanceSummary } from '@/api/types'
+import type { TaskDetail as TaskDetailResponse } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogHeader } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { cn } from '@/lib/utils'
+import { ReasonConfirmDialog } from '@/features/shared/ReasonConfirmDialog'
+import { TaskStatusBadge } from '@/features/shared/status-badges'
+import {
+  summarizeTaskInstances,
+  TaskInstancesPanel,
+} from '@/features/tasks/TaskInstancesSection'
+import DeleteTaskDialog from '@/features/tasks/DeleteTaskDialog'
+import { useTaskInstances } from '@/features/tasks/useTaskInstances'
 
-function formatMs(ts: number) {
+function formatSec(ts: number | undefined) {
   if (!ts) return '-'
-  return new Date(ts).toLocaleString()
-}
-
-function InstanceStatusBadge({ status }: { status: string }) {
-  const s = (status || '').toLowerCase()
-  if (s === 'running') return <Badge variant="success">running</Badge>
-  if (s === 'idle') return <Badge>idle</Badge>
-  if (s === 'terminating') return <Badge variant="secondary">terminating</Badge>
-  if (s === 'terminated') return <Badge variant="secondary">terminated</Badge>
-  return <Badge variant="destructive">{status || 'unknown'}</Badge>
+  return new Date(ts * 1000).toLocaleString()
 }
 
 export default function TaskDetailPage() {
@@ -36,6 +31,7 @@ export default function TaskDetailPage() {
   const [destroyReason, setDestroyReason] = useState('')
   const [destroyLoading, setDestroyLoading] = useState(false)
   const [destroyError, setDestroyError] = useState('')
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const taskQuery = useQuery({
     queryKey: ['task-detail', id],
@@ -43,34 +39,29 @@ export default function TaskDetailPage() {
     enabled: !!id,
   })
 
-  const instancesQuery = useInfiniteQuery({
-    queryKey: ['task-instances', id],
-    queryFn: ({ pageParam }) =>
-      listTaskInstances({
-        task_id: id,
-        limit: 100,
-        page_token: pageParam || undefined,
-      }),
-    enabled: !!id,
-    initialPageParam: '',
-    getNextPageParam: (lastPage) => {
-      if (!lastPage.success) return undefined
-      return lastPage.next_page_token || undefined
-    },
-    refetchInterval: 15_000,
-  })
-
-  const instances: InstanceSummary[] = useMemo(() => {
-    const pages = instancesQuery.data?.pages || []
-    const all: InstanceSummary[] = []
-    for (const p of pages) {
-      if (!p.success) continue
-      all.push(...(p.instances || []))
-    }
-    return all
-  }, [instancesQuery.data])
+  const {
+    query: instancesQuery,
+    instances,
+    displayedInstances,
+    destroyPendingIds,
+    loadErrorMessage,
+    markDestroyPending,
+  } = useTaskInstances(id)
 
   const title = useMemo(() => `Task ${id}`, [id])
+  const task = (taskQuery.data as TaskDetailResponse | undefined)?.task || null
+  const taskName = task?.name || ''
+  const desiredReplicas = task?.desired_replicas ?? 0
+  const activeReplicas = instances.length
+  const readyReplicas = instances.filter((row) => {
+    const status = row.status.toLowerCase()
+    return status === 'running' || status === 'idle'
+  }).length
+  const isReconciling = desiredReplicas > activeReplicas
+  const taskCapabilities = (task?.capabilities || []).filter(Boolean)
+  const resultUris = (task?.result_uris || []).filter(Boolean)
+  const instanceSummary = summarizeTaskInstances(displayedInstances)
+  const isDeleting = (task?.status || '').toLowerCase() === 'deleting'
 
   return (
     <div className="space-y-4">
@@ -89,6 +80,18 @@ export default function TaskDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Link to={`/executions?task_id=${encodeURIComponent(id)}`}>
+            <Button variant="secondary" disabled={!taskQuery.data?.found}>
+              Execution history
+            </Button>
+          </Link>
+          <Button
+            variant="destructive"
+            onClick={() => setDeleteOpen(true)}
+            disabled={!taskQuery.data?.found}
+          >
+            Delete
+          </Button>
           <Button variant="secondary" onClick={() => taskQuery.refetch()}>
             Refresh
           </Button>
@@ -98,7 +101,7 @@ export default function TaskDetailPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Overview</CardTitle>
+            <CardTitle>Replica status</CardTitle>
             <Button variant="secondary" onClick={() => taskQuery.refetch()}>
               Refresh
             </Button>
@@ -111,20 +114,166 @@ export default function TaskDetailPage() {
             <div className="text-sm text-[hsl(var(--muted-foreground))]">
               Failed to load task detail.
             </div>
-          ) : taskQuery.data?.found ? (
-            <pre className="max-h-[420px] overflow-auto rounded-[var(--radius)] border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] p-3 text-xs">
-              {JSON.stringify(taskQuery.data, null, 2)}
-            </pre>
+          ) : taskQuery.data?.found && task ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-[var(--radius)] border border-[hsl(var(--border))] p-3">
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Task status</div>
+                  <div className="mt-2">
+                    <TaskStatusBadge status={task.status} />
+                  </div>
+                </div>
+                <div className="rounded-[var(--radius)] border border-[hsl(var(--border))] p-3">
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Desired replicas</div>
+                  <div className="mt-2 text-2xl font-semibold">{desiredReplicas}</div>
+                </div>
+                <div className="rounded-[var(--radius)] border border-[hsl(var(--border))] p-3">
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Active replicas</div>
+                  <div className="mt-2 text-2xl font-semibold">{activeReplicas}</div>
+                  <div className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                    ready {readyReplicas}
+                  </div>
+                </div>
+                <div className="rounded-[var(--radius)] border border-[hsl(var(--border))] p-3">
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Reconcile state</div>
+                  <div className="mt-2">
+                    <Badge variant={isReconciling ? 'secondary' : 'success'}>
+                      {isReconciling ? 'reconciling' : 'at target'}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <div>
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Task ID</div>
+                  <div className="font-mono text-xs">{task.task_id}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Endpoint</div>
+                  <div className="font-mono text-xs">{task.endpoint || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Version</div>
+                  <div className="text-sm">{task.version || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Priority</div>
+                  <div className="text-sm">{task.priority || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Scheduling</div>
+                  <div className="text-sm">{String(task.scheduling_strategy || '-')}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Last heartbeat</div>
+                  <div className="text-sm">{formatSec(task.last_heartbeat)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Registered</div>
+                  <div className="text-sm">{formatSec(task.registered_at)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Executable</div>
+                  <div className="text-sm">{task.executable_type || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Last result</div>
+                  <div className="text-sm">{task.last_result_status || '-'}</div>
+                </div>
+              </div>
+
+              {task.description ? (
+                <div>
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Description</div>
+                  <div className="text-sm">{task.description}</div>
+                </div>
+              ) : null}
+
+              {taskCapabilities.length > 0 ? (
+                <div>
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Capabilities</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {taskCapabilities.map((capability) => (
+                      <Badge key={capability} variant="secondary">
+                        {capability}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {resultUris.length > 0 ? (
+                <div>
+                  <div className="text-xs text-[hsl(var(--muted-foreground))]">Result URIs</div>
+                  <div className="mt-2 space-y-1">
+                    {resultUris.map((uri) => (
+                      <div key={uri} className="font-mono text-xs">
+                        {uri}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {isDeleting ? (
+                <div className="rounded-[var(--radius)] border border-[hsl(var(--border))] bg-[hsl(var(--muted))] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium">Cleanup status</div>
+                      <div className="text-xs text-[hsl(var(--muted-foreground))]">
+                        Runtime cleanup is in progress. Task deletion completes after all active
+                        replicas disappear and runtime cleanup is acknowledged.
+                      </div>
+                    </div>
+                    <Badge variant={instanceSummary.total === 0 ? 'success' : 'secondary'}>
+                      {instanceSummary.total === 0 ? 'runtime cleaned' : 'cleanup pending'}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div>
+                      <div className="text-xs text-[hsl(var(--muted-foreground))]">
+                        Instances remaining
+                      </div>
+                      <div className="mt-1 text-lg font-semibold">{instanceSummary.total}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-[hsl(var(--muted-foreground))]">
+                        Active executions remaining
+                      </div>
+                      <div className="mt-1 text-lg font-semibold">
+                        {instanceSummary.activeExecutions}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-[hsl(var(--muted-foreground))]">
+                        Deletion requested
+                      </div>
+                      <div className="mt-1 text-sm">{formatSec(task.deletion_requested_at)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-[hsl(var(--muted-foreground))]">
+                        Deletion reason
+                      </div>
+                      <div className="mt-1 text-sm">{task.deletion_reason || '-'}</div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           ) : (
             <div className="text-sm text-[hsl(var(--muted-foreground))]">Not found</div>
           )}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Active instances</CardTitle>
+      <TaskInstancesPanel
+        title="Current replicas"
+        headerActions={
+          <>
+            <Link to={`/tasks/${encodeURIComponent(id)}/instances`}>
+              <Button variant="secondary">View all instances</Button>
+            </Link>
             <Button
               variant="secondary"
               onClick={() => {
@@ -133,214 +282,84 @@ export default function TaskDetailPage() {
             >
               Refresh
             </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {!instancesQuery.data ? (
-            <div className="text-sm text-[hsl(var(--muted-foreground))]">
-              {instancesQuery.isLoading ? 'Loading…' : 'No data'}
-            </div>
-          ) : instancesQuery.data.pages.some((p) => !p.success) ? (
-            <div className="text-sm text-[hsl(var(--muted-foreground))]">
-              {instancesQuery.data.pages.find((p) => !p.success)?.message ||
-                'Failed to load instances'}
-            </div>
-          ) : instances.length === 0 ? (
-            <div className="text-sm text-[hsl(var(--muted-foreground))]">
-              No active instances.
-            </div>
-          ) : (
-            <div className="overflow-auto rounded-[var(--radius)] border border-[hsl(var(--border))]">
-              <table className="w-full text-sm">
-                <thead className="bg-[hsl(var(--muted))] text-left text-xs text-[hsl(var(--muted-foreground))]">
-                  <tr>
-                    <th className="px-3 py-2">Instance</th>
-                    <th className="px-3 py-2">Node</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Last seen</th>
-                    <th className="px-3 py-2">Current execution</th>
-                    <th className="px-3 py-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {instances.map((row) => (
-                    <tr
-                      key={row.instance_id}
-                      className={cn(
-                        'cursor-pointer border-t border-[hsl(var(--border))] hover:bg-[hsl(var(--accent))]',
-                      )}
-                      onClick={() =>
-                        navigate(`/instances/${encodeURIComponent(row.instance_id)}`)
-                      }
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          navigate(`/instances/${encodeURIComponent(row.instance_id)}`)
-                        }
-                      }}
-                    >
-                      <td className="px-3 py-2 font-mono text-xs">
-                        <Link
-                          to={`/instances/${encodeURIComponent(row.instance_id)}`}
-                          className="hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {row.instance_id}
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs">
-                        {row.node_uuid ? (
-                          <Link
-                            to={`/nodes/${encodeURIComponent(row.node_uuid)}`}
-                            className="hover:underline"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {row.node_uuid}
-                          </Link>
-                        ) : (
-                          '-'
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        <InstanceStatusBadge status={row.status} />
-                      </td>
-                      <td className="px-3 py-2 text-xs text-[hsl(var(--muted-foreground))]">
-                        {formatMs(row.last_seen_ms)}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs">
-                        {row.current_execution_id ? (
-                          <Link
-                            to={`/executions/${encodeURIComponent(row.current_execution_id)}`}
-                            className="hover:underline"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {row.current_execution_id}
-                          </Link>
-                        ) : (
-                          '-'
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setDestroyError('')
-                              setDestroyReason('')
-                              setDestroyTarget({
-                                instanceId: row.instance_id,
-                                nodeUuid: row.node_uuid,
-                              })
-                              setDestroyOpen(true)
-                            }}
-                            disabled={!row.node_uuid}
-                          >
-                            Destroy
-                          </Button>
-                          <Link
-                            to={`/instances/${encodeURIComponent(row.instance_id)}`}
-                            className="text-xs text-[hsl(var(--muted-foreground))] hover:underline"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            View
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          </>
+        }
+        instances={displayedInstances}
+        showSummaryCards
+        emptyMessage="No replicas are currently reported for this task."
+        destroyPendingIds={destroyPendingIds}
+        onSelectInstance={(instanceId) =>
+          navigate(`/instances/${encodeURIComponent(instanceId)}`)
+        }
+        onDestroy={(row) => {
+          setDestroyError('')
+          setDestroyReason('')
+          setDestroyTarget({
+            instanceId: row.instance_id,
+            nodeUuid: row.node_uuid,
+          })
+          setDestroyOpen(true)
+        }}
+        isLoading={instancesQuery.isLoading}
+        hasData={!!instancesQuery.data}
+        loadErrorMessage={
+          instancesQuery.data?.pages.some((p) => !p.success)
+            ? loadErrorMessage || 'Failed to load instances'
+            : undefined
+        }
+        helpText="Destroying a replica terminates its running execution. If this task still needs replicas, SPEARlet should automatically create a replacement."
+        hasNextPage={instancesQuery.hasNextPage}
+        isFetchingNextPage={instancesQuery.isFetchingNextPage}
+        onLoadMore={() => instancesQuery.fetchNextPage()}
+      />
 
-          {instancesQuery.hasNextPage ? (
-            <div className="mt-3">
-              <Button
-                variant="secondary"
-                onClick={() => instancesQuery.fetchNextPage()}
-                disabled={!instancesQuery.hasNextPage || instancesQuery.isFetchingNextPage}
-              >
-                {instancesQuery.isFetchingNextPage ? 'Loading…' : 'Load more'}
-              </Button>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <Dialog open={destroyOpen} onOpenChange={setDestroyOpen}>
-        <DialogContent className="w-[min(520px,calc(100vw-24px))]">
-          <DialogHeader
-            title="Destroy instance"
-            description="Best-effort. This terminates all running executions on the instance."
-          />
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <div className="text-xs text-[hsl(var(--muted-foreground))]">Instance</div>
-                <div className="font-mono text-xs">{destroyTarget?.instanceId || '-'}</div>
-              </div>
-              <div>
-                <div className="text-xs text-[hsl(var(--muted-foreground))]">Node</div>
-                <div className="font-mono text-xs">{destroyTarget?.nodeUuid || '-'}</div>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <div className="text-xs text-[hsl(var(--muted-foreground))]">Reason (optional)</div>
-              <Input
-                value={destroyReason}
-                onChange={(ev) => setDestroyReason(ev.target.value)}
-                placeholder="Reason"
-              />
-            </div>
-            {destroyError ? (
-              <div className="text-sm text-[hsl(var(--destructive))]">{destroyError}</div>
-            ) : null}
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="secondary"
-                onClick={() => setDestroyOpen(false)}
-                disabled={destroyLoading}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                disabled={destroyLoading || !destroyTarget?.instanceId || !destroyTarget?.nodeUuid}
-                onClick={async () => {
-                  if (!destroyTarget?.instanceId || !destroyTarget?.nodeUuid) return
-                  setDestroyError('')
-                  setDestroyLoading(true)
-                  try {
-                    const resp = await destroyInstance({
-                      instance_id: destroyTarget.instanceId,
-                      node_uuid: destroyTarget.nodeUuid,
-                      reason: destroyReason.trim() ? destroyReason.trim() : undefined,
-                    })
-                    if (!resp.success) {
-                      setDestroyError(resp.message || 'Destroy failed')
-                      return
-                    }
-                    setDestroyOpen(false)
-                    void instancesQuery.refetch()
-                  } catch (err) {
-                    setDestroyError(
-                      String((err as { message?: string } | null)?.message || err || 'Destroy failed'),
-                    )
-                  } finally {
-                    setDestroyLoading(false)
-                  }
-                }}
-              >
-                {destroyLoading ? 'Destroying…' : 'Destroy'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ReasonConfirmDialog
+        open={destroyOpen}
+        onOpenChange={setDestroyOpen}
+        title="Destroy replica"
+        description="This removes one replica instance. Running executions on it will be terminated, and the system may replace it to meet the task replica target."
+        details={[
+          { label: 'Instance', value: destroyTarget?.instanceId || '-' },
+          { label: 'Node', value: destroyTarget?.nodeUuid || '-' },
+        ]}
+        reason={destroyReason}
+        onReasonChange={setDestroyReason}
+        error={destroyError}
+        confirmLabel="Destroy"
+        confirmingLabel="Destroying…"
+        confirmDisabled={!destroyTarget}
+        confirming={destroyLoading}
+        onConfirm={async () => {
+          if (!destroyTarget) return
+          setDestroyLoading(true)
+          setDestroyError('')
+          try {
+            const res = await destroyInstance({
+              instance_id: destroyTarget.instanceId,
+              node_uuid: destroyTarget.nodeUuid,
+              reason: destroyReason.trim() || undefined,
+            })
+            if (!res.success) throw new Error(res.message || 'Destroy failed')
+            markDestroyPending(destroyTarget.instanceId)
+            setDestroyOpen(false)
+            void instancesQuery.refetch()
+          } catch (e) {
+            setDestroyError((e as Error).message)
+          } finally {
+            setDestroyLoading(false)
+          }
+        }}
+      />
+      <DeleteTaskDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        taskId={id}
+        taskName={taskName}
+        onDeleted={() => {
+          setDeleteOpen(false)
+          navigate('/tasks')
+        }}
+      />
     </div>
   )
 }

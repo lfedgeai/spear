@@ -72,7 +72,7 @@ describe('ExecutionDetailPage', () => {
 
     renderPage('/executions/e-1')
 
-    await screen.findByText('Summary')
+    await screen.findByText('Run summary')
     const logsButton = screen.getByRole('button', { name: 'Logs' }) as HTMLButtonElement
     expect(logsButton.disabled).toBe(true)
   })
@@ -104,7 +104,7 @@ describe('ExecutionDetailPage', () => {
 
     renderPage('/executions/e-1')
 
-    await screen.findByText('Summary')
+    await screen.findByText('Run summary')
 
     const refresh = screen.getByRole('button', { name: 'Refresh' })
     fireEvent.click(refresh)

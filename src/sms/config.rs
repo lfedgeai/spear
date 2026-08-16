@@ -102,6 +102,13 @@ pub struct CliArgs {
         help = "Cleanup interval in seconds / 清理间隔时间（秒）"
     )]
     pub cleanup_interval: Option<u64>,
+    /// Periodic task assignment reconcile interval in seconds / 周期性任务分配收敛间隔（秒）
+    #[arg(
+        long,
+        value_name = "SECONDS",
+        help = "Periodic task assignment reconcile interval in seconds / 周期性任务分配收敛间隔（秒）"
+    )]
+    pub assignment_reconcile_interval: Option<u64>,
     /// Max upload size in bytes / 最大上传字节数
     #[arg(
         long,
@@ -187,6 +194,8 @@ pub struct SmsConfig {
     pub heartbeat_timeout: u64,
     /// Cleanup interval in seconds / 清理间隔时间（秒）
     pub cleanup_interval: u64,
+    /// Periodic task assignment reconcile interval in seconds / 周期性任务分配收敛间隔（秒）
+    pub assignment_reconcile_interval: u64,
     /// Max upload size in bytes for embedded file server / 内嵌文件服务器的最大上传字节数
     pub max_upload_bytes: u64,
     pub files_dir: String,
@@ -430,6 +439,11 @@ impl SmsConfig {
                 config.cleanup_interval = n;
             }
         }
+        if let Ok(v) = std::env::var("SMS_ASSIGNMENT_RECONCILE_INTERVAL") {
+            if let Ok(n) = v.parse::<u64>() {
+                config.assignment_reconcile_interval = n;
+            }
+        }
         if let Ok(v) = std::env::var("SMS_MAX_UPLOAD_BYTES") {
             if let Ok(n) = v.parse::<u64>() {
                 config.max_upload_bytes = n;
@@ -440,6 +454,9 @@ impl SmsConfig {
         }
         if let Some(n) = args.cleanup_interval {
             config.cleanup_interval = n;
+        }
+        if let Some(n) = args.assignment_reconcile_interval {
+            config.assignment_reconcile_interval = n;
         }
         if let Some(n) = args.max_upload_bytes {
             config.max_upload_bytes = n;
@@ -491,6 +508,7 @@ impl Default for SmsConfig {
             },
             heartbeat_timeout: 90,
             cleanup_interval: 30,
+            assignment_reconcile_interval: 60,
             max_upload_bytes: 64 * 1024 * 1024,
             files_dir: "./data/files".to_string(),
             execution_logs_dir: String::new(),

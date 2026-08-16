@@ -1,4 +1,6 @@
 import { type ChatMessage } from '../models/conversation'
+import { Button } from '../../../web-admin/src/shared/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '../../../web-admin/src/shared/components/ui/card'
 import { ChatBubble } from './ChatBubble'
 import type { RefObject } from 'react'
 
@@ -14,29 +16,39 @@ export function ChatView(props: {
       {props.messages.length ? (
         props.messages.map((m) => <ChatBubble key={m.id} message={m} />)
       ) : !props.hasActiveChat ? (
-        <div className="cw-empty">
-          <div className="cw-emptyTitle">No chat selected</div>
-          <div className="cw-emptyText">
-            Create a chat first, then connect it to an execution or endpoint when needed.
-          </div>
-          <div className="cw-emptyActions">
-            <button className="cw-btn" onClick={props.onNewChat}>
-              <span className="cw-btnGlyph">+</span>
-              <span className="cw-btnText">New chat</span>
-            </button>
-            <button className="cw-btn cw-btnPrimary" onClick={props.onNewChatAndConnect}>
-              <span className="cw-btnGlyph">↗</span>
-              <span className="cw-btnText">New chat and connect</span>
-            </button>
-          </div>
-        </div>
+        <Card className="cw-empty">
+          <CardHeader className="pb-2">
+            <div className="cw-emptyEyebrow">Start Here</div>
+            <CardTitle className="cw-emptyTitle">No chat selected</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="cw-emptyText">
+              Create a chat first, then connect it to an execution or endpoint when needed.
+            </div>
+            <div className="cw-emptyActions">
+              <Button variant="secondary" size="sm" onClick={props.onNewChat}>
+                <span className="cw-btnGlyph">+</span>
+                <span className="cw-btnText">New chat</span>
+              </Button>
+              <Button size="sm" onClick={props.onNewChatAndConnect}>
+                <span className="cw-btnGlyph">↗</span>
+                <span className="cw-btnText">New chat and connect</span>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       ) : (
-        <div className="cw-empty">
-          <div className="cw-emptyTitle">Connect and start chatting</div>
-          <div className="cw-emptyText">
-            Connect by execution (stream session) or by endpoint gateway. The chat window stays the same.
-          </div>
-        </div>
+        <Card className="cw-empty">
+          <CardHeader className="pb-2">
+            <div className="cw-emptyEyebrow">Next Step</div>
+            <CardTitle className="cw-emptyTitle">Connect and start chatting</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="cw-emptyText">
+              Connect by execution (stream session) or by endpoint gateway. The chat window stays the same.
+            </div>
+          </CardContent>
+        </Card>
       )}
       <div ref={props.endRef} />
     </div>

@@ -1,6 +1,8 @@
 import { fetchJson } from '@/api/client'
+import { buildAdminPath } from '@/api/query'
 import type {
   ListInstanceExecutionsResponse,
+  ListExecutionHistoryResponse,
   ListTaskInstancesResponse,
   GetInstanceResponse,
   GetExecutionResponse,
@@ -11,12 +13,11 @@ export function listTaskInstances(input: {
   limit?: number
   page_token?: string
 }) {
-  const qs = new URLSearchParams()
-  if (input.limit) qs.set('limit', String(input.limit))
-  if (input.page_token) qs.set('page_token', input.page_token)
-  const suffix = qs.toString() ? `?${qs.toString()}` : ''
   return fetchJson<ListTaskInstancesResponse>(
-    `/admin/api/tasks/${encodeURIComponent(input.task_id)}/instances${suffix}`,
+    buildAdminPath(`/admin/api/tasks/${encodeURIComponent(input.task_id)}/instances`, {
+      limit: input.limit,
+      page_token: input.page_token,
+    }),
   )
 }
 
@@ -25,12 +26,30 @@ export function listInstanceExecutions(input: {
   limit?: number
   page_token?: string
 }) {
-  const qs = new URLSearchParams()
-  if (input.limit) qs.set('limit', String(input.limit))
-  if (input.page_token) qs.set('page_token', input.page_token)
-  const suffix = qs.toString() ? `?${qs.toString()}` : ''
   return fetchJson<ListInstanceExecutionsResponse>(
-    `/admin/api/instances/${encodeURIComponent(input.instance_id)}/executions${suffix}`,
+    buildAdminPath(
+      `/admin/api/instances/${encodeURIComponent(input.instance_id)}/executions`,
+      {
+        limit: input.limit,
+        page_token: input.page_token,
+      },
+    ),
+  )
+}
+
+export function listExecutionHistory(input?: {
+  task_id?: string
+  status?: string
+  limit?: number
+  page_token?: string
+}) {
+  return fetchJson<ListExecutionHistoryResponse>(
+    buildAdminPath('/admin/api/executions', {
+      task_id: input?.task_id,
+      status: input?.status,
+      limit: input?.limit,
+      page_token: input?.page_token,
+    }),
   )
 }
 

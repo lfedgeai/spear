@@ -359,22 +359,16 @@ impl AppConfig {
                 config.spearlet.ai.enable_stub_backend = b;
             }
         }
-        if let Ok(v) = std::env::var("SPEARLET_AI_REMOTE_BACKEND_SYNC_ENABLED") {
-            if let Ok(b) = v.parse::<bool>() {
-                config.spearlet.ai.remote_backend_sync.enabled = b;
-            }
-        }
-        if let Ok(v) = std::env::var("SPEARLET_AI_REMOTE_BACKEND_SYNC_POLL_INTERVAL_MS") {
+        if let Ok(v) = std::env::var("SPEARLET_AI_BACKEND_CONTROL_PLANE_POLL_INTERVAL_MS") {
             if let Ok(n) = v.parse::<u64>() {
-                config.spearlet.ai.remote_backend_sync.poll_interval_ms = n;
+                config.spearlet.ai.backend_control_plane_sync.poll_interval_ms = n;
             }
         }
-        if let Ok(v) = std::env::var("SPEARLET_AI_REMOTE_BACKEND_SYNC_MERGE_POLICY") {
-            if !v.trim().is_empty() {
-                config.spearlet.ai.remote_backend_sync.merge_policy = v;
+        if let Ok(v) = std::env::var("SPEARLET_AI_BACKEND_REPORT_INTERVAL_MS") {
+            if let Ok(n) = v.parse::<u64>() {
+                config.spearlet.ai.backend_report_interval_ms = n;
             }
         }
-
         // Try loading from home directory first / 优先从用户主目录加载配置
         // Home path: ~/.spear/config.toml
         // 主目录路径：~/.spear/config.toml
@@ -564,13 +558,16 @@ impl SpearletConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AiConfig {
     pub default_policy: Option<String>,
     pub enable_stub_backend: bool,
-    /// SMS remote backend sync configuration / SMS 远端 backend 同步配置
-    pub remote_backend_sync: RemoteBackendSyncConfig,
+    /// Unified AI backend control-plane polling configuration
+    /// / 统一 AI backend 控制面轮询配置
+    pub backend_control_plane_sync: BackendControlPlaneSyncConfig,
+    /// Backend snapshot report interval in ms / backend 快照上报间隔（毫秒）
+    pub backend_report_interval_ms: u64,
     pub credentials: Vec<AiCredentialConfig>,
     pub backends: Vec<AiBackendConfig>,
     pub discovery: AiDiscoveryConfig,
@@ -578,26 +575,45 @@ pub struct AiConfig {
     pub router_grpc_filter_stream: Option<RouterGrpcFilterStreamConfig>,
 }
 
-/// Remote backend sync configuration / 远端 backend 同步配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct RemoteBackendSyncConfig {
-    /// Enable syncing remote backends from SMS / 是否启用从 SMS 同步远端 backend
-    pub enabled: bool,
-    /// Poll interval in ms / 轮询间隔（毫秒）
-    pub poll_interval_ms: u64,
-    /// Merge policy when local and SMS backends have the same name
-    /// / 当本地与 SMS 同名 backend 冲突时的合并策略
-    pub merge_policy: String,
-}
-
-impl Default for RemoteBackendSyncConfig {
+impl Default for AiConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
-            poll_interval_ms: 15_000,
-            merge_policy: "sms_wins_by_name".to_string(),
+            default_policy: None,
+            enable_stub_backend: true,
+            backend_control_plane_sync: BackendControlPlaneSyncConfig::default(),
+            backend_report_interval_ms: 60_000,
+            credentials: Vec::new(),
+            backends: Vec::new(),
+            discovery: AiDiscoveryConfig::default(),
+            router_grpc_filter_stream: None,
         }
+    }
+}
+
+/// Unified AI backend control-plane polling configuration / 统一 AI backend 控制面轮询配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BackendControlPlaneSyncConfig {
+    /// Poll interval in ms / 轮询间隔（毫秒）
+    pub poll_interval_ms: u64,
+}
+
+impl Default for BackendControlPlaneSyncConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval_ms: 15_000,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AiConfig;
+
+    #[test]
+    fn ai_config_uses_expected_backend_report_interval_by_default() {
+        let config = AiConfig::default();
+        assert_eq!(config.backend_report_interval_ms, 60_000);
     }
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react'
-import { SpearStreamClient, createStreamSession } from '../spearStream'
+import { SpearStreamClient, createStreamSession, sameOriginWebSocketUrl } from '../spearStream'
 import { type ChatMessage, guessTitleFromText, newId } from '../models/conversation'
 import { decodeAsUtf8, formatFramePrefix } from '../utils/text'
 import { SsfMsgType } from '../ssf'
@@ -8,7 +8,7 @@ import type { AudioOpenMetaV1, TextCommitMetaV1, TextDataMetaV1, TextOpenMetaV1,
 const DEFAULT_STREAM_ID = 1
 const VOICE_STREAM_ID = 2
 
-export type ConnectionTarget =
+type ConnectionTarget =
   | { kind: 'execution'; executionId: string }
   | { kind: 'endpoint'; gatewayEndpoint: string }
 
@@ -95,7 +95,7 @@ export function useSpearConnection(params: {
         if (target.kind === 'endpoint') {
           const endpoint = target.gatewayEndpoint.trim()
           if (!endpoint) throw new Error('no endpoint selected')
-          wsUrl = new URL(`/e/${encodeURIComponent(endpoint)}/ws`, window.location.origin).toString()
+          wsUrl = sameOriginWebSocketUrl(`/e/${encodeURIComponent(endpoint)}/ws`)
           subprotocol = 'ssf.v1'
         } else {
           const executionId = target.executionId.trim()

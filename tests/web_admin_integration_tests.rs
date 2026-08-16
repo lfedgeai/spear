@@ -68,6 +68,12 @@ async fn test_admin_list_nodes_empty() {
         )
         .await
         .unwrap();
+    let ai_backend_control_plane_client =
+        spear_next::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let instance_registry_client =
         spear_next::proto::sms::instance_registry_service_client::InstanceRegistryServiceClient::connect(
             grpc_url.clone(),
@@ -86,20 +92,8 @@ async fn test_admin_list_nodes_empty() {
         )
         .await
         .unwrap();
-    let model_deployment_registry_client =
-        spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
     let admin_credential_client =
         spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
-    let admin_ai_config_client =
-        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -108,15 +102,15 @@ async fn test_admin_list_nodes_empty() {
         config: Arc::new(SmsConfig::default()),
         node_client,
         task_client,
+        task_assignment_client: spear_next::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(tonic::transport::Channel::from_shared(grpc_url.clone()).unwrap().connect_lazy()),
         placement_client,
         instance_registry_client,
         execution_registry_client,
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        ai_backend_control_plane_client,
         admin_credential_client,
-        admin_ai_config_client,
-        model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
         cancel_token: CancellationToken::new(),
@@ -213,20 +207,14 @@ async fn test_admin_list_nodes_filter_and_sort() {
         )
         .await
         .unwrap();
+    let ai_backend_control_plane_client =
+        spear_next::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let admin_credential_client =
         spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
-    let model_deployment_registry_client =
-        spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
-    let admin_ai_config_client =
-        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -235,15 +223,15 @@ async fn test_admin_list_nodes_filter_and_sort() {
         config: Arc::new(SmsConfig::default()),
         node_client,
         task_client,
+        task_assignment_client: spear_next::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(tonic::transport::Channel::from_shared(grpc_url.clone()).unwrap().connect_lazy()),
         placement_client,
         instance_registry_client,
         execution_registry_client,
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        ai_backend_control_plane_client,
         admin_credential_client,
-        admin_ai_config_client,
-        model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
         cancel_token: CancellationToken::new(),
@@ -335,6 +323,12 @@ async fn test_admin_stats() {
         )
         .await
         .unwrap();
+    let ai_backend_control_plane_client =
+        spear_next::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let instance_registry_client =
         spear_next::proto::sms::instance_registry_service_client::InstanceRegistryServiceClient::connect(
             grpc_url.clone(),
@@ -353,20 +347,8 @@ async fn test_admin_stats() {
         )
         .await
         .unwrap();
-    let model_deployment_registry_client =
-        spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
     let admin_credential_client =
         spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
-    let admin_ai_config_client =
-        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -375,15 +357,15 @@ async fn test_admin_stats() {
         config: Arc::new(SmsConfig::default()),
         node_client,
         task_client,
+        task_assignment_client: spear_next::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(tonic::transport::Channel::from_shared(grpc_url.clone()).unwrap().connect_lazy()),
         placement_client,
         instance_registry_client,
         execution_registry_client,
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        ai_backend_control_plane_client,
         admin_credential_client,
-        admin_ai_config_client,
-        model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
         cancel_token: CancellationToken::new(),
@@ -434,6 +416,12 @@ async fn test_admin_nodes_stream() {
         )
         .await
         .unwrap();
+    let ai_backend_control_plane_client =
+        spear_next::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let instance_registry_client =
         spear_next::proto::sms::instance_registry_service_client::InstanceRegistryServiceClient::connect(
             grpc_url.clone(),
@@ -452,20 +440,8 @@ async fn test_admin_nodes_stream() {
         )
         .await
         .unwrap();
-    let model_deployment_registry_client =
-        spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
     let admin_credential_client =
         spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
-    let admin_ai_config_client =
-        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -474,15 +450,15 @@ async fn test_admin_nodes_stream() {
         config: Arc::new(SmsConfig::default()),
         node_client,
         task_client,
+        task_assignment_client: spear_next::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(tonic::transport::Channel::from_shared(grpc_url.clone()).unwrap().connect_lazy()),
         placement_client,
         instance_registry_client,
         execution_registry_client,
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        ai_backend_control_plane_client,
         admin_credential_client,
-        admin_ai_config_client,
-        model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
         cancel_token: CancellationToken::new(),
@@ -569,6 +545,12 @@ async fn test_admin_node_detail_includes_resource() {
         )
         .await
         .unwrap();
+    let ai_backend_control_plane_client =
+        spear_next::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let instance_registry_client =
         spear_next::proto::sms::instance_registry_service_client::InstanceRegistryServiceClient::connect(
             grpc_url.clone(),
@@ -587,20 +569,8 @@ async fn test_admin_node_detail_includes_resource() {
         )
         .await
         .unwrap();
-    let model_deployment_registry_client =
-        spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
     let admin_credential_client =
         spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
-    let admin_ai_config_client =
-        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -609,15 +579,15 @@ async fn test_admin_node_detail_includes_resource() {
         config: Arc::new(SmsConfig::default()),
         node_client,
         task_client,
+        task_assignment_client: spear_next::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(tonic::transport::Channel::from_shared(grpc_url.clone()).unwrap().connect_lazy()),
         placement_client,
         instance_registry_client,
         execution_registry_client,
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        ai_backend_control_plane_client,
         admin_credential_client,
-        admin_ai_config_client,
-        model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
         cancel_token: CancellationToken::new(),
@@ -709,6 +679,12 @@ async fn test_admin_node_credential_sync_proxy() {
         )
         .await
         .unwrap();
+    let ai_backend_control_plane_client =
+        spear_next::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let instance_registry_client =
         spear_next::proto::sms::instance_registry_service_client::InstanceRegistryServiceClient::connect(
             grpc_url.clone(),
@@ -727,20 +703,8 @@ async fn test_admin_node_credential_sync_proxy() {
         )
         .await
         .unwrap();
-    let model_deployment_registry_client =
-        spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
     let admin_credential_client =
         spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
-    let admin_ai_config_client =
-        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -749,15 +713,15 @@ async fn test_admin_node_credential_sync_proxy() {
         config: Arc::new(SmsConfig::default()),
         node_client,
         task_client,
+        task_assignment_client: spear_next::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(tonic::transport::Channel::from_shared(grpc_url.clone()).unwrap().connect_lazy()),
         placement_client,
         instance_registry_client,
         execution_registry_client,
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        ai_backend_control_plane_client,
         admin_credential_client,
-        admin_ai_config_client,
-        model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
         cancel_token: CancellationToken::new(),
@@ -813,6 +777,12 @@ async fn test_admin_mcp_servers_crud() {
         )
         .await
         .unwrap();
+    let ai_backend_control_plane_client =
+        spear_next::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let instance_registry_client =
         spear_next::proto::sms::instance_registry_service_client::InstanceRegistryServiceClient::connect(
             grpc_url.clone(),
@@ -831,20 +801,8 @@ async fn test_admin_mcp_servers_crud() {
         )
         .await
         .unwrap();
-    let model_deployment_registry_client =
-        spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
     let admin_credential_client =
         spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
-    let admin_ai_config_client =
-        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -854,15 +812,15 @@ async fn test_admin_mcp_servers_crud() {
         config: Arc::new(SmsConfig::default()),
         node_client,
         task_client,
+        task_assignment_client: spear_next::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(tonic::transport::Channel::from_shared(grpc_url.clone()).unwrap().connect_lazy()),
         placement_client,
         instance_registry_client,
         execution_registry_client,
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        ai_backend_control_plane_client,
         admin_credential_client,
-        admin_ai_config_client,
-        model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
         cancel_token: CancellationToken::new(),
@@ -943,6 +901,12 @@ async fn test_admin_mcp_servers_validation() {
         )
         .await
         .unwrap();
+    let ai_backend_control_plane_client =
+        spear_next::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient::connect(
+            grpc_url.clone(),
+        )
+        .await
+        .unwrap();
     let instance_registry_client =
         spear_next::proto::sms::instance_registry_service_client::InstanceRegistryServiceClient::connect(
             grpc_url.clone(),
@@ -961,20 +925,8 @@ async fn test_admin_mcp_servers_validation() {
         )
         .await
         .unwrap();
-    let model_deployment_registry_client =
-        spear_next::proto::sms::model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
     let admin_credential_client =
         spear_next::proto::sms::admin_credential_service_client::AdminCredentialServiceClient::connect(
-            grpc_url.clone(),
-        )
-        .await
-        .unwrap();
-    let admin_ai_config_client =
-        spear_next::proto::sms::admin_ai_config_service_client::AdminAiConfigServiceClient::connect(
             grpc_url.clone(),
         )
         .await
@@ -984,15 +936,15 @@ async fn test_admin_mcp_servers_validation() {
         config: Arc::new(SmsConfig::default()),
         node_client,
         task_client,
+        task_assignment_client: spear_next::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(tonic::transport::Channel::from_shared(grpc_url.clone()).unwrap().connect_lazy()),
         placement_client,
         instance_registry_client,
         execution_registry_client,
         execution_index_client,
         mcp_registry_client,
         backend_registry_client,
+        ai_backend_control_plane_client,
         admin_credential_client,
-        admin_ai_config_client,
-        model_deployment_registry_client,
         stream_sessions: spear_next::sms::gateway::StreamSessionStore::new(),
         execution_stream_pool: spear_next::sms::gateway::ExecutionStreamPool::new(),
         cancel_token: CancellationToken::new(),

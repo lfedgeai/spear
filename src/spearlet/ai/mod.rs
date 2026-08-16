@@ -7,10 +7,7 @@ pub mod dynamic_credential_store;
 pub mod credential_sync;
 pub mod credential_resolver;
 pub mod backend_assembly;
-pub mod remote_backend_policy;
-pub mod remote_backend_sync;
-
-pub use remote_backend_policy::RemoteBackendMergePolicy;
+pub mod backend_assignment_controller;
 
 pub fn collect_ai_global_environment(cfg: &SpearletConfig) -> HashMap<String, String> {
     let mut cred_env: HashMap<String, String> = HashMap::new();

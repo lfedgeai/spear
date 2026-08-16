@@ -1,4 +1,4 @@
-export type ApiError = {
+type ApiError = {
   /** HTTP status code / HTTP 状态码 */
   status: number
   /** Error message from server or synthesized message / 服务端错误信息或本地拼接信息 */

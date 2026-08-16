@@ -54,6 +54,8 @@ file = "./logs/spearlet.log"
 [spearlet.ai]
 # Backend routing policy / 后端路由策略
 default_policy = "weighted_random"
+# Backend snapshot report interval (ms) / backend 快照上报间隔（毫秒）
+backend_report_interval_ms = 60000
 
 [spearlet.ai.router_grpc_filter_stream]
 # Enable router filter / 是否启用 router filter

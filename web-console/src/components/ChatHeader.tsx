@@ -1,3 +1,5 @@
+import { Button } from '../../../web-admin/src/shared/components/ui/button'
+
 export function ChatHeader(props: {
   title: string
   targetText: string
@@ -10,6 +12,7 @@ export function ChatHeader(props: {
   return (
     <header className="cw-header">
       <div className="cw-headerLeft">
+        <div className="cw-headerEyebrow">Web Console</div>
         <div className="cw-headerTitle">{props.title}</div>
         <div className="cw-headerMeta">{props.targetText}</div>
       </div>
@@ -33,18 +36,14 @@ export function ChatHeader(props: {
         </div>
         {props.hasActiveChat ? (
           <div className="cw-headerActionGroup">
-            <button className="cw-btn cw-btnPrimary" onClick={props.onOpenConnect}>
+            <Button size="sm" onClick={props.onOpenConnect}>
               <span className="cw-btnGlyph">↗</span>
               <span className="cw-btnText">Connect…</span>
-            </button>
-            <button
-              className="cw-btn cw-danger"
-              onClick={props.onDisconnect}
-              disabled={props.status === 'disconnected'}
-            >
+            </Button>
+            <Button variant="destructive" size="sm" onClick={props.onDisconnect} disabled={props.status === 'disconnected'}>
               <span className="cw-btnGlyph">×</span>
               <span className="cw-btnText">Disconnect</span>
-            </button>
+            </Button>
           </div>
         ) : null}
       </div>

@@ -101,7 +101,7 @@ priority = 0
 
 ## SMS 托管的 remote backends
 
-通过 SMS / Web Admin 创建的 remote backends，会被 `spearlet` 里的 `RemoteBackendSyncService` 持续 watch，并合并进与本地控制器共用的动态 backend registry。
+通过 SMS / Web Admin 创建的 remote backends，会被 `spearlet` 里的 `BackendAssignmentController` 持续拉取/收敛，并合并进与本地控制器共用的动态 backend registry。
 
 当前运行时已支持的 SMS 动态 backend kind：
 

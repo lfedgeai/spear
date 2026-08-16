@@ -7,8 +7,8 @@ use tonic::transport::Server;
 use tracing::{error, info};
 
 use crate::proto::sms::{
+    ai_backend_control_plane_service_server::AiBackendControlPlaneServiceServer,
     admin_credential_service_server::AdminCredentialServiceServer,
-    admin_ai_config_service_server::AdminAiConfigServiceServer,
     backend_registry_service_server::BackendRegistryServiceServer,
     events_service_server::EventsServiceServer,
     execution_index_service_server::ExecutionIndexServiceServer,
@@ -16,8 +16,8 @@ use crate::proto::sms::{
     execution_registry_service_server::ExecutionRegistryServiceServer,
     instance_registry_service_server::InstanceRegistryServiceServer,
     mcp_registry_service_server::McpRegistryServiceServer,
-    model_deployment_registry_service_server::ModelDeploymentRegistryServiceServer,
     node_service_server::NodeServiceServer, placement_service_server::PlacementServiceServer,
+    task_placement_assignment_service_server::TaskPlacementAssignmentServiceServer,
     task_service_server::TaskServiceServer,
 };
 use crate::proto::spearlet::router_filter_service_server::RouterFilterServiceServer;
@@ -37,7 +37,9 @@ impl GrpcServer {
 
     /// Start the gRPC server / 启动gRPC服务器
     pub async fn start(self) -> Result<()> {
-        let (addr, sms_service) = self.prepare();
+        let addr = self.addr;
+        let sms_service = self.sms_service;
+        info!("Starting SMS gRPC server on {}", addr);
         let server = Server::builder()
             .add_service(NodeServiceServer::new(sms_service.clone()))
             .add_service(TaskServiceServer::new(sms_service.clone()))
@@ -46,13 +48,15 @@ impl GrpcServer {
             .add_service(ExecutionRegistryServiceServer::new(sms_service.clone()))
             .add_service(ExecutionIndexServiceServer::new(sms_service.clone()))
             .add_service(ExecutionLogIngestServiceServer::new(sms_service.clone()))
-            .add_service(McpRegistryServiceServer::new(sms_service.clone()))
-            .add_service(BackendRegistryServiceServer::new(sms_service.clone()))
-            .add_service(AdminCredentialServiceServer::new(sms_service.clone()))
-            .add_service(AdminAiConfigServiceServer::new(sms_service.clone()))
-            .add_service(ModelDeploymentRegistryServiceServer::new(
+            .add_service(TaskPlacementAssignmentServiceServer::new(
                 sms_service.clone(),
             ))
+            .add_service(McpRegistryServiceServer::new(sms_service.clone()))
+            .add_service(BackendRegistryServiceServer::new(sms_service.clone()))
+            .add_service(AiBackendControlPlaneServiceServer::new(
+                sms_service.clone(),
+            ))
+            .add_service(AdminCredentialServiceServer::new(sms_service.clone()))
             .add_service(RouterFilterServiceServer::new(sms_service.clone()))
             .add_service(PlacementServiceServer::new(sms_service))
             .serve(addr);
@@ -72,7 +76,9 @@ impl GrpcServer {
     where
         F: std::future::Future<Output = ()> + Send + 'static,
     {
-        let (addr, sms_service) = self.prepare();
+        let addr = self.addr;
+        let sms_service = self.sms_service;
+        info!("Starting SMS gRPC server on {}", addr);
         let server = Server::builder()
             .add_service(NodeServiceServer::new(sms_service.clone()))
             .add_service(TaskServiceServer::new(sms_service.clone()))
@@ -81,13 +87,15 @@ impl GrpcServer {
             .add_service(ExecutionRegistryServiceServer::new(sms_service.clone()))
             .add_service(ExecutionIndexServiceServer::new(sms_service.clone()))
             .add_service(ExecutionLogIngestServiceServer::new(sms_service.clone()))
-            .add_service(McpRegistryServiceServer::new(sms_service.clone()))
-            .add_service(BackendRegistryServiceServer::new(sms_service.clone()))
-            .add_service(AdminCredentialServiceServer::new(sms_service.clone()))
-            .add_service(AdminAiConfigServiceServer::new(sms_service.clone()))
-            .add_service(ModelDeploymentRegistryServiceServer::new(
+            .add_service(TaskPlacementAssignmentServiceServer::new(
                 sms_service.clone(),
             ))
+            .add_service(McpRegistryServiceServer::new(sms_service.clone()))
+            .add_service(BackendRegistryServiceServer::new(sms_service.clone()))
+            .add_service(AiBackendControlPlaneServiceServer::new(
+                sms_service.clone(),
+            ))
+            .add_service(AdminCredentialServiceServer::new(sms_service.clone()))
             .add_service(RouterFilterServiceServer::new(sms_service.clone()))
             .add_service(PlacementServiceServer::new(sms_service))
             .serve_with_shutdown(addr, shutdown);
@@ -100,10 +108,5 @@ impl GrpcServer {
         }
 
         Ok(())
-    }
-
-    fn prepare(&self) -> (SocketAddr, SmsServiceImpl) {
-        info!("Starting SMS gRPC server on {}", self.addr);
-        (self.addr, self.sms_service.clone())
     }
 }

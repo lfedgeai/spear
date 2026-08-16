@@ -2,21 +2,24 @@
 
 ## Overview
 
-SPEARlet includes a streaming Task Events subscriber that connects to the SMS `TaskService` and listens for task lifecycle events specific to the current node. It persists a cursor to ensure exactly-once processing across restarts and handles automatic reconnection with configurable backoff.
+SPEARlet includes a streaming Task Events subscriber that connects to the SMS `EventsService`, subscribes to the global task unified event stream, and filters task lifecycle events from `sms.TaskEvent` payloads. It persists a cursor to ensure resumable processing across restarts and handles automatic reconnection with configurable backoff.
 
 ## Components
 
-- `TaskEventSubscriber`: Maintains configuration and the last processed event ID cursor.
+- `TaskEventSubscriber`: Maintains configuration and the last processed event sequence cursor.
 - Node UUID derivation: Uses `node_name` if it is a valid UUID; otherwise derives a stable UUIDv5 from `grpc.addr`, `grpc.port`, and `node_name`.
-- Cursor persistence: Stores `last_event_id` under `storage.data_dir` with filename pattern `task_events_cursor_{node_uuid}.json`.
+- Cursor persistence: Stores `after_seq` under `storage.data_dir` with filename pattern `task_events_cursor_{node_uuid}.json`.
 
 ## Key Behaviors
 
-- Connects to SMS via `sms_grpc_addr` using gRPC and subscribes to `SubscribeTaskEvents` with `node_uuid` and `last_event_id`.
+- Connects to SMS via `sms_grpc_addr` using gRPC and subscribes to `EventsService.SubscribeEvents` with a `ResourceType::Task` selector and `after_seq`.
 - Streams events; on each event:
-  - Updates `last_event_id` in memory and persists to disk.
-  - For `Create` events, fetches task details via `GetTask` and prepares for execution dispatch (placeholder `todo!`).
-- Ignores events not targeted to the current node.
+  - Updates `after_seq` in memory and persists to disk.
+  - Only handles unified events where `resource_type == Task` and the payload decodes as `sms.TaskEvent`.
+  - For `Create` events, fetches task details via `GetTask` and materializes the task locally.
+  - For `Update` events, re-fetches the task snapshot from SMS and refreshes local materialization.
+  - For `Cancel` events, triggers local task runtime cleanup and deletion acknowledgment.
+- No longer filters by task-level `node_uuid`; every SPEARlet receives task control-plane events and only cleans up its own local task/instance state.
 - Automatically reconnects on stream or connection errors, waiting `sms_connect_retry_ms` between attempts.
 
 ## Configuration
@@ -67,7 +70,7 @@ The subscriber persists a cursor to `storage.data_dir`, enabling resubscription 
 
 - Retries connection on failure with `sms_connect_retry_ms` delay.
 - Handles stream errors gracefully, resubscribing after delay.
-- Validates `node_uuid` to ensure only node-targeted events are processed.
+- Does not depend on task-level `node_uuid` routing; local cleanup only applies to task/instance state materialized on the current node.
 - Cursor file directory is created on demand if missing.
 
 ## Testing

@@ -24,7 +24,7 @@ backend 的规范化与运行时实例化目前分散在多个模块：
 - `src/spearlet/execution/ai/router/mod.rs`
 - `src/spearlet/backend_reporter.rs`
 - `src/spearlet/local_models/llamacpp.rs`
-- `src/spearlet/ai/remote_backend_policy.rs`
+- `src/spearlet/ai/backend_assignment_controller.rs`
 
 重复内容包括：
 
@@ -166,9 +166,9 @@ backend 的规范化与运行时实例化目前分散在多个模块：
 已完成：
 
 - 删除过时的 `apply_sms_remote_backends` / `EffectiveSpearletConfig` 运行时模型
-- 将 `RemoteBackendMergePolicy` 提取到 `src/spearlet/ai/remote_backend_policy.rs`
+- 曾将 remote merge policy 独立抽取；现 remote legacy 已移除，该策略文件也已随之删除
 - 更新 router builder 文档，明确 dynamic registry 是唯一 runtime 路径
-- 删除 `RemoteBackendSyncService` 构造函数中未使用的 `EngineHolder` 依赖
+- 删除旧 remote sync 控制器构造函数中未使用的 `EngineHolder` 依赖
 
 ### 验收标准
 
@@ -343,8 +343,8 @@ list/upsert/delete/status/watch 的数据面 helper 已集中收口到 `sms/regi
 
 - `src/spearlet/execution/ai/router/builder.rs`
 - `src/spearlet/execution/ai/router/mod.rs`
-- `src/spearlet/ai/remote_backend_policy.rs`
-- `src/spearlet/ai/remote_backend_sync.rs`
+- `src/spearlet/ai/backend_assignment_controller.rs`
+- `src/spearlet/ai/backend_assignment_controller.rs`
 - `src/spearlet/backend_reporter.rs`
 - `src/spearlet/execution/ai/router/grpc_filter_stream.rs`
 - `src/spearlet/execution/ai/backends/openai_chat_completion.rs`

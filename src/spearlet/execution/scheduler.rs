@@ -336,6 +336,7 @@ impl InstanceScheduler {
                 instance.status() == InstanceStatus::Running
                     && instance.is_healthy()
                     && instance.is_ready()
+                    && !instance.is_at_capacity()
             })
             .cloned()
             .collect();
@@ -686,6 +687,25 @@ mod tests {
         if let Ok(Some(selected)) = scheduler.select_instance(&task).await {
             assert_eq!(selected.id(), instance2.id());
         }
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_skips_instances_at_capacity() {
+        let scheduler = InstanceScheduler::new(SchedulingPolicy::LeastConnections);
+        let task = create_test_task();
+
+        let instance1 = create_test_instance("instance-1", task.id().to_string());
+        let instance2 = create_test_instance("instance-2", task.id().to_string());
+
+        for _ in 0..instance1.config.max_concurrent_requests {
+            instance1.record_request_start();
+        }
+
+        scheduler.add_instance(instance1.clone()).await.unwrap();
+        scheduler.add_instance(instance2.clone()).await.unwrap();
+
+        let selected = scheduler.select_instance(&task).await.unwrap().unwrap();
+        assert_eq!(selected.id(), instance2.id());
     }
 
     #[test]

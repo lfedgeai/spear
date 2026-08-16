@@ -1,0 +1,185 @@
+syntax = "proto3";
+
+package sms;
+
+import "sms/ai_backend.proto";
+import "sms/ai_backend_placement.proto";
+import "sms/ai_backend_status.proto";
+
+// Request for listing backends / 列出 backend 的请求
+message ListAiBackendsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+  string q = 3;
+  string hosting = 4;
+  string desired_state = 5;
+  string provider = 6;
+  string model = 7;
+}
+
+// Response for listing backends / 列出 backend 的响应
+message ListAiBackendsResponse {
+  repeated AiBackendRecord backends = 1;
+  int32 total_count = 2;
+}
+
+// Request for fetching one backend / 获取单个 backend 的请求
+message GetAiBackendRequest { string backend_id = 1; }
+
+// Response for fetching one backend / 获取单个 backend 的响应
+message GetAiBackendResponse {
+  bool found = 1;
+  optional AiBackendRecord backend = 2;
+}
+
+// Request for creating one backend / 创建单个 backend 的请求
+message CreateAiBackendRequest { AiBackendRecord backend = 1; }
+
+// Response for creating one backend / 创建单个 backend 的响应
+message CreateAiBackendResponse { AiBackendRecord backend = 1; }
+
+// Request for updating one backend / 更新单个 backend 的请求
+message UpdateAiBackendRequest { AiBackendRecord backend = 1; }
+
+// Response for updating one backend / 更新单个 backend 的响应
+message UpdateAiBackendResponse { AiBackendRecord backend = 1; }
+
+// Request for deleting one backend / 删除单个 backend 的请求
+message DeleteAiBackendRequest { string backend_id = 1; }
+
+// Response for deleting one backend / 删除单个 backend 的响应
+message DeleteAiBackendResponse { bool deleted = 1; }
+
+// Request for changing one backend desired state / 修改单个 backend 期望状态的请求
+message SetAiBackendDesiredStateRequest {
+  string backend_id = 1;
+  AiBackendDesiredState desired_state = 2;
+}
+
+// Response for changing one backend desired state / 修改单个 backend 期望状态的响应
+message SetAiBackendDesiredStateResponse { AiBackendRecord backend = 1; }
+
+// Request for listing placements / 列出 placement 的请求
+message ListAiBackendPlacementsRequest {
+  string backend_id = 1;
+  string node_uuid = 2;
+}
+
+// Response for listing placements / 列出 placement 的响应
+message ListAiBackendPlacementsResponse {
+  repeated AiBackendPlacementRecord placements = 1;
+  int32 total_count = 2;
+}
+
+// Request for creating or updating one placement / 创建或更新单个 placement 的请求
+message UpsertAiBackendPlacementRequest { AiBackendPlacementRecord placement = 1; }
+
+// Response for creating or updating one placement / 创建或更新单个 placement 的响应
+message UpsertAiBackendPlacementResponse { AiBackendPlacementRecord placement = 1; }
+
+// Request for deleting one placement / 删除单个 placement 的请求
+message DeleteAiBackendPlacementRequest { string placement_id = 1; }
+
+// Response for deleting one placement / 删除单个 placement 的响应
+message DeleteAiBackendPlacementResponse { bool deleted = 1; }
+
+// Request for listing resolved node assignments / 列出节点解析后 assignment 的请求
+message ListAiBackendAssignmentsRequest { string node_uuid = 1; }
+
+// One resolved node assignment / 单个解析后的节点 assignment
+message ResolvedAiBackendAssignment {
+  AiBackendRecord backend = 1;
+  AiBackendPlacementRecord placement = 2;
+}
+
+// Response for listing resolved node assignments / 列出节点解析后 assignment 的响应
+message ListAiBackendAssignmentsResponse {
+  repeated ResolvedAiBackendAssignment assignments = 1;
+  int32 total_count = 2;
+}
+
+// Request for listing node statuses / 列出节点状态的请求
+message ListAiBackendNodeStatusesRequest { string backend_id = 1; }
+
+// Response for listing node statuses / 列出节点状态的响应
+message ListAiBackendNodeStatusesResponse {
+  repeated AiBackendNodeStatusRecord statuses = 1;
+  int32 total_count = 2;
+}
+
+// Request for reporting node statuses / 上报节点状态的请求
+message ReportAiBackendNodeStatusesRequest {
+  string node_uuid = 1;
+  repeated AiBackendNodeStatusRecord statuses = 2;
+}
+
+// Response for reporting node statuses / 上报节点状态的响应
+message ReportAiBackendNodeStatusesResponse {}
+
+// One projected read-model instance / 单个投影后的只读实例
+message AiModelViewInstance {
+  string backend_id = 1;
+  string node_uuid = 2;
+  AiBackendDesiredState placement_state = 3;
+  AiBackendDesiredState backend_state = 4;
+  optional AiBackendNodeStatus runtime_status = 5;
+  optional string runtime_backend_name = 6;
+  optional string endpoint = 7;
+  bool available = 8;
+}
+
+// One projected read-model row / 单个投影后的只读聚合行
+message AiModelView {
+  string provider = 1;
+  string model = 2;
+  AiBackendHosting hosting = 3;
+  repeated string backend_ids = 4;
+  repeated string operations = 5;
+  repeated string features = 6;
+  repeated string transports = 7;
+  int32 enabled_nodes = 8;
+  int32 ready_nodes = 9;
+  int32 total_nodes = 10;
+  repeated AiModelViewInstance instances = 11;
+}
+
+// Request for listing read-model views / 列出只读聚合视图的请求
+message ListAiModelViewsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+  string q = 3;
+  string hosting = 4;
+  string status = 5;
+  string provider = 6;
+  string model = 7;
+}
+
+// Response for listing read-model views / 列出只读聚合视图的响应
+message ListAiModelViewsResponse {
+  repeated AiModelView views = 1;
+  int32 total_count = 2;
+}
+
+// Unified AI backend control-plane gRPC service / 统一 AI backend 控制面的 gRPC 服务
+service AiBackendControlPlaneService {
+  rpc ListAiBackends(ListAiBackendsRequest) returns (ListAiBackendsResponse);
+  rpc GetAiBackend(GetAiBackendRequest) returns (GetAiBackendResponse);
+  rpc CreateAiBackend(CreateAiBackendRequest) returns (CreateAiBackendResponse);
+  rpc UpdateAiBackend(UpdateAiBackendRequest) returns (UpdateAiBackendResponse);
+  rpc DeleteAiBackend(DeleteAiBackendRequest) returns (DeleteAiBackendResponse);
+  rpc SetAiBackendDesiredState(SetAiBackendDesiredStateRequest)
+      returns (SetAiBackendDesiredStateResponse);
+  rpc ListAiBackendPlacements(ListAiBackendPlacementsRequest)
+      returns (ListAiBackendPlacementsResponse);
+  rpc UpsertAiBackendPlacement(UpsertAiBackendPlacementRequest)
+      returns (UpsertAiBackendPlacementResponse);
+  rpc DeleteAiBackendPlacement(DeleteAiBackendPlacementRequest)
+      returns (DeleteAiBackendPlacementResponse);
+  rpc ListAiBackendAssignments(ListAiBackendAssignmentsRequest)
+      returns (ListAiBackendAssignmentsResponse);
+  rpc ListAiBackendNodeStatuses(ListAiBackendNodeStatusesRequest)
+      returns (ListAiBackendNodeStatusesResponse);
+  rpc ReportAiBackendNodeStatuses(ReportAiBackendNodeStatusesRequest)
+      returns (ReportAiBackendNodeStatusesResponse);
+  rpc ListAiModelViews(ListAiModelViewsRequest) returns (ListAiModelViewsResponse);
+}

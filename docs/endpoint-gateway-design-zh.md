@@ -108,7 +108,8 @@ WS 建连成功后（WebSocket Close 或协议内 error frame）：
 
 备注：
 
-- task 指定了 `node_uuid` 时，只在该 node 上选择/创建 instance
+- task 不再绑定单一 `node_uuid`；placement 基于 task 的 `desired_replicas`、`scheduling_strategy` 与当前 active instances 分布做选择
+- MVP 已支持 `SPREAD`：优先选择当前该 task 实例数更少的 node
 - 后续可以引入负载、并发、亲和性、最近使用时间等排序
 
 ### 4.3 execution 绑定策略

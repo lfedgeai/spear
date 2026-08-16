@@ -24,6 +24,8 @@ RUSTC_VERSION := $(shell rustc --version 2>/dev/null || echo "unknown")
 
 WEB_ADMIN_DIR := web-admin
 WEB_CONSOLE_DIR := web-console
+NPM ?= $(or $(shell command -v npm 2>/dev/null),$(shell PATH=/opt/homebrew/bin:$$PATH command -v npm 2>/dev/null))
+NPM_BIN_DIR := $(patsubst %/,%,$(dir $(NPM)))
 
 CLIPPY_DENY_WARNINGS ?= 0
 
@@ -129,14 +131,14 @@ build-release: web-admin-build web-console-build
 # Run tests / 运行测试
 test:
 	@echo -e "$(BLUE)🧪 Running tests... / 运行测试...$(NC)"
-	@NOCAPTURE_ARGS=""; \
+	@TEST_ARGS="-- --test-threads=$${TEST_THREADS:-1}"; \
 	if [ "$(NOCAPTURE)" = "1" ]; then \
-		NOCAPTURE_ARGS="-- --nocapture"; \
+		TEST_ARGS="$$TEST_ARGS --nocapture"; \
 	fi; \
 	if [ -n "$(FEATURES)" ]; then \
-		$(CARGO) test --features $(FEATURES) $$NOCAPTURE_ARGS; \
+		$(CARGO) test --features $(FEATURES) $$TEST_ARGS; \
 	else \
-		$(CARGO) test $$NOCAPTURE_ARGS; \
+		$(CARGO) test $$TEST_ARGS; \
 	fi
 	@$(MAKE) web-admin-test
 	@$(MAKE) web-console-test
@@ -145,7 +147,7 @@ test:
 .PHONY: web-admin-build web-admin-lint web-admin-test web-console-build web-console-lint web-console-test
 web-admin-build:
 	@echo -e "$(BLUE)🔧 Building Web Admin assets... / 构建Web Admin静态资源...$(NC)"
-	@if ! command -v npm >/dev/null 2>&1; then \
+	@{ if [ -z "$(NPM)" ]; then \
 		if [ -f "assets/admin/index.html" ] && [ -f "assets/admin/main.js" ] && [ -f "assets/admin/main.css" ]; then \
 			echo -e "$(YELLOW)⚠️ npm not found, using existing assets/admin/* / 未找到npm，使用已有assets/admin/*$(NC)"; \
 			exit 0; \
@@ -153,15 +155,16 @@ web-admin-build:
 			echo -e "$(RED)❌ npm not found and assets/admin/* missing. Install npm or run in an environment with Node. / 未找到npm且assets/admin/*不存在，请安装Node/npm$(NC)"; \
 			exit 1; \
 		fi; \
-	fi
-	@cd $(WEB_ADMIN_DIR) && \
-		(if [ -f package-lock.json ]; then npm ci --silent; else npm install --silent; fi) && \
-		npm run build
+	else \
+		cd $(WEB_ADMIN_DIR) && \
+		(if [ -f package-lock.json ]; then PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" ci --silent; else PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" install --silent; fi) && \
+		PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" run build; \
+	fi; }
 	@echo -e "$(GREEN)✅ Web Admin assets built / Web Admin静态资源构建完成$(NC)"
 
 web-console-build:
 	@echo -e "$(BLUE)🔧 Building SPEAR Console assets... / 构建SPEAR Console静态资源...$(NC)"
-	@if ! command -v npm >/dev/null 2>&1; then \
+	@{ if [ -z "$(NPM)" ]; then \
 		if [ -f "assets/console/index.html" ] && [ -f "assets/console/main.js" ] && [ -f "assets/console/main.css" ]; then \
 			echo -e "$(YELLOW)⚠️ npm not found, using existing assets/console/* / 未找到npm，使用已有assets/console/*$(NC)"; \
 			exit 0; \
@@ -169,54 +172,59 @@ web-console-build:
 			echo -e "$(RED)❌ npm not found and assets/console/* missing. Install npm or run in an environment with Node. / 未找到npm且assets/console/*不存在，请安装Node/npm$(NC)"; \
 			exit 1; \
 		fi; \
-	fi
-	@cd $(WEB_CONSOLE_DIR) && \
-		(if [ -f package-lock.json ]; then npm ci --silent; else npm install --silent; fi) && \
-		npm run build
+	else \
+		cd $(WEB_CONSOLE_DIR) && \
+		(if [ -f package-lock.json ]; then PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" ci --silent; else PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" install --silent; fi) && \
+		PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" run build; \
+	fi; }
 	@echo -e "$(GREEN)✅ SPEAR Console assets built / SPEAR Console静态资源构建完成$(NC)"
 
 web-console-lint:
 	@echo -e "$(BLUE)🔍 Linting SPEAR Console... / SPEAR Console代码检查...$(NC)"
-	@if ! command -v npm >/dev/null 2>&1; then \
+	@{ if [ -z "$(NPM)" ]; then \
 		echo -e "$(YELLOW)⚠️ npm not found, skipping SPEAR Console lint / 未找到npm，跳过SPEAR Console代码检查$(NC)"; \
 		exit 0; \
-	fi
-	@cd $(WEB_CONSOLE_DIR) && \
-		(if [ -f package-lock.json ]; then npm ci --silent; else npm install --silent; fi) && \
-		npm run lint
+	else \
+		cd $(WEB_CONSOLE_DIR) && \
+		(if [ -f package-lock.json ]; then PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" ci --silent; else PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" install --silent; fi) && \
+		PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" run lint; \
+	fi; }
 	@echo -e "$(GREEN)✅ SPEAR Console lint completed / SPEAR Console代码检查完成$(NC)"
 
 web-console-test:
 	@echo -e "$(BLUE)🧪 Running SPEAR Console tests... / 运行SPEAR Console测试...$(NC)"
-	@if ! command -v npm >/dev/null 2>&1; then \
+	@{ if [ -z "$(NPM)" ]; then \
 		echo -e "$(YELLOW)⚠️ npm not found, skipping SPEAR Console tests / 未找到npm，跳过SPEAR Console测试$(NC)"; \
 		exit 0; \
-	fi
-	@cd $(WEB_CONSOLE_DIR) && \
-		(if [ -f package-lock.json ]; then npm ci --silent; else npm install --silent; fi) && \
-		npm test
+	else \
+		cd $(WEB_CONSOLE_DIR) && \
+		(if [ -f package-lock.json ]; then PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" ci --silent; else PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" install --silent; fi) && \
+		PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" test; \
+	fi; }
 	@echo -e "$(GREEN)✅ SPEAR Console tests completed / SPEAR Console测试完成$(NC)"
 
 web-admin-lint:
 	@echo -e "$(BLUE)🔍 Linting Web Admin... / Web Admin代码检查...$(NC)"
-	@if ! command -v npm >/dev/null 2>&1; then \
+	@{ if [ -z "$(NPM)" ]; then \
 		echo -e "$(YELLOW)⚠️ npm not found, skipping Web Admin lint / 未找到npm，跳过Web Admin代码检查$(NC)"; \
 		exit 0; \
-	fi
-	@cd $(WEB_ADMIN_DIR) && \
-		(if [ -f package-lock.json ]; then npm ci --silent; else npm install --silent; fi) && \
-		npm run lint
+	else \
+		cd $(WEB_ADMIN_DIR) && \
+		(if [ -f package-lock.json ]; then PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" ci --silent; else PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" install --silent; fi) && \
+		PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" run lint; \
+	fi; }
 	@echo -e "$(GREEN)✅ Web Admin lint completed / Web Admin代码检查完成$(NC)"
 
 web-admin-test:
 	@echo -e "$(BLUE)🧪 Running Web Admin tests... / 运行Web Admin测试...$(NC)"
-	@if ! command -v npm >/dev/null 2>&1; then \
+	@{ if [ -z "$(NPM)" ]; then \
 		echo -e "$(YELLOW)⚠️ npm not found, skipping Web Admin tests / 未找到npm，跳过Web Admin测试$(NC)"; \
 		exit 0; \
-	fi
-	@cd $(WEB_ADMIN_DIR) && \
-		(if [ -f package-lock.json ]; then npm ci --silent; else npm install --silent; fi) && \
-		npm test
+	else \
+		cd $(WEB_ADMIN_DIR) && \
+		(if [ -f package-lock.json ]; then PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" ci --silent; else PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" install --silent; fi) && \
+		PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" test; \
+	fi; }
 	@echo -e "$(GREEN)✅ Web Admin tests completed / Web Admin测试完成$(NC)"
 
 test-mic-device:
@@ -233,7 +241,7 @@ mac-build-release:
 .PHONY: test-ui
 test-ui:
 	@echo -e "$(BLUE)🧪 Running UI tests... / 运行UI测试...$(NC)"
-	@if ! command -v npm >/dev/null 2>&1; then \
+	@if [ -z "$(NPM)" ]; then \
 		echo -e "$(YELLOW)⚠️ npm not found, skipping UI tests / 未找到npm，跳过UI测试$(NC)"; \
 		exit 0; \
 	fi
@@ -263,10 +271,10 @@ test-ui:
 		fi; \
 	}
 	@$(MAKE) web-admin-build
-	@cd ui-tests && \
-		npm install --silent && \
-		npm run install:pw --silent || true && \
-		npm test
+	@cd $(WEB_ADMIN_DIR) && \
+		PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" install --silent && \
+		PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" run install:pw --silent || true && \
+		PATH="$(NPM_BIN_DIR):$$PATH" "$(NPM)" test
 	@echo -e "$(GREEN)✅ UI tests completed / UI测试完成$(NC)"
 
 # Run tests with specific feature / 运行特定特性的测试

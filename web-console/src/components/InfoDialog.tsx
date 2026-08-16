@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { Button } from '../../../web-admin/src/shared/components/ui/button'
 import { jsonPretty } from '../utils/text'
 
 export function InfoDialog(props: {
@@ -19,10 +20,10 @@ export function InfoDialog(props: {
         <div className="cw-modalHeader">
           <div className="cw-modalTitle">Execution info</div>
           <div className="cw-modalHeaderRight">
-            <button className="cw-iconBtn" onClick={props.onClose}>
+            <Button variant="secondary" size="sm" onClick={props.onClose}>
               <span className="cw-btnGlyph">×</span>
               <span className="cw-btnText">Close</span>
-            </button>
+            </Button>
           </div>
         </div>
         <div className="cw-modalBody">
@@ -45,12 +46,14 @@ export function InfoDialog(props: {
             <div className="cw-codeWrap">
               <div className="cw-codeHeader">
                 <div className="cw-codeLang">json</div>
-                <button
-                  className="cw-codeBtn"
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2"
                   onClick={() => navigator.clipboard?.writeText(taskText).catch(() => {})}
                 >
                   Copy
-                </button>
+                </Button>
               </div>
               <pre className="cw-code">
                 <code>{taskText}</code>
@@ -62,12 +65,14 @@ export function InfoDialog(props: {
             <div className="cw-codeWrap">
               <div className="cw-codeHeader">
                 <div className="cw-codeLang">json</div>
-                <button
-                  className="cw-codeBtn"
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2"
                   onClick={() => navigator.clipboard?.writeText(executionText).catch(() => {})}
                 >
                   Copy
-                </button>
+                </Button>
               </div>
               <pre className="cw-code">
                 <code>{executionText}</code>
@@ -76,10 +81,10 @@ export function InfoDialog(props: {
           </div>
         </div>
         <div className="cw-modalFooter">
-          <button className="cw-btn cw-btnPrimary" onClick={props.onClose}>
+          <Button size="sm" onClick={props.onClose}>
             <span className="cw-btnGlyph">✓</span>
             <span className="cw-btnText">Done</span>
-          </button>
+          </Button>
         </div>
       </div>
     </div>

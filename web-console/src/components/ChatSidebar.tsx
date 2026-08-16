@@ -1,4 +1,5 @@
 import { type Conversation } from '../models/conversation'
+import { Button } from '../../../web-admin/src/shared/components/ui/button'
 
 export function ChatSidebar(props: {
   mode: 'expanded' | 'collapsed'
@@ -17,22 +18,34 @@ export function ChatSidebar(props: {
     <aside className={collapsed ? 'cw-sidebar cw-sidebarCollapsed' : 'cw-sidebar'}>
       <div className="cw-brand">
         <div className="cw-panelHeader">
-          {collapsed ? <div className="cw-brandTitle" title={props.appTitle}>SC</div> : <div className="cw-brandTitle">{props.appTitle}</div>}
-          <button
-            className="cw-btn cw-btnIconToggle"
+          <div className="cw-brandBlock">
+            {!collapsed ? <div className="cw-brandEyebrow">Workspace</div> : null}
+            {collapsed ? <div className="cw-brandTitle" title={props.appTitle}>SC</div> : <div className="cw-brandTitle">{props.appTitle}</div>}
+            {!collapsed ? <div className="cw-brandMeta">Live console sessions and targets</div> : null}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--secondary))]"
             onClick={props.onToggle}
             title={collapsed ? 'Expand chats' : 'Collapse chats'}
             aria-label={collapsed ? 'Expand chats' : 'Collapse chats'}
           >
             {collapsed ? '»' : '«'}
-          </button>
+          </Button>
         </div>
-        <button className="cw-btn cw-btnPrimary" onClick={props.onNewChat} title="New chat">
+        <Button
+          size="sm"
+          className="justify-center"
+          onClick={props.onNewChat}
+          title="New chat"
+        >
           <span className="cw-btnGlyph">+</span>
           {!collapsed ? <span className="cw-btnText">New chat</span> : null}
-        </button>
+        </Button>
       </div>
 
+      {!collapsed ? <div className="cw-listSectionTitle">Recent chats</div> : null}
       <div className="cw-list">
         {props.conversations.map((c) => (
           <button
@@ -56,8 +69,10 @@ export function ChatSidebar(props: {
                       : 'no target'}
                 </div>
                 <div className="cw-convActions">
-                  <button
-                    className="cw-iconBtn"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
                     onClick={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
@@ -66,9 +81,11 @@ export function ChatSidebar(props: {
                   >
                     <span className="cw-btnGlyph">✎</span>
                     <span className="cw-btnText">Rename</span>
-                  </button>
-                  <button
-                    className="cw-iconBtn cw-danger"
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-7 px-2"
                     onClick={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
@@ -77,7 +94,7 @@ export function ChatSidebar(props: {
                   >
                     <span className="cw-btnGlyph">⌫</span>
                     <span className="cw-btnText">Delete</span>
-                  </button>
+                  </Button>
                 </div>
               </>
             )}
@@ -85,10 +102,17 @@ export function ChatSidebar(props: {
         ))}
       </div>
       <div className="cw-sidebarFooter">
-        <button className="cw-btn cw-btnSidebarSettings" onClick={props.onOpenSettings} title="Settings">
+        {!collapsed ? <div className="cw-sidebarFooterLabel">Preferences</div> : null}
+        <Button
+          variant="secondary"
+          size="sm"
+          className="cw-btnSidebarSettings justify-center"
+          onClick={props.onOpenSettings}
+          title="Settings"
+        >
           <span className="cw-btnGlyph cw-btnGlyphLarge">⚙</span>
           {!collapsed ? <span className="cw-btnText">Settings</span> : null}
-        </button>
+        </Button>
       </div>
     </aside>
   )

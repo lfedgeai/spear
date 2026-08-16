@@ -25,8 +25,10 @@ use crate::spearlet::execution::ai::router::filter_decision::{
 use crate::spearlet::execution::ai::router::policy::SelectionPolicy;
 use crate::spearlet::execution::ai::router::registry::{BackendInstance, BackendRegistry};
 use crate::spearlet::execution::ai::router::selection::{select_backend, snapshot_candidates};
+#[cfg(not(test))]
+use crate::spearlet::ai::dynamic_backend_registry::global_dynamic_backends;
 use crate::spearlet::ai::dynamic_backend_registry::{
-    global_dynamic_backends, DynamicBackendRegistry, DynamicBackendSource,
+    DynamicBackendRegistry, DynamicBackendSource,
 };
 use parking_lot::RwLock;
 use tracing::debug;
@@ -66,11 +68,15 @@ struct ManagedBackendCache {
 
 impl Router {
     pub fn new(registry: BackendRegistry, policy: SelectionPolicy) -> Self {
+        #[cfg(test)]
+        let dynamic_backends = DynamicBackendRegistry::new();
+        #[cfg(not(test))]
+        let dynamic_backends = global_dynamic_backends();
         Self {
             registry,
             policy,
             grpc_filter_stream: None,
-            dynamic_backends: global_dynamic_backends(),
+            dynamic_backends,
             dynamic_cache: Arc::new(RwLock::new(ManagedBackendCache {
                 revision: 0,
                 instances: Arc::new(Vec::new()),
@@ -83,6 +89,10 @@ impl Router {
         policy: SelectionPolicy,
         grpc_filter_stream: Option<Arc<grpc_filter_stream::RouterFilterStreamHub>>,
     ) -> Self {
+        #[cfg(test)]
+        let dynamic_backends = DynamicBackendRegistry::new();
+        #[cfg(not(test))]
+        let dynamic_backends = global_dynamic_backends();
         if let Some(h) = grpc_filter_stream.as_ref() {
             h.start_background();
         }
@@ -90,7 +100,7 @@ impl Router {
             registry,
             policy,
             grpc_filter_stream,
-            dynamic_backends: global_dynamic_backends(),
+            dynamic_backends,
             dynamic_cache: Arc::new(RwLock::new(ManagedBackendCache {
                 revision: 0,
                 instances: Arc::new(Vec::new()),
@@ -108,8 +118,7 @@ impl Router {
         }
 
         let merged = self.dynamic_backends.list_merged_sorted(&[
-            DynamicBackendSource::LocalController,
-            DynamicBackendSource::Sms,
+            DynamicBackendSource::AiControlPlane,
         ]);
         let mut out: Vec<BackendInstance> = Vec::new();
         for b in merged.into_iter() {

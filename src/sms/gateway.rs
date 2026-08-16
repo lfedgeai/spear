@@ -8,15 +8,15 @@ use tower_http::cors::CorsLayer;
 
 use super::routes::create_routes;
 use crate::proto::sms::{
+    ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient,
     admin_credential_service_client::AdminCredentialServiceClient,
-    admin_ai_config_service_client::AdminAiConfigServiceClient,
     backend_registry_service_client::BackendRegistryServiceClient,
     execution_index_service_client::ExecutionIndexServiceClient,
     execution_registry_service_client::ExecutionRegistryServiceClient,
     instance_registry_service_client::InstanceRegistryServiceClient,
     mcp_registry_service_client::McpRegistryServiceClient,
-    model_deployment_registry_service_client::ModelDeploymentRegistryServiceClient,
     node_service_client::NodeServiceClient, placement_service_client::PlacementServiceClient,
+    task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient,
     task_service_client::TaskServiceClient,
 };
 
@@ -333,16 +333,15 @@ pub struct GatewayState {
     pub config: Arc<crate::sms::config::SmsConfig>,
     pub node_client: NodeServiceClient<tonic::transport::Channel>,
     pub task_client: TaskServiceClient<tonic::transport::Channel>,
+    pub task_assignment_client: TaskPlacementAssignmentServiceClient<tonic::transport::Channel>,
     pub placement_client: PlacementServiceClient<tonic::transport::Channel>,
     pub instance_registry_client: InstanceRegistryServiceClient<tonic::transport::Channel>,
     pub execution_registry_client: ExecutionRegistryServiceClient<tonic::transport::Channel>,
     pub execution_index_client: ExecutionIndexServiceClient<tonic::transport::Channel>,
     pub mcp_registry_client: McpRegistryServiceClient<tonic::transport::Channel>,
     pub backend_registry_client: BackendRegistryServiceClient<tonic::transport::Channel>,
+    pub ai_backend_control_plane_client: AiBackendControlPlaneServiceClient<tonic::transport::Channel>,
     pub admin_credential_client: AdminCredentialServiceClient<tonic::transport::Channel>,
-    pub admin_ai_config_client: AdminAiConfigServiceClient<tonic::transport::Channel>,
-    pub model_deployment_registry_client:
-        ModelDeploymentRegistryServiceClient<tonic::transport::Channel>,
     /// Stream sessions for WS proxy / WS 代理的流会话
     pub stream_sessions: StreamSessionStore,
     pub execution_stream_pool: ExecutionStreamPool,

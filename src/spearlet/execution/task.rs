@@ -292,6 +292,67 @@ impl Task {
         *self.updated_at.write() = SystemTime::now();
     }
 
+    /// Mark the task as stopping when runtime teardown begins.
+    /// 当运行态拆除开始时将 task 标记为 stopping。
+    pub fn mark_stopping(&self) {
+        self.set_status(TaskStatus::Stopping);
+    }
+
+    /// Mark the task as fully stopped after teardown completes.
+    /// 在拆除完成后将 task 标记为 stopped。
+    pub fn mark_stopped(&self) {
+        self.set_status(TaskStatus::Stopped);
+    }
+
+    /// Check whether the task is already draining or fully stopped.
+    /// 检查 task 是否已经进入 draining 或完全停止。
+    pub fn is_stopping_or_stopped(&self) -> bool {
+        matches!(self.status(), TaskStatus::Stopping | TaskStatus::Stopped)
+    }
+
+    /// Check whether the task should be retained while idle.
+    /// 检查 task 在空闲时是否应继续保留。
+    pub fn is_retained_when_idle(&self) -> bool {
+        matches!(self.status(), TaskStatus::Ready | TaskStatus::Running)
+    }
+
+    /// Reconcile inventory-driven lifecycle states from current instance count.
+    /// 根据当前实例数量对齐由实例库存驱动的生命周期状态。
+    fn sync_status_from_instance_inventory(&self) {
+        let next_status = {
+            let current = self.status();
+            let instance_count = self.instance_count();
+            match current {
+                TaskStatus::Stopping | TaskStatus::Stopped | TaskStatus::Error(_) => None,
+                TaskStatus::Paused | TaskStatus::Scaling => None,
+                TaskStatus::Initializing => {
+                    if instance_count > 0 {
+                        Some(TaskStatus::Running)
+                    } else {
+                        None
+                    }
+                }
+                TaskStatus::Ready => {
+                    if instance_count > 0 {
+                        Some(TaskStatus::Running)
+                    } else {
+                        None
+                    }
+                }
+                TaskStatus::Running => {
+                    if instance_count == 0 {
+                        Some(TaskStatus::Ready)
+                    } else {
+                        None
+                    }
+                }
+            }
+        };
+        if let Some(next_status) = next_status {
+            self.set_status(next_status);
+        }
+    }
+
     /// Add an instance to this task / 向此 Task 添加实例
     pub fn add_instance(&self, instance: Arc<super::TaskInstance>) -> ExecutionResult<()> {
         // Verify instance belongs to this task / 验证实例属于此任务
@@ -311,6 +372,7 @@ impl Task {
         self.update_metrics(|metrics| {
             metrics.active_instances = self.instances.len() as u32;
         });
+        self.sync_status_from_instance_inventory();
 
         Ok(())
     }
@@ -332,6 +394,7 @@ impl Task {
         self.update_metrics(|metrics| {
             metrics.active_instances = self.instances.len() as u32;
         });
+        self.sync_status_from_instance_inventory();
 
         Ok(instance)
     }
@@ -481,6 +544,7 @@ impl Task {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::spearlet::execution::TaskInstance;
 
     #[test]
     fn test_task_creation() {
@@ -617,5 +681,70 @@ mod tests {
             Some(task.id().to_string())
         );
         assert_eq!(cfg.environment.get("FOO").cloned(), Some("bar".to_string()));
+    }
+
+    #[test]
+    fn test_instance_inventory_syncs_task_status() {
+        let spec = TaskSpec {
+            name: "test-task".to_string(),
+            task_type: TaskType::HttpHandler,
+            runtime_type: RuntimeType::Wasm,
+            entry_point: "main".to_string(),
+            handler_config: HashMap::new(),
+            task_config: HashMap::new(),
+            environment: HashMap::new(),
+            invocation_type: InvocationType::NewTask,
+            min_instances: 1,
+            max_instances: 10,
+            target_concurrency: 100,
+            scaling_config: ScalingConfig::default(),
+            health_check: HealthCheckConfig::default(),
+            timeout_config: TimeoutConfig::default(),
+        };
+
+        let task = Task::new("artifact-123".to_string(), spec);
+        let instance = Arc::new(TaskInstance::new(
+            task.id().to_string(),
+            task.create_instance_config(),
+        ));
+
+        assert_eq!(task.status(), TaskStatus::Initializing);
+        task.add_instance(instance.clone()).unwrap();
+        assert_eq!(task.status(), TaskStatus::Running);
+
+        task.remove_instance(instance.id()).unwrap();
+        assert_eq!(task.status(), TaskStatus::Ready);
+    }
+
+    #[test]
+    fn test_stopping_status_is_preserved_while_instances_drain() {
+        let spec = TaskSpec {
+            name: "test-task".to_string(),
+            task_type: TaskType::HttpHandler,
+            runtime_type: RuntimeType::Wasm,
+            entry_point: "main".to_string(),
+            handler_config: HashMap::new(),
+            task_config: HashMap::new(),
+            environment: HashMap::new(),
+            invocation_type: InvocationType::NewTask,
+            min_instances: 1,
+            max_instances: 10,
+            target_concurrency: 100,
+            scaling_config: ScalingConfig::default(),
+            health_check: HealthCheckConfig::default(),
+            timeout_config: TimeoutConfig::default(),
+        };
+
+        let task = Task::new("artifact-123".to_string(), spec);
+        let instance = Arc::new(TaskInstance::new(
+            task.id().to_string(),
+            task.create_instance_config(),
+        ));
+
+        task.add_instance(instance.clone()).unwrap();
+        task.mark_stopping();
+        task.remove_instance(instance.id()).unwrap();
+
+        assert_eq!(task.status(), TaskStatus::Stopping);
     }
 }

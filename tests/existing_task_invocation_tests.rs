@@ -113,11 +113,16 @@ async fn test_existing_task_invocation_allowed() {
         args: vec![],
         env: std::collections::HashMap::new(),
     });
-    let artifact_arc = mgr.ensure_artifact_from_sms(&sms_task).await.unwrap();
-    let _ = mgr
-        .ensure_task_from_sms(&sms_task, &artifact_arc)
+    let artifact_arc = mgr
+        .materialize_local_artifact_from_sms_snapshot(&sms_task)
         .await
         .unwrap();
+    let _ = mgr
+        .materialize_local_task_from_sms_snapshot_with_artifact(&sms_task, &artifact_arc)
+        .await
+        .unwrap();
+    let task = mgr.get_task_by_id("task-1").unwrap();
+    mgr.create_instance_for_task(&task).await.unwrap();
 
     let resp = mgr
         .submit_invocation(spear_next::proto::spearlet::InvokeRequest {

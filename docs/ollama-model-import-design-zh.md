@@ -13,7 +13,7 @@
 
 - Backend 注册发现与配置：[backend-adapter/backends-zh.md](./backend-adapter/backends-zh.md)
 - LLM credential_ref 规范：[implementation/llm-credentials-implementation-zh.md](./implementation/llm-credentials-implementation-zh.md)
-- Backend 可观测聚合（节点主动上报）：[backend-registry-api-design-zh.md](./backend-registry-api-design-zh.md)
+- Backend 可观测聚合与当前控制面模型：[ai-backend-unified-control-plane-design-zh.md](./ai-backend-unified-control-plane-design-zh.md)
 
 ## 目标
 

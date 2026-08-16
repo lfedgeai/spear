@@ -136,6 +136,7 @@ export default function McpEditDialog(props: {
       <DialogContent>
         <DialogHeader title={form.server_id ? 'Edit MCP Server' : 'Add MCP Server'} />
 
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
             <Input
@@ -188,8 +189,9 @@ export default function McpEditDialog(props: {
             />
           </div>
         </div>
+        </div>
 
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-[hsl(var(--border))] pt-3">
           <Button variant="secondary" onClick={() => props.onOpenChange(false)}>
             Cancel
           </Button>
@@ -201,4 +203,3 @@ export default function McpEditDialog(props: {
     </Dialog>
   )
 }
-

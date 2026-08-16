@@ -1,9 +1,9 @@
+#[cfg(feature = "debug-reporter")]
 use serde_json::Value;
 
 #[cfg(feature = "debug-reporter")]
 mod imp {
     use super::Value;
-    use std::collections::HashMap;
     use std::sync::OnceLock;
 
     #[derive(Clone)]
@@ -32,7 +32,7 @@ mod imp {
         })
     }
 
-    pub fn report_event(
+    fn report_event(
         hypothesis_id: &'static str,
         location: &'static str,
         msg: String,
@@ -66,17 +66,6 @@ mod imp {
         });
     }
 
-    pub fn enabled() -> bool {
-        cfg().as_ref().is_some()
-    }
-
-    pub fn if_enabled(f: impl FnOnce()) {
-        if cfg().as_ref().is_none() {
-            return;
-        }
-        f()
-    }
-
     pub fn report_termination(
         location: &'static str,
         snapshot: &crate::spearlet::execution::host_api::termination::TerminationSnapshot,
@@ -93,41 +82,10 @@ mod imp {
         );
     }
 
-    #[derive(Hash, PartialEq, Eq)]
-    struct CounterKey {
-        key: &'static str,
-        id: i32,
-    }
-
-    static COUNTERS: OnceLock<std::sync::Mutex<HashMap<CounterKey, u64>>> = OnceLock::new();
-
-    pub fn sampled_counter(key: &'static str, id: i32, first: u64, every: u64) -> Option<u64> {
-        if cfg().as_ref().is_none() {
-            return None;
-        }
-        let counters = COUNTERS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
-        let mut g = counters.lock().unwrap();
-        let c = g.entry(CounterKey { key, id }).or_insert(0);
-        *c = c.saturating_add(1);
-        let v = *c;
-        if v <= first || (every > 0 && v % every == 0) {
-            Some(v)
-        } else {
-            None
-        }
-    }
 }
 
 #[cfg(not(feature = "debug-reporter"))]
 mod imp {
-    use super::Value;
-
-    pub fn report_event(_: &'static str, _: &'static str, _: String, _: Value) {}
-    pub fn enabled() -> bool {
-        false
-    }
-    pub fn if_enabled(_: impl FnOnce()) {}
-
     pub fn report_termination(
         _: &'static str,
         _: &crate::spearlet::execution::host_api::termination::TerminationSnapshot,
@@ -135,9 +93,6 @@ mod imp {
     ) {
     }
 
-    pub fn sampled_counter(_: &'static str, _: i32, _: u64, _: u64) -> Option<u64> {
-        None
-    }
 }
 
-pub use imp::{enabled, if_enabled, report_event, report_termination, sampled_counter};
+pub use imp::report_termination;

@@ -61,7 +61,7 @@ BackendSpec.credential_ref
   - `RegistryWatchHub`
   - `KvStore`
 - spearlet:
-  - `RemoteBackendSyncService`
+  - `BackendAssignmentController`
   - `DynamicBackendRegistry`
 
 credential control plane 不应引入一套完全不同的同步模型。
@@ -129,7 +129,7 @@ AI Adapter
 
 - `src/sms/admin_credentials.rs`
 
-结构尽量对齐 `src/sms/admin_backends.rs`。
+结构可参考当前 unified 控制面持久化模块，例如 `src/sms/ai_backends/repository_kv.rs`。
 
 核心结构：
 
@@ -232,13 +232,13 @@ pub trait SecretCipher: Send + Sync {
 - 避免 dangling `credential_ref`
 - 易于理解
 
-可在 SMS 里复用现有 admin backends snapshot 做引用检查。
+可在 SMS 里直接扫描 unified `ai_backends` 记录做引用检查。
 
 ---
 
 ## 5. proto / gRPC API 设计
 
-建议新增独立服务，而不是塞进 `AdminAiConfigService`。
+建议新增独立服务，而不是塞进历史 legacy 配置服务。
 
 推荐：
 
@@ -300,8 +300,8 @@ rpc WatchCredentials(WatchCredentialsRequest) returns (stream WatchCredentialsRe
 
 当前实现状态：
 
-- 已提供独立 Web Admin 路由：`/ai-models/credentials`
-- Remote AI Models 页面已改为跳转到独立 credentials 页面
+- 已提供独立 Web Admin 路由：`/ai-backends/credentials`
+- Remote AI Models 页面已改为跳转到共享 credentials 页面
 
 ### 6.2 页面功能
 
@@ -382,7 +382,7 @@ pub struct CredentialValue {
 
 - `src/spearlet/ai/credential_sync.rs`
 
-结构尽量对齐 `RemoteBackendSyncService`：
+结构尽量对齐当前节点侧统一控制面控制器（`BackendAssignmentController`）：
 
 - 启动先 `list`
 - 再 `watch(since_revision)`

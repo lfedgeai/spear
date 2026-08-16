@@ -24,6 +24,10 @@ use crate::{
     rtasr_session::LiveCaptionRtasr,
 };
 
+fn debug_guest(message: impl std::fmt::Display) {
+    eprintln!("[live_caption] {message}");
+}
+
 pub fn run() -> Result<(), String> {
     let mut app = LiveCaptionApp::new()?;
     let result = app.run_loop();
@@ -121,11 +125,13 @@ impl LiveCaptionApp {
 
     fn handle_stream_connected(&mut self, stream_id: u32) -> Result<(), String> {
         if stream_id == self.text_stream.stream_id() && !self.text_stream.is_connected() {
+            debug_guest(format!("stream_connected text stream_id={stream_id}"));
             let _ = self
                 .text_stream
                 .attach_runtime_fd(&self.epoll, true)
                 .map_err(render_error)?;
         } else if stream_id == self.voice_stream.stream_id() && !self.voice_stream.is_connected() {
+            debug_guest(format!("stream_connected voice stream_id={stream_id}"));
             let _ = self
                 .voice_stream
                 .attach_runtime_fd(&self.epoll, false)
@@ -215,21 +221,25 @@ impl LiveCaptionApp {
         match message {
             IncomingStreamMessage::Ctrl(ctrl) => {
                 if is_open_handshake(&ctrl, self.voice_stream.modality()) {
+                    debug_guest("voice ctrl open handshake");
                     return Ok(());
                 }
                 if is_audio_utterance_begin(&ctrl) {
+                    debug_guest("voice ctrl utterance begin");
                     self.begin_utterance()?;
                 }
             }
             IncomingStreamMessage::Data { meta, data } => {
                 let _ = meta;
                 if let Some(session) = self.rtasr.as_mut() {
+                    debug_guest(format!("voice data bytes={}", data.len()));
                     session.append_audio(&data).map_err(render_error)?;
                 }
             }
             IncomingStreamMessage::Commit { meta } => {
                 let _ = meta;
                 if let Some(session) = self.rtasr.as_mut() {
+                    debug_guest("voice commit");
                     session.flush_commit().map_err(render_error)?;
                 }
             }
@@ -249,6 +259,7 @@ impl LiveCaptionApp {
         let Some(session) = self.rtasr.as_mut() else {
             return Ok(());
         };
+        debug_guest("rtasr drain events");
         let transcript_events = session.drain_events().map_err(render_error)?;
         for event in transcript_events {
             match event {
@@ -282,11 +293,14 @@ impl LiveCaptionApp {
 
     fn begin_utterance(&mut self) -> Result<(), String> {
         if let Some(session) = self.rtasr.as_mut() {
+            debug_guest("begin_utterance existing session");
             return session.prepare_for_new_utterance().map_err(render_error);
         }
 
+        debug_guest("begin_utterance creating session");
         let session = LiveCaptionRtasr::connect().map_err(render_error)?;
         let fd = session.fd().raw();
+        debug_guest(format!("begin_utterance session fd={fd}"));
         self.epoll
             .add(fd, constants::SPEAR_EPOLLIN | constants::SPEAR_EPOLLERR | constants::SPEAR_EPOLLHUP)
             .map_err(render_error)?;

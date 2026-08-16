@@ -1,5 +1,38 @@
 import { type Conversation } from '../models/conversation'
 import { type MicMode } from '../voice'
+import { Button } from '../../../web-admin/src/shared/components/ui/button'
+
+function DetailRow(props: {
+  label: string
+  value: string
+  mono?: boolean
+  tone?: 'default' | 'status'
+  status?: 'disconnected' | 'connecting' | 'connected'
+}) {
+  return (
+    <div className="cw-detailRow">
+      <div className="cw-detailLabel">{props.label}</div>
+      <div className={props.mono ? 'cw-detailValue cw-detailValueMono' : 'cw-detailValue'}>
+        {props.tone === 'status' ? (
+          <span className="cw-statusRow">
+            <span
+              className={
+                props.status === 'connected'
+                  ? 'cw-dot cw-dotOk'
+                  : props.status === 'connecting'
+                    ? 'cw-dot cw-dotWarn'
+                    : 'cw-dot'
+              }
+            />
+            <span>{props.value}</span>
+          </span>
+        ) : (
+          props.value
+        )}
+      </div>
+    </div>
+  )
+}
 
 export function Inspector(props: {
   mode: 'expanded' | 'collapsed'
@@ -17,55 +50,71 @@ export function Inspector(props: {
     <aside className={collapsed ? 'cw-inspector cw-inspectorCollapsed' : 'cw-inspector'}>
       <div className="cw-inspectorHeader">
         <div className="cw-panelHeader">
-          {!collapsed ? <div className="cw-inspectorTitle">Inspector</div> : <div className="cw-inspectorTitle">Info</div>}
-          <button
-            className="cw-btn cw-btnIconToggle"
+          <div className="cw-inspectorHeading">
+            {!collapsed ? <div className="cw-inspectorEyebrow">Session Details</div> : null}
+            {!collapsed ? <div className="cw-inspectorTitle">Inspector</div> : <div className="cw-inspectorTitle">Info</div>}
+            {!collapsed ? (
+              <div className="cw-inspectorMeta">Connection, streams, voice and runtime health</div>
+            ) : null}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="cw-btnIconToggle rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--secondary))]"
             onClick={props.onToggle}
             title={collapsed ? 'Expand info' : 'Collapse info'}
             aria-label={collapsed ? 'Expand info' : 'Collapse info'}
           >
             {collapsed ? '«' : '»'}
-          </button>
+          </Button>
         </div>
       </div>
       {!collapsed ? <div className="cw-inspectorBody">
         <div className="cw-inspectorCard">
-          <div className="cw-label">Connection</div>
-          <div className="cw-readonly">{props.targetText}</div>
-          <div className="cw-statusRow">
-            <span
-              className={
-                props.status === 'connected'
-                  ? 'cw-dot cw-dotOk'
-                  : props.status === 'connecting'
-                    ? 'cw-dot cw-dotWarn'
-                    : 'cw-dot'
-              }
+          <div className="cw-sectionTitle">Connection</div>
+          <div className="cw-detailList">
+            <DetailRow label="Target" value={props.targetText || '—'} mono />
+            <DetailRow
+              label="Status"
+              value={props.status}
+              tone="status"
+              status={props.status}
             />
-            <span>{props.status}</span>
+            {props.active?.connect_kind ? (
+              <DetailRow label="Kind" value={props.active.connect_kind} />
+            ) : null}
+            {props.active?.taskId.trim() ? (
+              <DetailRow label="Task" value={props.active.taskId} mono />
+            ) : null}
+            {props.active?.instanceId.trim() ? (
+              <DetailRow label="Instance" value={props.active.instanceId} mono />
+            ) : null}
+            {props.active?.executionId.trim() ? (
+              <DetailRow label="Execution" value={props.active.executionId} mono />
+            ) : null}
           </div>
-          {props.active?.connect_kind ? <div className="cw-readonly">kind: {props.active.connect_kind}</div> : null}
-          {props.active?.taskId.trim() ? <div className="cw-readonly">task: {props.active.taskId}</div> : null}
-          {props.active?.instanceId.trim() ? <div className="cw-readonly">instance: {props.active.instanceId}</div> : null}
-          {props.active?.executionId.trim() ? <div className="cw-readonly">execution: {props.active.executionId}</div> : null}
         </div>
 
         <div className="cw-inspectorCard">
-          <div className="cw-label">Streams</div>
-          <div className="cw-readonly">1 text: {props.status === 'connected' ? 'open' : '—'}</div>
-          <div className="cw-readonly">2 voice: {props.status === 'connected' ? 'open' : '—'}</div>
+          <div className="cw-sectionTitle">Streams</div>
+          <div className="cw-detailList">
+            <DetailRow label="Text" value={props.status === 'connected' ? 'open' : '—'} />
+            <DetailRow label="Voice" value={props.status === 'connected' ? 'open' : '—'} />
+          </div>
         </div>
 
         <div className="cw-inspectorCard">
-          <div className="cw-label">Voice</div>
-          <div className="cw-readonly">mode: {props.micMode}</div>
-          <div className="cw-readonly">mic: {props.voiceRecording ? 'on' : 'off'}</div>
+          <div className="cw-sectionTitle">Voice</div>
+          <div className="cw-detailList">
+            <DetailRow label="Mode" value={props.micMode} />
+            <DetailRow label="Mic" value={props.voiceRecording ? 'on' : 'off'} />
+          </div>
           {props.voiceError ? <div className="cw-error">{props.voiceError}</div> : null}
         </div>
 
         <div className="cw-inspectorCard">
-          <div className="cw-label">Errors</div>
-          {props.error ? <div className="cw-error">{props.error}</div> : <div className="cw-readonly">—</div>}
+          <div className="cw-sectionTitle">Errors</div>
+          {props.error ? <div className="cw-error">{props.error}</div> : <div className="cw-detailEmpty">No active errors</div>}
         </div>
       </div> : (
         <div className="cw-inspectorMini">

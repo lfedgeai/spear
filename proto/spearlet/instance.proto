@@ -25,9 +25,18 @@ message DestroyInstanceResponse {
   string message = 2;
 }
 
+message ReconcileTaskAssignmentsNowRequest {
+  string task_id = 1;
+}
+
+message ReconcileTaskAssignmentsNowResponse {
+  bool accepted = 1;
+  string message = 2;
+}
+
 service InstanceService {
   // Destroy an instance and terminate all running executions on it.
   // 销毁实例，并先终止该实例上所有运行中的执行。
   rpc DestroyInstance(DestroyInstanceRequest) returns (DestroyInstanceResponse);
+  rpc ReconcileTaskAssignmentsNow(ReconcileTaskAssignmentsNowRequest) returns (ReconcileTaskAssignmentsNowResponse);
 }
-

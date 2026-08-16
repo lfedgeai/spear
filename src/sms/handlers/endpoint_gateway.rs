@@ -23,12 +23,12 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::common::ErrorResponse;
-use crate::sms::placement::outcome::build_outcome_request;
 use crate::proto::sms::{
-    ExecutionStatus, GetExecutionRequest, GetNodeRequest, InstanceStatus,
-    ListInstanceExecutionsRequest, ListTaskInstancesRequest, ResolveEndpointRequest,
+    ExecutionStatus, GetExecutionRequest, GetNodeRequest, ListInstanceExecutionsRequest,
+    ResolveEndpointRequest,
 };
 use crate::sms::gateway::GatewayState;
+use crate::sms::query_support::{collect_task_instances_bounded, instance_is_active_and_fresh};
 
 const GATEWAY_ENDPOINT_MAX_LEN: usize = 64;
 
@@ -100,8 +100,6 @@ pub async fn endpoint_ws_proxy(
     };
 
     let task_id = task.task_id.clone();
-    let preferred_node_uuid = task.node_uuid.clone();
-
     let mut candidate_executions = match list_running_executions_for_task(&state, &task_id).await {
         Ok(v) => v,
         Err(e) => {
@@ -119,7 +117,7 @@ pub async fn endpoint_ws_proxy(
     if candidate_executions.is_empty() {
         match tokio::time::timeout(
             HANDSHAKE_TOTAL_TIMEOUT,
-            start_execution_for_task(&state, &task_id, &preferred_node_uuid),
+            start_execution_for_task(&state, &task),
         )
         .await
         {
@@ -188,50 +186,34 @@ async fn list_running_executions_for_task(
     task_id: &str,
 ) -> Result<Vec<String>, String> {
     let mut idx_client = state.execution_index_client.clone();
-    let mut page_token = String::new();
     let mut out = Vec::new();
 
-    for _ in 0..10 {
-        let resp = idx_client
-            .list_task_instances(Request::new(ListTaskInstancesRequest {
-                task_id: task_id.to_string(),
+    for inst in collect_task_instances_bounded(&mut idx_client, task_id, 50)
+        .await
+        .map_err(|e| format!("execution_index error: {e}"))?
+    {
+        if !crate::sms::is_instance_routable(inst.status) {
+            continue;
+        }
+        if !inst.current_execution_id.is_empty() {
+            out.push(inst.current_execution_id);
+            continue;
+        }
+        let executions = idx_client
+            .list_instance_executions(Request::new(ListInstanceExecutionsRequest {
+                instance_id: inst.instance_id,
                 limit: 50,
-                page_token: page_token.clone(),
+                page_token: String::new(),
             }))
             .await
             .map_err(|e| format!("execution_index error: {e}"))?
             .into_inner();
-
-        for inst in resp.instances {
-            let status = InstanceStatus::try_from(inst.status).unwrap_or(InstanceStatus::Unknown);
-            if !matches!(status, InstanceStatus::Running | InstanceStatus::Idle) {
-                continue;
-            }
-            if !inst.current_execution_id.is_empty() {
-                out.push(inst.current_execution_id);
-                continue;
-            }
-            let executions = idx_client
-                .list_instance_executions(Request::new(ListInstanceExecutionsRequest {
-                    instance_id: inst.instance_id,
-                    limit: 50,
-                    page_token: String::new(),
-                }))
-                .await
-                .map_err(|e| format!("execution_index error: {e}"))?
-                .into_inner();
-            for ex in executions.executions {
-                let st = ExecutionStatus::try_from(ex.status).unwrap_or(ExecutionStatus::Unknown);
-                if st == ExecutionStatus::Running {
-                    out.push(ex.execution_id);
-                }
+        for ex in executions.executions {
+            let st = ExecutionStatus::try_from(ex.status).unwrap_or(ExecutionStatus::Unknown);
+            if st == ExecutionStatus::Running {
+                out.push(ex.execution_id);
             }
         }
-
-        if resp.next_page_token.is_empty() {
-            break;
-        }
-        page_token = resp.next_page_token;
     }
 
     out.sort();
@@ -239,50 +221,63 @@ async fn list_running_executions_for_task(
     Ok(out)
 }
 
-async fn start_execution_for_task(
+async fn list_task_instance_counts_by_node(
     state: &GatewayState,
     task_id: &str,
-    preferred_node_uuid: &str,
+) -> Result<HashMap<String, usize>, String> {
+    let mut idx_client = state.execution_index_client.clone();
+    let mut out = HashMap::new();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    for inst in collect_task_instances_bounded(&mut idx_client, task_id, 100)
+        .await
+        .map_err(|e| format!("execution_index error: {e}"))?
+    {
+        if !instance_is_active_and_fresh(&state.config, inst.status, inst.last_seen_ms, now_ms) {
+            continue;
+        }
+        *out.entry(inst.node_uuid).or_insert(0) += 1;
+    }
+
+    Ok(out)
+}
+
+fn ready_node_sort_key(
+    task: &crate::proto::sms::Task,
+    node_uuid: &str,
+    instance_counts: &HashMap<String, usize>,
+) -> (bool, usize, String) {
+    let existing = *instance_counts.get(node_uuid).unwrap_or(&0);
+    let saturated =
+        if task.scheduling_strategy == crate::proto::sms::TaskSchedulingStrategy::Spread as i32 {
+            existing >= task.desired_replicas.max(1) as usize
+        } else {
+            false
+        };
+    (saturated, existing, node_uuid.to_string())
+}
+
+async fn start_execution_for_task(
+    state: &GatewayState,
+    task: &crate::proto::sms::Task,
 ) -> Result<String, String> {
+    let task_id = task.task_id.as_str();
     let request_id = Uuid::new_v4().to_string();
     let execution_id = Uuid::new_v4().to_string();
 
-    if !preferred_node_uuid.is_empty() {
-        let node = resolve_node_by_uuid(state, preferred_node_uuid).await?;
-        invoke_on_node(
+    let instance_counts = list_task_instance_counts_by_node(state, task_id).await?;
+    let mut candidate_nodes = list_ready_nodes_for_task(state, task_id).await?;
+    candidate_nodes.sort_by_key(|node| ready_node_sort_key(task, &node.uuid, &instance_counts));
+
+    if candidate_nodes.is_empty() {
+        return Err("task has no ready instances yet".to_string());
+    }
+
+    for node in candidate_nodes {
+        match invoke_on_node(
             state,
             &node.ip_address,
             node.port,
-            task_id,
-            &request_id,
-            &execution_id,
-        )
-        .await?;
-        wait_execution_visible(state, &execution_id).await?;
-        return Ok(execution_id);
-    }
-
-    let mut placement = state.placement_client.clone();
-    let placement_resp = placement
-        .place_invocation(crate::proto::sms::PlaceInvocationRequest {
-            request_id: request_id.clone(),
-            task_id: task_id.to_string(),
-            max_candidates: 3,
-            labels: HashMap::new(),
-        })
-        .await
-        .map_err(|e| format!("placement error: {e}"))?
-        .into_inner();
-
-    if placement_resp.candidates.is_empty() {
-        return Err("no placement candidates".to_string());
-    }
-
-    for c in placement_resp.candidates {
-        match invoke_on_node(
-            state,
-            &c.ip_address,
-            c.port,
             task_id,
             &request_id,
             &execution_id,
@@ -296,43 +291,39 @@ async fn start_execution_for_task(
             Err(e) => {
                 warn!(
                     task_id = %task_id,
-                    node_uuid = %c.node_uuid,
+                    node_uuid = %node.uuid,
                     error = %e,
-                    "endpoint gateway invoke failed, trying next candidate"
+                    "endpoint gateway invoke on ready node failed, trying next candidate"
                 );
-                let _ = placement
-                    .report_invocation_outcome(build_outcome_request(
-                        &placement_resp.decision_id,
-                        &request_id,
-                        task_id,
-                        &c.node_uuid,
-                        crate::proto::sms::InvocationOutcomeClass::Unavailable as i32,
-                        e,
-                    ))
-                    .await;
             }
         }
     }
 
-    Err("all placement candidates failed".to_string())
+    Err("all ready-instance nodes failed".to_string())
 }
 
-async fn resolve_node_by_uuid(
+async fn list_ready_nodes_for_task(
     state: &GatewayState,
-    node_uuid: &str,
-) -> Result<crate::proto::sms::Node, String> {
-    let mut client = state.node_client.clone();
-    let resp = client
-        .get_node(Request::new(GetNodeRequest {
-            uuid: node_uuid.to_string(),
-        }))
-        .await
-        .map_err(|e| format!("node_service error: {e}"))?
-        .into_inner();
-    if !resp.found {
-        return Err("node not found".to_string());
+    task_id: &str,
+) -> Result<Vec<crate::proto::sms::Node>, String> {
+    let instance_counts = list_task_instance_counts_by_node(state, task_id).await?;
+    let mut node_client = state.node_client.clone();
+    let mut nodes = Vec::new();
+    for node_uuid in instance_counts.keys() {
+        let resp = node_client
+            .get_node(Request::new(GetNodeRequest {
+                uuid: node_uuid.clone(),
+            }))
+            .await
+            .map_err(|e| format!("node_service error: {e}"))?
+            .into_inner();
+        if resp.found {
+            if let Some(node) = resp.node {
+                nodes.push(node);
+            }
+        }
     }
-    resp.node.ok_or_else(|| "node missing".to_string())
+    Ok(nodes)
 }
 
 async fn invoke_on_node(
@@ -831,5 +822,23 @@ mod tests {
         assert_eq!(up.active_streams, 2);
         up.on_stream_end();
         assert_eq!(up.active_streams, 1);
+    }
+
+    #[test]
+    fn spread_strategy_prefers_nodes_with_fewer_task_instances() {
+        let task = crate::proto::sms::Task {
+            task_id: "task-spread".to_string(),
+            scheduling_strategy: crate::proto::sms::TaskSchedulingStrategy::Spread as i32,
+            desired_replicas: 2,
+            ..Default::default()
+        };
+        let counts = HashMap::from([
+            ("node-a".to_string(), 2usize),
+            ("node-b".to_string(), 0usize),
+        ]);
+
+        let node_a = ready_node_sort_key(&task, "node-a", &counts);
+        let node_b = ready_node_sort_key(&task, "node-b", &counts);
+        assert!(node_b < node_a);
     }
 }

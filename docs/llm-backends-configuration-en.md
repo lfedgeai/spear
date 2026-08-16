@@ -101,7 +101,7 @@ Routing behavior:
 
 ## SMS-managed remote backends
 
-Remote backends created from SMS / Web Admin are watched by `spearlet` through `RemoteBackendSyncService` and merged into the same dynamic backend registry used by local controllers.
+Remote backends created from SMS / Web Admin are now reconciled by `spearlet` through `BackendAssignmentController` and merged into the same dynamic backend registry used by local controllers.
 
 Current runtime support for SMS-managed dynamic backend kinds:
 

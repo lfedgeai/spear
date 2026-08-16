@@ -24,7 +24,7 @@ Backend normalization and runtime assembly are currently spread across multiple 
 - `src/spearlet/execution/ai/router/mod.rs`
 - `src/spearlet/backend_reporter.rs`
 - `src/spearlet/local_models/llamacpp.rs`
-- `src/spearlet/ai/remote_backend_policy.rs`
+- `src/spearlet/ai/backend_assignment_controller.rs`
 
 This duplication includes:
 
@@ -166,9 +166,9 @@ The old runtime-facing `effective_config` path has now been removed from the act
 Completed changes:
 
 - removed the obsolete `apply_sms_remote_backends` / `EffectiveSpearletConfig` runtime model
-- extracted `RemoteBackendMergePolicy` into `src/spearlet/ai/remote_backend_policy.rs`
+- remote merge policy was once extracted into a separate file; that file has now been removed together with the legacy remote-sync path
 - updated router builder documentation to describe dynamic registry injection as the only runtime path
-- removed the unused `EngineHolder` constructor dependency from `RemoteBackendSyncService`
+- removed the unused `EngineHolder` constructor dependency from the old remote-sync controller
 
 ### Acceptance criteria
 
@@ -343,8 +343,8 @@ This order minimizes risk because the early phases clarify runtime boundaries be
 
 - `src/spearlet/execution/ai/router/builder.rs`
 - `src/spearlet/execution/ai/router/mod.rs`
-- `src/spearlet/ai/remote_backend_policy.rs`
-- `src/spearlet/ai/remote_backend_sync.rs`
+- `src/spearlet/ai/backend_assignment_controller.rs`
+- `src/spearlet/ai/backend_assignment_controller.rs`
 - `src/spearlet/backend_reporter.rs`
 - `src/spearlet/execution/ai/router/grpc_filter_stream.rs`
 - `src/spearlet/execution/ai/backends/openai_chat_completion.rs`

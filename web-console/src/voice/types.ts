@@ -7,7 +7,7 @@ export type VoiceConfig = {
   chunkMs: number
 }
 
-export type MetaCommonV1 = {
+type MetaCommonV1 = {
   v: 1
   ts_ms?: number
   trace_id?: string

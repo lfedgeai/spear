@@ -1,0 +1,75 @@
+:root,
+.light,
+html[data-theme='light'] {
+  color-scheme: light;
+  --background: 0 0% 100%;
+  --foreground: 222.2 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 47% 11%;
+  --primary: 222.2 47% 11%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 25% 96%;
+  --secondary-foreground: 222.2 47% 11%;
+  --muted: 210 22% 96%;
+  --muted-foreground: 215 14% 40%;
+  --accent: 210 22% 94%;
+  --accent-foreground: 222.2 47% 11%;
+  --destructive: 0 74% 52%;
+  --destructive-foreground: 210 40% 98%;
+  --success: 142 72% 35%;
+  --success-foreground: 210 40% 98%;
+  --warning: 35 92% 45%;
+  --warning-foreground: 222.2 47% 11%;
+  --border: 214 20% 88%;
+  --input: 214 20% 88%;
+  --ring: 221 39% 11%;
+  --overlay: 222.2 47% 11%;
+  --shadow-color: 222.2 47% 11%;
+  --radius: 8px;
+}
+
+.dark,
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --background: 222.2 47% 7%;
+  --foreground: 210 40% 98%;
+  --card: 222.2 47% 9%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222.2 47% 9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 210 40% 98%;
+  --primary-foreground: 222.2 47% 11%;
+  --secondary: 217 30% 14%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 30% 14%;
+  --muted-foreground: 215 20% 70%;
+  --accent: 217 30% 16%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62% 34%;
+  --destructive-foreground: 210 40% 98%;
+  --success: 142 62% 44%;
+  --success-foreground: 210 40% 98%;
+  --warning: 38 92% 54%;
+  --warning-foreground: 222.2 47% 11%;
+  --border: 217 30% 18%;
+  --input: 217 30% 18%;
+  --ring: 212 27% 84%;
+  --overlay: 222.2 47% 4%;
+  --shadow-color: 222.2 47% 4%;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+    Apple Color Emoji, Segoe UI Emoji;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}

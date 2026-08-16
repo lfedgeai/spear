@@ -8,6 +8,7 @@ enum TaskStatus {
   TASK_STATUS_REGISTERED = 1;   // Task is registered / 任务已注册
   TASK_STATUS_ACTIVE = 2;       // Task is active / 任务活跃
   TASK_STATUS_INACTIVE = 3;     // Task is inactive / 任务非活跃
+  TASK_STATUS_DELETING = 4;     // Task is being deleted / 任务删除中
 }
 
 // Task priority enumeration / 任务优先级枚举
@@ -17,6 +18,12 @@ enum TaskPriority {
   TASK_PRIORITY_NORMAL = 2;   // Normal priority / 普通优先级
   TASK_PRIORITY_HIGH = 3;     // High priority / 高优先级
   TASK_PRIORITY_URGENT = 4;   // Urgent priority / 紧急优先级
+}
+
+// Task scheduling strategy / 任务调度策略
+enum TaskSchedulingStrategy {
+  TASK_SCHEDULING_STRATEGY_UNKNOWN = 0;
+  TASK_SCHEDULING_STRATEGY_SPREAD = 1;   // Spread replicas across nodes / 将副本尽量平铺到不同节点
 }
 
 // Executable type / 可执行类型
@@ -40,13 +47,14 @@ message TaskExecutable {
 }
 
 // Task definition / 任务定义
+// Field numbers keep their historical gaps even after removing the old node-bound
+// fields so we do not churn the rest of the message layout during cleanup.
 message Task {
   string task_id = 1;                    // Unique task identifier (UUID v4, server-assigned) / 唯一任务标识符（UUID v4，由服务器分配）
   string name = 2;                       // Task name / 任务名称
   string description = 3;                // Task description / 任务描述
   TaskStatus status = 4;                 // Current task status / 当前任务状态
   TaskPriority priority = 5;             // Task priority / 任务优先级
-  string node_uuid = 6;                  // Node UUID where task is registered / 任务注册的节点UUID
   string endpoint = 7;                   // Task endpoint URL / 任务端点URL
   string version = 8;                    // Task version / 任务版本
   repeated string capabilities = 9;      // Task capabilities / 任务能力
@@ -60,20 +68,26 @@ message Task {
   string last_result_status = 17;        // Status of the last execution (completed/failed) / 最近一次执行状态（completed/failed）
   int64 last_completed_at = 18;          // Timestamp of last completion / 最近一次完成时间戳
   map<string, string> last_result_metadata = 19; // Metadata of last result / 最近一次结果的元数据
+  int64 deletion_requested_at = 20;      // Deletion request timestamp / 删除请求时间戳
+  string deletion_reason = 21;           // Deletion reason / 删除原因
+  uint32 desired_replicas = 22;          // Desired instance replica count / 期望实例副本数
+  TaskSchedulingStrategy scheduling_strategy = 23; // Replica scheduling strategy / 副本调度策略
 }
 
 // Task registration request / 任务注册请求
+// Keep the existing field numbers stable; only the old node-bound field was removed.
 message RegisterTaskRequest {
   string name = 1;                       // Task name / 任务名称
   string description = 2;                // Task description / 任务描述
   TaskPriority priority = 3;             // Task priority / 任务优先级
-  string node_uuid = 4;                  // Node UUID where task is registered / 任务注册的节点UUID
   string endpoint = 5;                   // Task endpoint URL / 任务端点URL
   string version = 6;                    // Task version / 任务版本
   repeated string capabilities = 7;      // Task capabilities / 任务能力
   map<string, string> metadata = 8;      // Additional task metadata / 额外任务元数据
   map<string, string> config = 9;        // Task configuration / 任务配置
   TaskExecutable executable = 10;        // Executable descriptor / 可执行描述
+  uint32 desired_replicas = 11;          // Desired instance replica count / 期望实例副本数
+  TaskSchedulingStrategy scheduling_strategy = 12; // Replica scheduling strategy / 副本调度策略
 }
 
 // Resolve task by endpoint / 通过 endpoint 解析任务
@@ -103,27 +117,21 @@ enum TaskEventKind {
 }
 
 // Task event for subscription / 任务事件（用于订阅）
+// Event ids stay stable even though the node-bound field was removed from the payload.
 message TaskEvent {
   int64 event_id = 1;           // Monotonic event id per node / 每节点单调递增事件ID
   int64 ts = 2;                 // Event timestamp (epoch seconds) / 事件时间戳
-  string node_uuid = 3;         // Target node UUID / 目标节点UUID
   string task_id = 4;           // Task ID / 任务ID
   TaskEventKind kind = 5;       // Event kind / 事件类型
   optional string execution_id = 7;         // Optional execution identifier / 可选的执行标识符
-}
-
-// Subscribe request with optional resume position / 订阅请求（可带断点续传位置）
-message SubscribeTaskEventsRequest {
-  string node_uuid = 1;         // Node UUID to subscribe / 订阅的节点UUID
-  int64 last_event_id = 2;      // Last processed id to resume from / 已处理的最后事件ID（从此之后恢复）
 }
 
 // Ack response / 确认响应
 message AckResponse { bool ok = 1; }
 
 // List tasks request / 列出任务请求
+// Filters keep their current numbering; the old node-bound request field is gone.
 message ListTasksRequest {
-  string node_uuid = 1;                  // Filter by node UUID (optional) / 按节点UUID过滤（可选）
   TaskStatus status_filter = 2;          // Filter by status (optional) / 按状态过滤（可选）
   TaskPriority priority_filter = 3;      // Filter by priority (optional) / 按优先级过滤（可选）
   int32 limit = 4;                       // Maximum number of tasks to return / 返回的最大任务数
@@ -160,6 +168,34 @@ message UnregisterTaskResponse {
   string task_id = 3;                    // Unregistered task ID / 已注销的任务ID
 }
 
+// Delete task request / 删除任务请求
+message DeleteTaskRequest {
+  string task_id = 1;                    // Task ID to delete / 要删除的任务ID
+  string reason = 2;                     // Reason for deletion / 删除原因
+  bool force = 3;                        // Whether to force runtime cleanup / 是否强制回收运行态
+}
+
+// Delete task response / 删除任务响应
+message DeleteTaskResponse {
+  bool success = 1;                      // Whether deletion was accepted / 是否接受删除请求
+  string message = 2;                    // Response message / 响应消息
+  string task_id = 3;                    // Task ID / 任务ID
+  Task task = 4;                         // Current task state / 当前任务状态
+}
+
+// Complete task deletion request / 完成任务删除请求
+// Request shape is simplified, but we keep the remaining field numbers unchanged.
+message CompleteTaskDeletionRequest {
+  string task_id = 1;                    // Deleted task ID / 已删除的任务ID
+}
+
+// Complete task deletion response / 完成任务删除响应
+message CompleteTaskDeletionResponse {
+  bool success = 1;                      // Whether finalize succeeded / 是否完成最终删除
+  string message = 2;                    // Response message / 响应消息
+  string task_id = 3;                    // Deleted task ID / 已删除的任务ID
+}
+
 // Task service definition / 任务服务定义
 service TaskService {
   // Register a new task / 注册新任务
@@ -174,8 +210,11 @@ service TaskService {
   // Unregister a task / 注销任务
   rpc UnregisterTask(UnregisterTaskRequest) returns (UnregisterTaskResponse);
 
-  // Subscribe task events for a node / 订阅节点任务事件
-  rpc SubscribeTaskEvents(SubscribeTaskEventsRequest) returns (stream TaskEvent);
+  // Delete a task with runtime cleanup / 删除任务并回收运行态
+  rpc DeleteTask(DeleteTaskRequest) returns (DeleteTaskResponse);
+
+  // Complete a pending task deletion / 完成待处理的任务删除
+  rpc CompleteTaskDeletion(CompleteTaskDeletionRequest) returns (CompleteTaskDeletionResponse);
 
   // Resolve task by endpoint / 通过 endpoint 解析任务
   rpc ResolveEndpoint(ResolveEndpointRequest) returns (ResolveEndpointResponse);

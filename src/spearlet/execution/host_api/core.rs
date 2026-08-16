@@ -1,6 +1,8 @@
 use crate::spearlet::execution::ai::router::Router;
 use crate::spearlet::execution::ai::AiEngine;
-use crate::spearlet::execution::ai::engine_holder::{global as global_engine_holder, EngineHolder};
+#[cfg(not(test))]
+use crate::spearlet::execution::ai::engine_holder::global as global_engine_holder;
+use crate::spearlet::execution::ai::engine_holder::EngineHolder;
 use crate::spearlet::execution::host_api::iface::{HttpCallResult, SpearHostApi};
 use crate::spearlet::execution::hostcall::fd_table::FdTable;
 use crate::spearlet::execution::ExecutionError;
@@ -206,14 +208,42 @@ pub struct DefaultHostApi {
     pub(super) mcp_task_policy: Option<Arc<McpTaskPolicy>>,
     pub(super) instance_id: Option<String>,
     pub(super) execution_id: Option<String>,
-    pub(super) exec_termination: Arc<super::termination::WasmTerminationRegistry>,
-    pub(super) instance_termination: Arc<super::termination::WasmTerminationRegistry>,
+    pub(super) execution_termination_requests: Arc<super::termination::TerminationRequestRegistry>,
+    pub(super) instance_termination_requests: Arc<super::termination::TerminationRequestRegistry>,
 }
 
 impl DefaultHostApi {
     pub fn new(runtime_config: super::super::runtime::RuntimeConfig) -> Self {
-        let ai_engine_holder = global_engine_holder().unwrap_or_else(|| {
+        #[cfg(test)]
+        let ai_engine_holder = {
             let (registry, policy) = crate::spearlet::execution::ai::router::builder::build_registry_from_runtime_config(&runtime_config);
+            let grpc_filter_stream = runtime_config
+                .spearlet_config
+                .as_ref()
+                .and_then(|cfg| {
+                    cfg.ai.router_grpc_filter_stream.clone().map(|mut f| {
+                        if f.enabled && f.addr.trim().is_empty() {
+                            f.addr = cfg.sms_grpc_addr.clone();
+                        }
+                        f
+                    })
+                })
+                .map(
+                    crate::spearlet::execution::ai::router::grpc_filter_stream::RouterFilterStreamHub::init_global,
+                )
+                .or_else(crate::spearlet::execution::ai::router::grpc_filter_stream::RouterFilterStreamHub::global)
+                .filter(|h| h.config.enabled);
+            let router = Router::new_with_filter(registry, policy, grpc_filter_stream);
+            let engine = Arc::new(AiEngine::new(router));
+            Arc::new(EngineHolder::new(engine, 0))
+        };
+
+        #[cfg(not(test))]
+        let ai_engine_holder = global_engine_holder().unwrap_or_else(|| {
+            let (registry, policy) =
+                crate::spearlet::execution::ai::router::builder::build_registry_from_runtime_config(
+                    &runtime_config,
+                );
             let grpc_filter_stream = runtime_config
                 .spearlet_config
                 .as_ref()
@@ -248,8 +278,8 @@ impl DefaultHostApi {
             mcp_task_policy: None,
             instance_id: None,
             execution_id: None,
-            exec_termination: super::termination::exec_registry(),
-            instance_termination: super::termination::instance_registry(),
+            execution_termination_requests: super::termination::execution_termination_registry(),
+            instance_termination_requests: super::termination::instance_termination_registry(),
         }
     }
 
@@ -268,15 +298,21 @@ impl DefaultHostApi {
         self
     }
 
-    pub fn check_wasm_termination(&self) -> Option<super::termination::TerminationSnapshot> {
+    pub fn read_wasm_termination_request(&self) -> Option<super::termination::TerminationSnapshot> {
         let exec_id = self.execution_id.clone().or_else(current_wasm_execution_id);
         if let Some(execution_id) = exec_id.as_deref() {
-            if let Some(s) = self.exec_termination.check(execution_id) {
+            if let Some(s) = self
+                .execution_termination_requests
+                .read_termination_request(execution_id)
+            {
                 return Some(s);
             }
         }
         if let Some(instance_id) = self.instance_id.as_deref() {
-            if let Some(s) = self.instance_termination.check(instance_id) {
+            if let Some(s) = self
+                .instance_termination_requests
+                .read_termination_request(instance_id)
+            {
                 return Some(s);
             }
         }

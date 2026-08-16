@@ -12,7 +12,6 @@
 
 - 接口：`GET /api/v1/tasks`
 - 可选查询参数：
-  - `node_uuid`
   - `status`：`unknown|registered|created|active|inactive|unregistered`
   - `priority`：`unknown|low|normal|high|urgent`
   - `limit`（默认 100）
@@ -21,7 +20,7 @@
 示例：
 
 ```text
-GET /api/v1/tasks?node_uuid=<uuid>&status=active&priority=high&limit=50&offset=0
+GET /api/v1/tasks?status=active&priority=high&limit=50&offset=0
 ```
 
 实现位置：`src/sms/handlers/task.rs:252`。
@@ -53,7 +52,6 @@ HTTP 侧将可选参数转换成 `FilterState`，再转换为 `i32` 以适配 pr
 
 `src/sms/service.rs:633` 将请求字段转换为可选过滤器：
 
-- `node_uuid == ""` => `None`
 - `status_filter < 0` => `None`
 - `priority_filter < 0` => `None`
 - `limit <= 0` => `None`
@@ -65,7 +63,6 @@ HTTP 侧将可选参数转换成 `FilterState`，再转换为 `i32` 以适配 pr
 
 `src/sms/services/task_service.rs:57` 应用过滤条件：
 
-- 若指定 `node_uuid`，要求 `task.node_uuid` 匹配。
 - 若指定 `status_filter` 且 `>= 0`，要求 `task.status` 匹配。
 - 若指定 `priority_filter` 且 `>= 0`，要求 `task.priority` 匹配。
 

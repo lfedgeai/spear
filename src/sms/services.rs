@@ -3,6 +3,7 @@
 
 pub mod node_service;
 pub mod resource_service;
+pub mod task_assignment_service;
 pub mod task_service;
 
 #[cfg(test)]
@@ -10,6 +11,7 @@ pub mod test_utils;
 
 pub use node_service::NodeService;
 pub use resource_service::ResourceService;
+pub use task_assignment_service::TaskAssignmentService;
 pub use task_service::TaskService;
 
 pub mod error {

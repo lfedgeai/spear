@@ -8,27 +8,45 @@
 use super::runtime::RuntimeType;
 use super::{
     artifact::{Artifact, ArtifactId},
-    instance::{InstanceId, InstanceStatus, TaskInstance},
-    runtime::{ExecutionCompletionEvent, ExecutionContext, RuntimeManager},
+    execution_finalize::{
+        build_completion_log_line, enrich_final_metadata, stringify_runtime_metadata,
+        FinalExecutionState,
+    },
+    execution_status::ExecutionPublicStatus,
+    instance::{HealthStatus, InstanceId, InstanceStatus, TaskInstance},
+    runtime::{
+        ExecutionCompletionEvent, ExecutionContext, ExecutionStatus as RuntimeExecutionStatus,
+        RuntimeManager,
+    },
     scheduler::{InstanceScheduler, SchedulingPolicy},
+    sms_status_adapter::{
+        local_instance_status_to_sms, local_task_status_to_sms, observed_instance_status_to_sms,
+        runtime_execution_status_to_sms,
+    },
+    sms_reporter::{SmsAppendLogLine, SmsReporter},
+    task_materializer::{
+        fetch_sms_task, materialize_local_artifact_from_sms_task,
+        materialize_local_task_from_sms_task, materialize_sms_task,
+    },
+    task_runtime_cleanup::finalize_local_task_removal,
     task::{Task, TaskId},
     ExecutionError, ExecutionResult, DEFAULT_ENTRY_FUNCTION_NAME,
 };
 use crate::proto::spearlet::{ExecutionMode as ProtoExecutionMode, InvokeRequest};
 use crate::spearlet::sms_connector::sms_channel_lazy;
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
-use tokio::sync::{mpsc, oneshot, Semaphore};
+use tokio::sync::{mpsc, oneshot, Mutex, Semaphore};
 use tokio::time::timeout;
 use tonic::transport::Channel;
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone)]
-struct PendingAsyncExecution {
+struct InflightAsyncExecution {
     invocation_id: String,
     task_id: String,
     function_name: String,
@@ -100,14 +118,6 @@ struct ExecutionWorkItem {
     pub response_sender: oneshot::Sender<ExecutionResult<super::ExecutionResponse>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct SmsAppendLogLine {
-    ts_ms: Option<u64>,
-    stream: Option<String>,
-    level: Option<String>,
-    message: String,
-}
-
 /// Execution statistics / 执行统计
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionStatistics {
@@ -127,11 +137,13 @@ pub struct ExecutionStatistics {
     pub active_tasks: u64,
     /// Active instances / 活跃实例数
     pub active_instances: u64,
-    /// Queue size / 队列大小
+    /// Queue size, derived from executions still in public pending state.
+    /// 队列大小，来源于仍处于 public pending 状态的执行数量。
     pub queue_size: u64,
     /// Running executions / 正在运行的执行数量
     pub running_executions: u64,
-    /// Pending executions / 等待执行的数量
+    /// Pending executions, currently the same count as queue_size but exposed as a domain metric.
+    /// 等待执行数量；当前与 queue_size 数值相同，但作为领域语义指标对外暴露。
     pub pending_executions: u64,
     /// Completed executions / 已完成的执行数量
     pub completed_executions: u64,
@@ -175,8 +187,16 @@ pub struct TaskExecutionManager {
     tasks: Arc<DashMap<TaskId, Arc<Task>>>,
     /// Instances storage / 实例存储
     instances: Arc<DashMap<InstanceId, Arc<TaskInstance>>>,
-    /// Execution status storage / 执行状态存储
-    executions: Arc<DashMap<String, super::ExecutionResponse>>,
+    /// Desired replica counts last observed from assignment reconciliation
+    /// 最近一次从 assignment 收敛得到的目标副本数
+    desired_task_instances: Arc<DashMap<TaskId, u32>>,
+    /// Serialize replica reconciliation per task to avoid duplicate instance creation
+    /// 按 task 串行化副本收敛，避免并发补副本导致重复创建实例
+    task_reconcile_locks: Arc<DashMap<TaskId, Arc<Mutex<()>>>>,
+    /// Execution response index / 执行响应索引
+    execution_responses: Arc<DashMap<String, super::ExecutionResponse>>,
+    /// Active execution registry by instance / 按实例维度索引的活跃 execution 注册表
+    active_instance_executions: Arc<DashMap<InstanceId, Arc<DashSet<String>>>>,
     /// Execution semaphore / 执行信号量
     execution_semaphore: Arc<Semaphore>,
     /// Statistics / 统计信息
@@ -186,13 +206,125 @@ pub struct TaskExecutionManager {
     /// Execution request sender / 执行请求发送器
     work_sender: mpsc::UnboundedSender<ExecutionWorkItem>,
     completion_sender: mpsc::UnboundedSender<ExecutionCompletionEvent>,
-    pending_async_executions: Arc<DashMap<String, PendingAsyncExecution>>,
+    inflight_async_executions: Arc<DashMap<String, InflightAsyncExecution>>,
     sms_channel: Option<Channel>,
+    sms_reporter: SmsReporter,
     /// Shutdown signal / 关闭信号
     shutdown_sender: Option<oneshot::Sender<()>>,
 }
 
 impl TaskExecutionManager {
+    fn upsert_running_execution_response(
+        &self,
+        execution_id: &str,
+        invocation_id: &str,
+        task_id: &str,
+        function_name: &str,
+        instance_id: &str,
+    ) {
+        self.execution_responses
+            .entry(execution_id.to_string())
+            .and_modify(|entry| {
+                entry.status = ExecutionPublicStatus::Running.as_public_str().to_string();
+                entry.instance_id = instance_id.to_string();
+                entry.timestamp = SystemTime::now();
+            })
+            .or_insert_with(|| super::ExecutionResponse {
+                execution_id: execution_id.to_string(),
+                invocation_id: invocation_id.to_string(),
+                task_id: task_id.to_string(),
+                function_name: function_name.to_string(),
+                instance_id: instance_id.to_string(),
+                output_data: Vec::new(),
+                status: ExecutionPublicStatus::Running.as_public_str().to_string(),
+                error_message: None,
+                execution_time_ms: 0,
+                metadata: std::collections::HashMap::new(),
+                timestamp: SystemTime::now(),
+            });
+    }
+
+    fn set_execution_response_cancelled(&self, execution_id: &str, reason: Option<&str>) {
+        let Some(mut entry) = self.execution_responses.get_mut(execution_id) else {
+            return;
+        };
+        if ExecutionPublicStatus::from_public_str(&entry.status).is_terminal() {
+            return;
+        }
+        entry.status = ExecutionPublicStatus::Cancelled.as_public_str().to_string();
+        entry.error_message = reason
+            .map(|message| message.to_string())
+            .or_else(|| Some("execution terminated".to_string()));
+        entry.timestamp = SystemTime::now();
+    }
+
+    fn apply_execution_termination_request(
+        &self,
+        execution_id: &str,
+        reason: Option<String>,
+    ) -> ExecutionResult<()> {
+        if !self.execution_responses.contains_key(execution_id) {
+            return Err(ExecutionError::InvalidRequest {
+                message: format!("execution not found: {}", execution_id),
+            });
+        }
+        self.set_execution_response_cancelled(execution_id, reason.as_deref());
+        crate::spearlet::execution::host_api::termination::register_execution_termination_request(
+            execution_id,
+            -libc::ECANCELED,
+            reason,
+        );
+        Ok(())
+    }
+
+    fn bind_execution_to_instance(&self, instance_id: &str, execution_id: &str) {
+        let entry = self
+            .active_instance_executions
+            .entry(instance_id.to_string())
+            .or_insert_with(|| Arc::new(DashSet::new()));
+        entry.value().insert(execution_id.to_string());
+    }
+
+    fn unbind_execution_from_instance(&self, instance_id: &str, execution_id: &str) {
+        let Some(entry) = self.active_instance_executions.get(instance_id) else {
+            return;
+        };
+        let executions = entry.value().clone();
+        drop(entry);
+
+        executions.remove(execution_id);
+        if executions.is_empty() {
+            self.active_instance_executions.remove(instance_id);
+        }
+    }
+
+    fn active_execution_ids_for_instance(&self, instance_id: &str) -> Vec<String> {
+        self.active_instance_executions
+            .get(instance_id)
+            .map(|entry| {
+                entry
+                    .value()
+                    .iter()
+                    .map(|execution_id| execution_id.key().clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn clear_active_instance_executions(&self, instance_id: &str) {
+        self.active_instance_executions.remove(instance_id);
+    }
+
+    fn report_instance_lifecycle_state_to_sms(&self, instance: &TaskInstance) {
+        self.sms_reporter.report_instance(
+            instance.task_id().to_string(),
+            instance.id().to_string(),
+            instance.current_execution_id().unwrap_or_default(),
+            chrono::Utc::now().timestamp_millis(),
+            local_instance_status_to_sms(&instance.status()) as i32,
+        );
+    }
+
     /// Create a new task execution manager / 创建新的任务执行管理器
     pub async fn new(
         config: TaskExecutionManagerConfig,
@@ -221,19 +353,23 @@ impl TaskExecutionManager {
 
         let manager = Arc::new(Self {
             config: config.clone(),
+            sms_reporter: SmsReporter::new(spearlet_config.clone(), sms_channel.clone()),
             spearlet_config,
             runtime_manager,
             scheduler,
             artifacts: Arc::new(DashMap::new()),
             tasks: Arc::new(DashMap::new()),
             instances: Arc::new(DashMap::new()),
-            executions: Arc::new(DashMap::new()),
+            desired_task_instances: Arc::new(DashMap::new()),
+            task_reconcile_locks: Arc::new(DashMap::new()),
+            execution_responses: Arc::new(DashMap::new()),
+            active_instance_executions: Arc::new(DashMap::new()),
             execution_semaphore,
             statistics: Arc::new(RwLock::new(ExecutionStatistics::default())),
             request_counter: AtomicU64::new(0),
             work_sender,
             completion_sender,
-            pending_async_executions: Arc::new(DashMap::new()),
+            inflight_async_executions: Arc::new(DashMap::new()),
             sms_channel,
             shutdown_sender: Some(shutdown_sender),
         });
@@ -347,7 +483,7 @@ impl TaskExecutionManager {
 
         let (response_sender, response_receiver) = oneshot::channel();
 
-        self.executions.insert(
+        self.execution_responses.insert(
             execution_id.clone(),
             super::ExecutionResponse {
                 execution_id: execution_id.clone(),
@@ -387,16 +523,6 @@ impl TaskExecutionManager {
             })?
     }
 
-    /// Get artifact by ID / 根据 ID 获取 artifact
-    pub fn get_artifact(&self, artifact_id: &ArtifactId) -> Option<Arc<Artifact>> {
-        self.artifacts.get(artifact_id).map(|entry| entry.clone())
-    }
-
-    /// Get task by ID / 根据 ID 获取任务
-    pub fn get_task(&self, task_id: &TaskId) -> Option<Arc<Task>> {
-        self.tasks.get(task_id).map(|entry| entry.clone())
-    }
-
     /// Get instance by ID / 根据 ID 获取实例
     pub fn get_instance(&self, instance_id: &InstanceId) -> Option<Arc<TaskInstance>> {
         self.instances.get(instance_id).map(|entry| entry.clone())
@@ -417,56 +543,194 @@ impl TaskExecutionManager {
         self.instances.iter().map(|entry| entry.clone()).collect()
     }
 
+    pub async fn reconcile_node_task_assignments(
+        &self,
+        desired_by_task: &std::collections::HashMap<String, u32>,
+    ) -> ExecutionResult<()> {
+        let local_task_ids: Vec<_> = self
+            .list_tasks()
+            .into_iter()
+            .map(|task| task.id().to_string())
+            .collect();
+        for task_id in &local_task_ids {
+            let desired = desired_by_task.get(task_id).copied().unwrap_or(0);
+            self.reconcile_task_replica_assignment(task_id, desired).await?;
+        }
+        for (task_id, desired) in desired_by_task {
+            if local_task_ids.iter().any(|local| local == task_id) {
+                continue;
+            }
+            self.reconcile_task_replica_assignment(task_id, *desired).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn reconcile_task_replica_assignment(
+        &self,
+        task_id: &str,
+        desired_instances: u32,
+    ) -> ExecutionResult<()> {
+        self.desired_task_instances
+            .insert(task_id.to_string(), desired_instances);
+        let reconcile_lock = self
+            .task_reconcile_locks
+            .entry(task_id.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
+        let _guard = reconcile_lock.lock().await;
+        let task = if let Some(task) = self.get_task_by_id(task_id) {
+            Some(task)
+        } else if desired_instances == 0 {
+            None
+        } else {
+            Some(self.fetch_and_materialize_local_task_by_id(task_id).await?)
+        };
+        let Some(task) = task else {
+            return Ok(());
+        };
+
+        let mut instances: Vec<_> = task.instances.iter().map(|entry| entry.clone()).collect();
+        let actual_instances = instances.len() as u32;
+        if actual_instances < desired_instances {
+            for _ in 0..(desired_instances - actual_instances) {
+                let _ = self.create_instance_for_task(&task).await?;
+            }
+            return Ok(());
+        }
+
+        if actual_instances <= desired_instances {
+            return Ok(());
+        }
+
+        instances.sort_by(|a, b| {
+            a.current_execution_id()
+                .is_some()
+                .cmp(&b.current_execution_id().is_some())
+                .then_with(|| a.created_at.cmp(&b.created_at))
+        });
+        for instance in instances
+            .into_iter()
+            .take((actual_instances - desired_instances) as usize)
+        {
+            self.drain_and_destroy_instance(instance.id(), None).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn ensure_task_meets_desired_replicas(
+        &self,
+        task_id: &str,
+    ) -> ExecutionResult<()> {
+        let Some(task) = self.get_task_by_id(task_id) else {
+            return Ok(());
+        };
+        if task.is_stopping_or_stopped() {
+            return Ok(());
+        }
+        let Some(desired_instances) = self.desired_task_instances.get(task_id).map(|v| *v.value())
+        else {
+            return Ok(());
+        };
+        if task.instance_count() >= desired_instances as usize {
+            return Ok(());
+        }
+        self.reconcile_task_replica_assignment(task_id, desired_instances)
+            .await
+    }
+
+    async fn reconcile_underprovisioned_tasks_once(&self) {
+        let task_ids: Vec<_> = self
+            .desired_task_instances
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+        for task_id in task_ids {
+            if let Err(error) = self.ensure_task_meets_desired_replicas(&task_id).await {
+                warn!(
+                    task_id = %task_id,
+                    error = %error,
+                    "Failed to reconcile underprovisioned task replicas"
+                );
+            }
+        }
+    }
+
+    pub async fn reconcile_assignments_from_sms(
+        &self,
+        task_id_filter: Option<&str>,
+    ) -> ExecutionResult<()> {
+        let channel = self.sms_channel.clone().ok_or_else(|| ExecutionError::RuntimeError {
+            message: "sms_grpc_addr is empty".to_string(),
+        })?;
+        let node_uuid = self.spearlet_config.compute_node_uuid();
+        let mut client =
+            crate::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(
+                channel,
+            );
+        let response = client
+            .list_node_task_assignments(crate::proto::sms::ListNodeTaskAssignmentsRequest {
+                node_uuid,
+            })
+            .await
+            .map_err(|error| ExecutionError::RuntimeError {
+                message: format!("list_node_task_assignments failed: {}", error),
+            })?
+            .into_inner();
+        let desired_by_task: std::collections::HashMap<String, u32> = response
+            .assignments
+            .into_iter()
+            .map(|assignment| (assignment.task_id, assignment.desired_instances))
+            .collect();
+
+        if let Some(task_id) = task_id_filter {
+            let desired = desired_by_task.get(task_id).copied().unwrap_or(0);
+            self.reconcile_task_replica_assignment(task_id, desired).await
+        } else {
+            self.reconcile_node_task_assignments(&desired_by_task).await
+        }
+    }
+
     /// Get execution statistics / 获取执行统计信息
     pub fn get_statistics(&self) -> ExecutionStatistics {
         let mut stats = self.statistics.read().clone();
 
-        let mut pending = 0u64;
+        let mut queued_pending = 0u64;
         let mut running = 0u64;
-        for entry in self.executions.iter() {
-            match entry.value().status.as_str() {
-                "pending" => pending += 1,
-                "running" => running += 1,
+        for entry in self.execution_responses.iter() {
+            match ExecutionPublicStatus::from_public_str(&entry.value().status) {
+                ExecutionPublicStatus::Pending => queued_pending += 1,
+                ExecutionPublicStatus::Running => running += 1,
                 _ => {}
             }
         }
 
-        stats.queue_size = pending;
-        stats.pending_executions = pending;
+        // Keep both counters in sync while they intentionally represent the same current state
+        // through different external naming conventions.
+        // 当前这两个指标有意保持一致，只是对外分别承载 queue 与 pending 两种命名语义。
+        stats.queue_size = queued_pending;
+        stats.pending_executions = queued_pending;
         stats.running_executions = running;
         stats
     }
 
     /// Get execution status by execution ID / 根据执行ID获取执行状态
-    pub async fn get_execution_status(
-        &self,
-        execution_id: &str,
-    ) -> ExecutionResult<Option<super::ExecutionResponse>> {
-        Ok(self
-            .executions
+    pub fn get_execution_status(&self, execution_id: &str) -> Option<super::ExecutionResponse> {
+        self.execution_responses
             .get(execution_id)
-            .map(|entry| entry.value().clone()))
+            .map(|entry| entry.value().clone())
     }
 
-    pub async fn terminate_execution(
+    pub async fn request_execution_termination(
         &self,
         execution_id: &str,
         reason: Option<String>,
     ) -> ExecutionResult<()> {
-        if !self.executions.contains_key(execution_id) {
-            return Err(ExecutionError::InvalidRequest {
-                message: format!("execution not found: {}", execution_id),
-            });
-        }
-        crate::spearlet::execution::host_api::termination::mark_execution_terminated(
-            execution_id,
-            -libc::ECANCELED,
-            reason,
-        );
-        Ok(())
+        self.apply_execution_termination_request(execution_id, reason)
     }
 
-    pub async fn destroy_instance(
+    /// Compatibility wrapper retained for existing call sites.
+    /// 为现有调用点保留的兼容 wrapper。
+    pub async fn drain_and_destroy_instance(
         &self,
         instance_id: &str,
         reason: Option<String>,
@@ -479,32 +743,65 @@ impl TaskExecutionManager {
                 id: instance_id.to_string(),
             })?;
 
-        crate::spearlet::execution::host_api::termination::mark_instance_destroyed(
+        crate::spearlet::execution::host_api::termination::register_instance_destruction_request(
             instance_id,
             -libc::ECANCELED,
             reason.clone(),
         );
 
-        let running_exec_ids: Vec<String> = self
-            .executions
-            .iter()
-            .filter(|e| e.value().instance_id == instance_id && e.value().status == "running")
-            .map(|e| e.key().clone())
-            .collect();
+        instance.set_status(super::InstanceStatus::Stopping);
+        self.report_instance_lifecycle_state_to_sms(&instance);
 
-        for execution_id in running_exec_ids {
-            crate::spearlet::execution::host_api::termination::mark_execution_terminated(
+        let active_execution_ids = self.active_execution_ids_for_instance(instance_id);
+
+        for execution_id in active_execution_ids {
+            self.apply_execution_termination_request(
                 &execution_id,
-                -libc::ECANCELED,
                 reason
                     .clone()
                     .map(|r| format!("instance destroyed: {}", r))
                     .or_else(|| Some("instance destroyed".to_string())),
-            );
+            )?;
         }
 
-        self.stop_instance(&instance).await?;
-        self.instances.remove(instance_id);
+        self.stop_and_unregister_instance(&instance).await?;
+        self.clear_active_instance_executions(instance_id);
+        Ok(())
+    }
+
+    /// Delete a task runtime and acknowledge SMS when cleanup finishes / 删除任务运行态并在清理完成后向 SMS 确认
+    pub async fn delete_task_runtime(
+        &self,
+        task_id: &str,
+        reason: Option<String>,
+    ) -> ExecutionResult<()> {
+        if let Some(task) = self.get_task_by_id(task_id) {
+            task.mark_stopping();
+            let instance_ids: Vec<String> = task
+                .instances
+                .iter()
+                .map(|entry| entry.key().clone())
+                .collect();
+            for instance_id in instance_ids {
+                match self.drain_and_destroy_instance(&instance_id, reason.clone()).await {
+                    Ok(_) => {}
+                    Err(ExecutionError::InstanceNotFound { .. }) => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            finalize_local_task_removal(
+                task_id,
+                &self.tasks,
+                &self.artifacts,
+                self.instances.len(),
+                &self.statistics,
+            )
+            .await;
+        }
+        self.desired_task_instances.remove(task_id);
+        self.task_reconcile_locks.remove(task_id);
+
+        self.sms_reporter.acknowledge_task_deletion(task_id.to_string());
         Ok(())
     }
 
@@ -514,8 +811,11 @@ impl TaskExecutionManager {
         invocation_id: Option<&str>,
         limit: usize,
     ) -> Vec<super::ExecutionResponse> {
-        let mut items: Vec<super::ExecutionResponse> =
-            self.executions.iter().map(|e| e.value().clone()).collect();
+        let mut items: Vec<super::ExecutionResponse> = self
+            .execution_responses
+            .iter()
+            .map(|e| e.value().clone())
+            .collect();
 
         if let Some(task_id) = task_id {
             items.retain(|r| r.task_id == task_id);
@@ -540,7 +840,7 @@ impl TaskExecutionManager {
         // Stop all instances / 停止所有实例
         for instance_entry in self.instances.iter() {
             let instance = instance_entry.value();
-            if let Err(e) = self.stop_instance(instance).await {
+            if let Err(e) = self.stop_and_unregister_instance(instance).await {
                 warn!("Failed to stop instance {}: {}", instance.id(), e);
             }
         }
@@ -584,7 +884,7 @@ impl TaskExecutionManager {
             stats.running_executions += 1;
         }
 
-        self.executions
+        self.execution_responses
             .entry(execution_id.clone())
             .and_modify(|e| {
                 e.status = "running".to_string();
@@ -661,7 +961,8 @@ impl TaskExecutionManager {
 
         match &result {
             Ok(resp) => {
-                self.executions.insert(execution_id.clone(), resp.clone());
+                self.execution_responses
+                    .insert(execution_id.clone(), resp.clone());
             }
             Err(e) => {
                 let status = match e {
@@ -672,11 +973,11 @@ impl TaskExecutionManager {
                 }
                 .to_string();
                 let instance_id = self
-                    .executions
+                    .execution_responses
                     .get(&execution_id)
                     .map(|entry| entry.value().instance_id.clone())
                     .unwrap_or_default();
-                self.executions.insert(
+                self.execution_responses.insert(
                     execution_id.clone(),
                     super::ExecutionResponse {
                         execution_id: execution_id.clone(),
@@ -711,14 +1012,13 @@ impl TaskExecutionManager {
                 }
                 let task_id = request.task_id.clone();
                 if !task_id.is_empty() {
-                    self.publish_task_result(
+                    self.sms_reporter.update_task_result(
                         &task_id,
                         "".to_string(),
                         result_status,
                         completed_at,
                         meta,
-                    )
-                    .await;
+                    );
                 }
             }
             Err(e) => {
@@ -739,8 +1039,8 @@ impl TaskExecutionManager {
                         _ => "failed",
                     }
                     .to_string();
-                    self.publish_task_result(&task_id, "".to_string(), status, completed_at, meta)
-                        .await;
+                    self.sms_reporter
+                        .update_task_result(&task_id, "".to_string(), status, completed_at, meta);
                 }
             }
             _ => {}
@@ -751,26 +1051,301 @@ impl TaskExecutionManager {
     }
 
     /// Execute an invocation against an existing task / 执行一次对已有 task 的调用
+    async fn ensure_local_task_for_invocation(
+        &self,
+        desired_task_id: Option<&str>,
+    ) -> ExecutionResult<Arc<Task>> {
+        let Some(task_id) = desired_task_id else {
+            return Err(ExecutionError::NotSupported {
+                operation: "new_task_invocation_via_execute_request_disabled".to_string(),
+            });
+        };
+        if let Some(task) = self.tasks.get(task_id) {
+            Ok(task.clone())
+        } else {
+            self.fetch_and_materialize_local_task_by_id(task_id).await
+        }
+    }
+
+    /// Mark execution as started in local runtime and SMS. / 在本地运行时与 SMS 中标记执行已开始。
+    async fn begin_execution_tracking(
+        &self,
+        instance: &Arc<TaskInstance>,
+        invocation_id: &str,
+        function_name: &str,
+        execution_id: &str,
+        started_at_ms: i64,
+        log_next_seq: &mut u64,
+    ) -> ExecutionResult<()> {
+        if instance.status() != super::InstanceStatus::Running {
+            return Err(ExecutionError::RuntimeError {
+                message: format!(
+                    "Instance {} is not runnable for execution start (status: {:?})",
+                    instance.id(),
+                    instance.status()
+                ),
+            });
+        }
+        self.sms_reporter.report_instance(
+            instance.task_id.clone(),
+            instance.id().to_string(),
+            execution_id.to_string(),
+            started_at_ms,
+            observed_instance_status_to_sms(&instance.status(), true) as i32,
+        );
+        instance.set_current_execution_id(Some(execution_id.to_string()));
+        self.bind_execution_to_instance(instance.id(), execution_id);
+        self.upsert_running_execution_response(
+            execution_id,
+            invocation_id,
+            &instance.task_id,
+            function_name,
+            instance.id(),
+        );
+        self.sms_reporter.report_execution(
+            invocation_id.to_string(),
+            instance.task_id.clone(),
+            function_name.to_string(),
+            instance.id().to_string(),
+            execution_id.to_string(),
+            runtime_execution_status_to_sms(RuntimeExecutionStatus::Running) as i32,
+            started_at_ms,
+            0,
+            std::collections::HashMap::new(),
+        );
+        let _ = self
+            .sms_reporter
+            .append_execution_logs(
+                execution_id,
+                log_next_seq,
+                vec![SmsAppendLogLine {
+                    ts_ms: Some(started_at_ms as u64),
+                    stream: Some("system".to_string()),
+                    level: Some("info".to_string()),
+                    message: format!(
+                        "execution_started invocation_id={} task_id={} instance_id={} function_name={}",
+                        invocation_id,
+                        instance.task_id.clone(),
+                        instance.id(),
+                        function_name
+                    ),
+                }],
+            )
+            .await;
+        Ok(())
+    }
+
+    /// Flush WASM logs when the backing instance uses the WASM runtime. / 当实例使用 WASM 运行时时刷新日志。
+    async fn flush_wasm_logs_if_needed(
+        &self,
+        instance: &Arc<TaskInstance>,
+        execution_id: &str,
+        log_next_seq: &mut u64,
+        wasm_last_seq: &mut u64,
+    ) {
+        if instance.config.runtime_type == super::RuntimeType::Wasm {
+            let _ = self
+                .flush_wasm_logs_to_sms(execution_id, log_next_seq, wasm_last_seq)
+                .await;
+        }
+    }
+
+    /// Write the final completion log line and finalize log ingestion. / 写入最终完成日志并结束日志摄取。
+    async fn finalize_execution_logs_after_completion(
+        &self,
+        execution_id: &str,
+        completed_at_ms: i64,
+        final_state: FinalExecutionState,
+        duration_ms: u64,
+        log_next_seq: &mut u64,
+    ) {
+        let _ = self
+            .sms_reporter
+            .append_execution_logs(
+                execution_id,
+                log_next_seq,
+                vec![build_completion_log_line(
+                    completed_at_ms,
+                    final_state,
+                    duration_ms,
+                )],
+            )
+            .await;
+        let _ = self.sms_reporter.finalize_execution_logs(execution_id).await;
+    }
+
+    /// Report the final execution and instance state after completion. / 在完成后上报最终执行态与实例态。
+    fn report_final_execution_state(
+        &self,
+        invocation_id: &str,
+        task_id: &str,
+        function_name: &str,
+        instance_id: &str,
+        execution_id: &str,
+        final_state: FinalExecutionState,
+        started_at_ms: i64,
+        completed_at_ms: i64,
+        current_execution_id: &str,
+        instance_status: i32,
+        metadata: std::collections::HashMap<String, String>,
+    ) {
+        self.sms_reporter.report_execution(
+            invocation_id.to_string(),
+            task_id.to_string(),
+            function_name.to_string(),
+            instance_id.to_string(),
+            execution_id.to_string(),
+            final_state.sms_status,
+            started_at_ms,
+            completed_at_ms,
+            metadata,
+        );
+        self.sms_reporter.report_instance(
+            task_id.to_string(),
+            instance_id.to_string(),
+            current_execution_id.to_string(),
+            completed_at_ms,
+            instance_status,
+        );
+    }
+
+    /// Store an inflight async execution context and return the public running response.
+    /// 保存进行中的异步执行上下文，并返回对外 running 响应。
+    fn track_inflight_async_execution(
+        &self,
+        execution_id: String,
+        invocation_id: String,
+        task_id: String,
+        function_name: String,
+        instance_id: String,
+        started_at_ms: i64,
+        log_next_seq: u64,
+        metadata: std::collections::HashMap<String, String>,
+    ) -> super::ExecutionResponse {
+        self.inflight_async_executions.insert(
+            execution_id.clone(),
+            InflightAsyncExecution {
+                invocation_id: invocation_id.clone(),
+                task_id: task_id.clone(),
+                function_name: function_name.clone(),
+                instance_id: instance_id.clone(),
+                started_at_ms,
+                log_next_seq,
+                wasm_last_seq: 0,
+            },
+        );
+
+        super::ExecutionResponse {
+            execution_id,
+            invocation_id,
+            task_id,
+            function_name,
+            instance_id,
+            status: "running".to_string(),
+            output_data: Vec::new(),
+            execution_time_ms: 0,
+            error_message: None,
+            metadata,
+            timestamp: SystemTime::now(),
+        }
+    }
+
+    /// Build a finished execution response returned to the caller. / 构建返回给调用方的已完成执行响应。
+    fn build_finished_execution_response(
+        &self,
+        execution_id: String,
+        invocation_id: String,
+        task_id: String,
+        function_name: String,
+        instance_id: String,
+        output_data: Vec<u8>,
+        final_state: FinalExecutionState,
+        error_message: Option<String>,
+        execution_time_ms: u64,
+        metadata: std::collections::HashMap<String, String>,
+    ) -> super::ExecutionResponse {
+        super::ExecutionResponse {
+            execution_id,
+            invocation_id,
+            task_id,
+            function_name,
+            instance_id,
+            output_data,
+            status: final_state.public_status.to_string(),
+            error_message,
+            execution_time_ms,
+            metadata,
+            timestamp: SystemTime::now(),
+        }
+    }
+
+    /// Handle a runtime execution error after start bookkeeping has already happened. / 处理运行时执行报错，此时启动期记账已经完成。
+    async fn handle_started_execution_error(
+        &self,
+        instance: &Arc<TaskInstance>,
+        invocation_id: &str,
+        function_name: &str,
+        execution_id: &str,
+        started_at_ms: i64,
+        log_next_seq: &mut u64,
+        wasm_last_seq: &mut u64,
+        error_message: &str,
+    ) {
+        let completed_at_ms = chrono::Utc::now().timestamp_millis();
+        let _ = self
+            .sms_reporter
+            .append_execution_logs(
+                execution_id,
+                log_next_seq,
+                vec![SmsAppendLogLine {
+                    ts_ms: Some(completed_at_ms as u64),
+                    stream: Some("system".to_string()),
+                    level: Some("error".to_string()),
+                    message: format!("execution_failed error={}", error_message),
+                }],
+            )
+            .await;
+
+        self.flush_wasm_logs_if_needed(instance, execution_id, log_next_seq, wasm_last_seq)
+            .await;
+        let _ = self.sms_reporter.finalize_execution_logs(execution_id).await;
+
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("error_message".to_string(), error_message.to_string());
+        instance.set_current_execution_id(None);
+        self.unbind_execution_from_instance(instance.id(), execution_id);
+        self.report_final_execution_state(
+            invocation_id,
+            &instance.task_id,
+            function_name,
+            instance.id(),
+            execution_id,
+            FinalExecutionState::from_result_flags(false, true),
+            started_at_ms,
+            completed_at_ms,
+            "",
+            observed_instance_status_to_sms(&instance.status(), false) as i32,
+            metadata,
+        );
+    }
+
     async fn execute_existing_task_invocation(
         &self,
         invocation_id: String,
         desired_task_id: Option<String>,
         execution_context: ExecutionContext,
     ) -> ExecutionResult<super::ExecutionResponse> {
-        let task = if let Some(id) = &desired_task_id {
-            if let Some(t) = self.tasks.get(id) {
-                t.clone()
-            } else {
-                self.fetch_and_materialize_task_from_sms(id).await?
-            }
-        } else {
-            return Err(ExecutionError::NotSupported {
-                operation: "new_task_invocation_via_execute_request_disabled".to_string(),
-            });
-        };
+        let task = self
+            .ensure_local_task_for_invocation(desired_task_id.as_deref())
+            .await?;
 
-        // Get or create instance / 获取或创建实例
-        let instance = self.get_or_create_instance(&task).await?;
+        let instance = self
+            .scheduler
+            .select_instance(&task)
+            .await?
+            .ok_or_else(|| ExecutionError::SchedulingError {
+                message: format!("No ready instances available for task {}", task.id()),
+            })?;
 
         let function_name = execution_context.function_name.clone();
         let runtime = self
@@ -788,94 +1363,31 @@ impl TaskExecutionManager {
             crate::spearlet::execution::host_api::clear_wasm_logs_by_execution(&execution_id);
         }
 
-        self.report_instance_to_sms(
-            instance.task_id.clone(),
-            instance.id().to_string(),
-            execution_id.clone(),
+        self.begin_execution_tracking(
+            &instance,
+            &invocation_id,
+            &function_name,
+            &execution_id,
             started_at_ms,
-            crate::proto::sms::InstanceStatus::Running as i32,
-        );
-        instance.set_current_execution_id(Some(execution_id.clone()));
-        self.report_execution_to_sms(
-            invocation_id.clone(),
-            instance.task_id.clone(),
-            function_name.clone(),
-            instance.id().to_string(),
-            execution_id.clone(),
-            crate::proto::sms::ExecutionStatus::Running as i32,
-            started_at_ms,
-            0,
-            std::collections::HashMap::new(),
-        );
-        let _ = self
-            .append_execution_logs_to_sms(
-                &execution_id,
-                &mut log_next_seq,
-                vec![SmsAppendLogLine {
-                    ts_ms: Some(started_at_ms as u64),
-                    stream: Some("system".to_string()),
-                    level: Some("info".to_string()),
-                    message: format!(
-                        "execution_started invocation_id={} task_id={} instance_id={} function_name={}",
-                        invocation_id,
-                        instance.task_id.clone(),
-                        instance.id(),
-                        function_name
-                    ),
-                }],
-            )
-            .await;
+            &mut log_next_seq,
+        )
+        .await?;
 
         let runtime_response = match runtime.execute(&instance, execution_context).await {
             Ok(r) => r,
             Err(e) => {
-                let completed_at_ms = chrono::Utc::now().timestamp_millis();
                 let msg = e.to_string();
-                let _ = self
-                    .append_execution_logs_to_sms(
-                        &execution_id,
-                        &mut log_next_seq,
-                        vec![SmsAppendLogLine {
-                            ts_ms: Some(completed_at_ms as u64),
-                            stream: Some("system".to_string()),
-                            level: Some("error".to_string()),
-                            message: format!("execution_failed error={}", msg),
-                        }],
-                    )
-                    .await;
-
-                if instance.config.runtime_type == super::RuntimeType::Wasm {
-                    let _ = self
-                        .flush_wasm_logs_to_sms(
-                            &execution_id,
-                            &mut log_next_seq,
-                            &mut wasm_last_seq,
-                        )
-                        .await;
-                }
-                let _ = self.finalize_execution_logs_to_sms(&execution_id).await;
-
-                let mut meta = std::collections::HashMap::new();
-                meta.insert("error_message".to_string(), msg);
-                self.report_execution_to_sms(
-                    invocation_id.clone(),
-                    instance.task_id.clone(),
-                    function_name.clone(),
-                    instance.id().to_string(),
-                    execution_id.clone(),
-                    crate::proto::sms::ExecutionStatus::Failed as i32,
+                self.handle_started_execution_error(
+                    &instance,
+                    &invocation_id,
+                    &function_name,
+                    &execution_id,
                     started_at_ms,
-                    completed_at_ms,
-                    meta,
-                );
-                self.report_instance_to_sms(
-                    instance.task_id.clone(),
-                    instance.id().to_string(),
-                    execution_id.clone(),
-                    completed_at_ms,
-                    crate::proto::sms::InstanceStatus::Running as i32,
-                );
-                instance.set_current_execution_id(None);
+                    &mut log_next_seq,
+                    &mut wasm_last_seq,
+                    &msg,
+                )
+                    .await;
                 return Err(e);
             }
         };
@@ -903,202 +1415,72 @@ impl TaskExecutionManager {
             .as_ref()
             .map(Self::extract_error_message);
         let duration_ms = runtime_response.duration_ms;
-        let metadata: std::collections::HashMap<String, String> = runtime_response
-            .metadata
-            .into_iter()
-            .map(|(k, v)| (k, v.to_string()))
-            .collect();
+        let metadata = stringify_runtime_metadata(runtime_response.metadata);
         let data = runtime_response.data;
 
         if is_running {
-            self.pending_async_executions.insert(
-                execution_id.clone(),
-                PendingAsyncExecution {
-                    invocation_id: invocation_id.clone(),
-                    task_id: instance.task_id.clone(),
-                    function_name: function_name.clone(),
-                    instance_id: instance.id().to_string(),
-                    started_at_ms,
-                    log_next_seq,
-                    wasm_last_seq: 0,
-                },
-            );
-
-            return Ok(super::ExecutionResponse {
+            return Ok(self.track_inflight_async_execution(
                 execution_id,
                 invocation_id,
-                task_id: desired_task_id.unwrap_or_else(|| instance.task_id.clone()),
+                desired_task_id.unwrap_or_else(|| instance.task_id.clone()),
                 function_name,
-                instance_id: instance.id().to_string(),
-                status: "running".to_string(),
-                output_data: Vec::new(),
-                execution_time_ms: 0,
-                error_message: None,
+                instance.id().to_string(),
+                started_at_ms,
+                log_next_seq,
                 metadata,
-                timestamp: SystemTime::now(),
-            });
+            ));
         }
 
         let completed_at_ms = chrono::Utc::now().timestamp_millis();
-        let (final_status, final_status_str) = if is_successful {
-            (
-                crate::proto::sms::ExecutionStatus::Completed as i32,
-                "completed",
-            )
-        } else if has_failed {
-            (crate::proto::sms::ExecutionStatus::Failed as i32, "failed")
-        } else {
-            (
-                crate::proto::sms::ExecutionStatus::Pending as i32,
-                "pending",
-            )
-        };
-        let mut final_meta = metadata.clone();
-        final_meta.insert("execution_time_ms".to_string(), duration_ms.to_string());
-        if let Some(err) = &error_message {
-            final_meta.insert("error_message".to_string(), err.clone());
-        }
-        self.report_execution_to_sms(
-            invocation_id.clone(),
-            instance.task_id.clone(),
-            function_name.clone(),
-            instance.id().to_string(),
-            execution_id.clone(),
-            final_status,
+        let final_state = FinalExecutionState::from_result_flags(is_successful, has_failed);
+        let final_meta =
+            enrich_final_metadata(metadata.clone(), duration_ms, error_message.as_deref());
+        instance.set_current_execution_id(None);
+        self.unbind_execution_from_instance(instance.id(), &execution_id);
+        self.report_final_execution_state(
+            &invocation_id,
+            &instance.task_id,
+            &function_name,
+            instance.id(),
+            &execution_id,
+            final_state,
             started_at_ms,
             completed_at_ms,
+            "",
+            observed_instance_status_to_sms(&instance.status(), false) as i32,
             final_meta,
         );
-        self.report_instance_to_sms(
-            instance.task_id.clone(),
-            instance.id().to_string(),
-            execution_id.clone(),
-            completed_at_ms,
-            crate::proto::sms::InstanceStatus::Running as i32,
-        );
-        instance.set_current_execution_id(None);
 
-        if instance.config.runtime_type == super::RuntimeType::Wasm {
-            debug!(
-                execution_id = %execution_id,
-                invocation_id = %invocation_id,
-                instance_id = %instance.id(),
-                runtime_execution_status = ?runtime_response.execution_status,
-                "manager.wasm.flush.begin"
-            );
-            let _ = self
-                .flush_wasm_logs_to_sms(&execution_id, &mut log_next_seq, &mut wasm_last_seq)
-                .await;
-        }
+        self.flush_wasm_logs_if_needed(&instance, &execution_id, &mut log_next_seq, &mut wasm_last_seq)
+            .await;
         debug!(
             execution_id = %execution_id,
             invocation_id = %invocation_id,
             instance_id = %instance.id(),
-            final_status = final_status,
+            final_status = final_state.sms_status,
             "manager.logs.finalize.plan"
         );
-        let _ = self
-            .append_execution_logs_to_sms(
-                &execution_id,
-                &mut log_next_seq,
-                vec![SmsAppendLogLine {
-                    ts_ms: Some(completed_at_ms as u64),
-                    stream: Some("system".to_string()),
-                    level: Some(if is_successful { "info" } else { "warn" }.to_string()),
-                    message: format!(
-                        "execution_completed status={} duration_ms={}",
-                        final_status_str, duration_ms
-                    ),
-                }],
-            )
+        self.finalize_execution_logs_after_completion(
+            &execution_id,
+            completed_at_ms,
+            final_state,
+            duration_ms,
+            &mut log_next_seq,
+        )
             .await;
-        let _ = self.finalize_execution_logs_to_sms(&execution_id).await;
 
-        Ok(super::ExecutionResponse {
+        Ok(self.build_finished_execution_response(
             execution_id,
             invocation_id,
-            task_id: desired_task_id.unwrap_or_else(|| instance.task_id.clone()),
+            desired_task_id.unwrap_or_else(|| instance.task_id.clone()),
             function_name,
-            instance_id: instance.id().to_string(),
-            output_data: data,
-            status: final_status_str.to_string(),
+            instance.id().to_string(),
+            data,
+            final_state,
             error_message,
-            execution_time_ms: duration_ms,
+            duration_ms,
             metadata,
-            timestamp: SystemTime::now(),
-        })
-    }
-
-    async fn append_execution_logs_to_sms(
-        &self,
-        execution_id: &str,
-        next_seq: &mut u64,
-        lines: Vec<SmsAppendLogLine>,
-    ) -> ExecutionResult<()> {
-        if execution_id.trim().is_empty() || lines.is_empty() {
-            return Ok(());
-        }
-        let channel = match self.sms_channel.clone() {
-            Some(c) => c,
-            None => return Ok(()),
-        };
-        let mut client = crate::proto::sms::execution_log_ingest_service_client::ExecutionLogIngestServiceClient::new(channel);
-
-        let mut out_lines = Vec::with_capacity(lines.len());
-        for l in lines {
-            let seq = (*next_seq).max(1);
-            *next_seq = (*next_seq).saturating_add(1);
-            out_lines.push(crate::proto::sms::ExecutionLogLine {
-                ts_ms: l
-                    .ts_ms
-                    .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64),
-                seq,
-                stream: l.stream.unwrap_or_else(|| "stdout".to_string()),
-                level: l.level.unwrap_or_else(|| "info".to_string()),
-                message: l.message,
-            });
-        }
-
-        let req = tonic::Request::new(crate::proto::sms::AppendExecutionLogsRequest {
-            execution_id: execution_id.to_string(),
-            lines: out_lines,
-        });
-        let per_attempt = Duration::from_millis(self.spearlet_config.sms_connect_timeout_ms)
-            .min(Duration::from_secs(5))
-            .max(Duration::from_millis(1));
-        let resp = timeout(per_attempt, client.append_execution_logs(req))
-            .await
-            .map_err(|_| ExecutionError::RuntimeError {
-                message: "sms append_execution_logs timeout".to_string(),
-            })?
-            .map_err(|e| ExecutionError::RuntimeError {
-                message: e.to_string(),
-            })?
-            .into_inner();
-        if resp.next_seq > 0 {
-            *next_seq = (*next_seq).max(resp.next_seq);
-        }
-        Ok(())
-    }
-
-    async fn finalize_execution_logs_to_sms(&self, execution_id: &str) -> ExecutionResult<()> {
-        if execution_id.trim().is_empty() {
-            return Ok(());
-        }
-        let channel = match self.sms_channel.clone() {
-            Some(c) => c,
-            None => return Ok(()),
-        };
-        let mut client =
-            crate::proto::sms::execution_log_ingest_service_client::ExecutionLogIngestServiceClient::new(channel);
-        let req = tonic::Request::new(crate::proto::sms::FinalizeExecutionLogsRequest {
-            execution_id: execution_id.to_string(),
-        });
-        let per_attempt = Duration::from_millis(self.spearlet_config.sms_connect_timeout_ms)
-            .min(Duration::from_secs(5))
-            .max(Duration::from_millis(1));
-        let _ = timeout(per_attempt, client.finalize_execution_logs(req)).await;
-        Ok(())
+        ))
     }
 
     async fn flush_wasm_logs_to_sms(
@@ -1142,7 +1524,8 @@ impl TaskExecutionManager {
             });
             if batch.len() >= 200 {
                 let _ = self
-                    .append_execution_logs_to_sms(
+                    .sms_reporter
+                    .append_execution_logs(
                         execution_id,
                         next_seq,
                         std::mem::take(&mut batch),
@@ -1151,15 +1534,19 @@ impl TaskExecutionManager {
             }
         }
         if !batch.is_empty() {
-            let _ = self
-                .append_execution_logs_to_sms(execution_id, next_seq, batch)
-                .await;
+            let _ = self.sms_reporter.append_execution_logs(execution_id, next_seq, batch).await;
         }
         Ok(())
     }
 
     pub fn get_artifact_by_id(&self, artifact_id: &str) -> Option<Arc<Artifact>> {
         self.artifacts.get(artifact_id).map(|a| a.clone())
+    }
+
+    /// Compatibility getter retained for external tests and callers.
+    /// 为外部测试和调用方保留的兼容查询入口。
+    pub fn get_artifact(&self, artifact_id: &ArtifactId) -> Option<Arc<Artifact>> {
+        self.get_artifact_by_id(artifact_id)
     }
 
     pub fn create_artifact_with_id(
@@ -1195,69 +1582,15 @@ impl TaskExecutionManager {
         self.create_artifact_with_id(artifact_id, spec)
     }
 
-    /// Ensure artifact exists from SMS Task / 从 SMS Task 确保 Artifact 存在
-    pub async fn ensure_artifact_from_sms(
-        &self,
-        sms_task: &crate::proto::sms::Task,
-    ) -> ExecutionResult<Arc<Artifact>> {
-        let (runtime_type, location_opt, checksum_opt, env) = if let Some(ex) = &sms_task.executable
-        {
-            let rt = match ex.r#type {
-                3 => super::RuntimeType::Kubernetes,
-                4 => super::RuntimeType::Wasm,
-                _ => super::RuntimeType::Process,
-            };
-            let loc = if ex.uri.is_empty() {
-                None
-            } else {
-                Some(ex.uri.clone())
-            };
-            let chk = if ex.checksum_sha256.is_empty() {
-                None
-            } else {
-                Some(ex.checksum_sha256.clone())
-            };
-            (rt, loc, chk, ex.env.clone())
-        } else {
-            (
-                super::RuntimeType::Process,
-                None,
-                None,
-                std::collections::HashMap::new(),
-            )
-        };
-
-        let artifact_id = if let Some(chk) = &checksum_opt {
-            chk.clone()
-        } else if let Some(loc) = &location_opt {
-            use sha2::Digest;
-            let d = sha2::Sha256::digest(loc.as_bytes());
-            d.iter().map(|b| format!("{:02x}", b)).collect()
-        } else {
-            uuid::Uuid::new_v4().to_string()
-        };
-
-        use super::artifact::{ArtifactSpec, InvocationType, ResourceLimits};
-        let spec = ArtifactSpec {
-            name: artifact_id.clone(),
-            version: sms_task.version.clone(),
-            description: None,
-            runtime_type,
-            runtime_config: std::collections::HashMap::new(),
-            location: location_opt,
-            checksum_sha256: checksum_opt,
-            environment: env,
-            resource_limits: ResourceLimits::default(),
-            invocation_type: InvocationType::ExistingTask,
-            max_execution_timeout_ms: 30000,
-            labels: sms_task.metadata.clone(),
-        };
-        self.ensure_artifact_with_id(artifact_id, spec)
-    }
-
     /// Task helpers / 任务相关辅助方法
     pub fn get_task_by_id(&self, task_id: &str) -> Option<Arc<Task>> {
         self.tasks.get(task_id).map(|t| t.clone())
+    }
+
+    /// Compatibility getter retained for external tests and callers.
+    /// 为外部测试和调用方保留的兼容查询入口。
+    pub fn get_task(&self, task_id: &TaskId) -> Option<Arc<Task>> {
+        self.get_task_by_id(task_id)
     }
 
     pub fn create_task_with_id(
@@ -1304,107 +1637,54 @@ impl TaskExecutionManager {
         self.create_task_with_id(task_id, artifact, spec)
     }
 
-    /// Ensure task exists from SMS Task using provided artifact / 使用提供的Artifact从 SMS Task 确保 Task 存在
-    pub async fn ensure_task_from_sms(
+    /// Sync local runtime state from an SMS task snapshot.
+    /// 使用 SMS task 快照同步本地运行态 task。
+    pub async fn materialize_local_task_from_sms_snapshot(
+        &self,
+        sms_task: &crate::proto::sms::Task,
+    ) -> ExecutionResult<Arc<Task>> {
+        materialize_sms_task(self, sms_task)
+    }
+
+    pub async fn materialize_local_artifact_from_sms_snapshot(
+        &self,
+        sms_task: &crate::proto::sms::Task,
+    ) -> ExecutionResult<Arc<Artifact>> {
+        materialize_local_artifact_from_sms_task(self, sms_task)
+    }
+
+    pub async fn materialize_local_task_from_sms_snapshot_with_artifact(
         &self,
         sms_task: &crate::proto::sms::Task,
         artifact: &Arc<Artifact>,
     ) -> ExecutionResult<Arc<Task>> {
-        // Convert SMS task model into Spearlet TaskSpec.
-        // 将 SMS 的 task 模型转换成 Spearlet 侧的 TaskSpec。
-        use super::task::{HealthCheckConfig, ScalingConfig, TaskSpec, TimeoutConfig};
-        use std::collections::HashMap;
-        let env = if let Some(ex) = &sms_task.executable {
-            ex.env.clone()
-        } else {
-            std::collections::HashMap::new()
-        };
-        let runtime_type = artifact.spec.runtime_type;
-        let task_spec = TaskSpec {
-            name: sms_task.name.clone(),
-            task_type: super::task::TaskType::HttpHandler,
-            runtime_type,
-            entry_point: "main".to_string(),
-            handler_config: HashMap::new(),
-            task_config: sms_task.config.clone(),
-            environment: env,
-            invocation_type: super::artifact::InvocationType::ExistingTask,
-            min_instances: 1,
-            max_instances: 10,
-            target_concurrency: 100,
-            scaling_config: ScalingConfig::default(),
-            health_check: HealthCheckConfig::default(),
-            timeout_config: TimeoutConfig::default(),
-        };
-        self.ensure_task_with_id(sms_task.task_id.clone(), artifact, task_spec)
+        materialize_local_task_from_sms_task(self, sms_task, artifact)
     }
 
-    async fn fetch_and_materialize_task_from_sms(
+    /// Fetch an SMS task by ID and sync it into local runtime state.
+    /// 根据 task_id 从 SMS 拉取 task 并同步到本地运行态。
+    pub async fn fetch_and_materialize_local_task_by_id(
         &self,
         task_id: &str,
     ) -> ExecutionResult<Arc<Task>> {
-        // When an invocation lands on a node that doesn't have the task yet,
-        // fetch task metadata from SMS and materialize it locally.
-        //
-        // 当调用落到一个尚未持有该 task 的节点时，从 SMS 拉取 task 元数据并在本地补齐。
-        let channel = self
-            .sms_channel
-            .clone()
-            .ok_or_else(|| ExecutionError::RuntimeError {
-                message: "sms_grpc_addr is empty".to_string(),
-            })?;
-        let deadline =
-            Instant::now() + Duration::from_millis(self.spearlet_config.sms_connect_timeout_ms);
-        let mut last_err: Option<String> = None;
-        let resp = loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break Err(ExecutionError::RuntimeError {
-                    message: last_err.unwrap_or_else(|| "connect sms timeout".to_string()),
-                });
-            }
-            let per_attempt = remaining
-                .min(Duration::from_secs(5))
-                .max(Duration::from_millis(1));
-            let mut client =
-                crate::proto::sms::task_service_client::TaskServiceClient::new(channel.clone());
-            let fut = client.get_task(crate::proto::sms::GetTaskRequest {
-                task_id: task_id.to_string(),
-            });
-            match timeout(per_attempt, fut).await {
-                Ok(Ok(r)) => break Ok(r.into_inner()),
-                Ok(Err(e)) => last_err = Some(e.to_string()),
-                Err(_) => last_err = Some("sms get_task timeout".to_string()),
-            }
-            tokio::time::sleep(Duration::from_millis(
-                self.spearlet_config.sms_connect_retry_ms,
-            ))
-            .await;
-        }?;
-        // Query SMS for the task definition.
-        // 向 SMS 查询 task 定义。
-        if !resp.found {
-            return Err(ExecutionError::TaskNotFound {
-                id: task_id.to_string(),
-            });
-        }
-        let sms_task = resp.task.ok_or_else(|| ExecutionError::TaskNotFound {
-            id: task_id.to_string(),
-        })?;
-        // Ensure artifact/task are present locally before execution.
-        // 执行前确保本地已有 artifact/task。
-        let artifact = self.ensure_artifact_from_sms(&sms_task).await?;
-        self.ensure_task_from_sms(&sms_task, &artifact).await
+        let sms_task = fetch_sms_task(self.sms_channel.clone(), &self.spearlet_config, task_id).await?;
+        self.materialize_local_task_from_sms_snapshot(&sms_task).await
+    }
+
+    /// Sync a task from an SMS create event into local runtime state and mark it ready.
+    /// 根据 SMS create 事件同步本地 task，并在完成后标记为 ready。
+    pub async fn materialize_local_task_from_sms_create_event(
+        &self,
+        task_id: &str,
+    ) -> ExecutionResult<Arc<Task>> {
+        let task = self.fetch_and_materialize_local_task_by_id(task_id).await?;
+        task.set_status(crate::spearlet::execution::task::TaskStatus::Ready);
+        Ok(task)
     }
 
     /// Get or create instance / 获取或创建实例
-    async fn get_or_create_instance(&self, task: &Arc<Task>) -> ExecutionResult<Arc<TaskInstance>> {
-        // Try to find an available instance / 尝试找到可用实例
-        if let Some(instance) = self.scheduler.select_instance(task).await? {
-            return Ok(instance);
-        }
-
-        // Check instance limit / 检查实例限制
+    /// Ensure the task can still create a new instance. / 确保该 task 仍允许创建新实例。
+    fn ensure_instance_capacity(&self, task: &Arc<Task>) -> ExecutionResult<()> {
         if task.instance_count() >= self.config.max_instances_per_task {
             return Err(ExecutionError::ResourceExhausted {
                 message: format!(
@@ -1413,18 +1693,27 @@ impl TaskExecutionManager {
                 ),
             });
         }
+        Ok(())
+    }
 
-        // Create new instance / 创建新实例
-        let instance_id = task.generate_instance_id();
-        let runtime = self
-            .runtime_manager
+    /// Resolve the runtime implementation for a task. / 为 task 解析对应的 runtime 实现。
+    fn resolve_runtime_for_task(
+        &self,
+        task: &Arc<Task>,
+    ) -> ExecutionResult<&dyn super::runtime::Runtime> {
+        self.runtime_manager
             .get_runtime(&task.spec.runtime_type)
             .ok_or_else(|| ExecutionError::RuntimeError {
                 message: format!("Runtime not found for type: {:?}", task.spec.runtime_type),
-            })?;
+            })
+    }
 
+    /// Build instance config and inject artifact snapshot when available. / 构建实例配置，并在可用时注入 artifact 快照。
+    fn prepare_instance_config(
+        &self,
+        task: &Arc<Task>,
+    ) -> super::instance::InstanceConfig {
         let mut instance_config = task.create_instance_config();
-        // Inject ArtifactSnapshot into InstanceConfig / 在实例配置中注入 ArtifactSnapshot
         if let Some(artifact_entry) = self.artifacts.get(task.artifact_id()) {
             let artifact = artifact_entry.value();
             instance_config.artifact = Some(super::instance::ArtifactSnapshot {
@@ -1445,44 +1734,79 @@ impl TaskExecutionManager {
                 "Artifact not found in manager when preparing instance; snapshot injection skipped"
             );
         }
+        instance_config
+    }
+
+    /// Create and start a new runtime instance with timeout protection. / 带超时保护地创建并启动一个新的 runtime 实例。
+    async fn create_and_start_instance(
+        &self,
+        runtime: &dyn super::runtime::Runtime,
+        instance_config: &super::instance::InstanceConfig,
+    ) -> ExecutionResult<Arc<TaskInstance>> {
         let instance = timeout(
             Duration::from_millis(self.config.instance_creation_timeout_ms),
-            runtime.create_instance(&instance_config),
+            runtime.create_instance(instance_config),
         )
         .await
         .map_err(|_| ExecutionError::ExecutionTimeout {
             timeout_ms: self.config.instance_creation_timeout_ms,
         })??;
-
-        // Start the instance / 启动实例
         runtime.start_instance(&instance).await?;
+        Ok(instance)
+    }
 
-        // Register instance / 注册实例
+    /// Register a started instance into manager, task, scheduler, and metrics. / 将已启动实例注册到 manager、task、scheduler 与指标中。
+    async fn register_started_instance(
+        &self,
+        task: &Arc<Task>,
+        instance: Arc<TaskInstance>,
+    ) -> ExecutionResult<Arc<TaskInstance>> {
+        instance.set_status(InstanceStatus::Running);
+        instance.set_health_status(HealthStatus::Healthy);
         self.instances
             .insert(instance.id().to_string(), instance.clone());
         task.add_instance(instance.clone())?;
         self.scheduler.add_instance(instance.clone()).await?;
 
-        // Report ACTIVE status / 上报ACTIVE状态
-        self.publish_task_status(
+        self.sms_reporter.update_task_status(
             task.id(),
-            crate::proto::sms::TaskStatus::Active,
+            self.task_status_to_sms(task),
             Some("instance initialized".to_string()),
-        )
-        .await;
+        );
 
-        // Update statistics / 更新统计信息
         {
             let mut stats = self.statistics.write();
             stats.active_instances = self.instances.len() as u64;
         }
 
-        info!("Created new instance: {}", instance_id);
+        self.report_instance_lifecycle_state_to_sms(&instance);
+
+        Ok(instance)
+    }
+
+    pub async fn create_instance_for_task(
+        &self,
+        task: &Arc<Task>,
+    ) -> ExecutionResult<Arc<TaskInstance>> {
+        if task.is_stopping_or_stopped() {
+            return Err(ExecutionError::InstanceDestroyed {
+                message: format!("task {} is being deleted", task.id()),
+            });
+        }
+        self.ensure_instance_capacity(task)?;
+        let runtime = self.resolve_runtime_for_task(task)?;
+        let instance_config = self.prepare_instance_config(task);
+        let instance = self
+            .create_and_start_instance(runtime, &instance_config)
+            .await?;
+        let instance = self.register_started_instance(task, instance).await?;
+
+        info!("Created new instance: {}", instance.id());
         Ok(instance)
     }
 
     /// Stop instance / 停止实例
-    async fn stop_instance(&self, instance: &Arc<TaskInstance>) -> ExecutionResult<()> {
+    async fn stop_and_unregister_instance(&self, instance: &Arc<TaskInstance>) -> ExecutionResult<()> {
         let runtime = self
             .runtime_manager
             .get_runtime(&instance.config.runtime_type)
@@ -1496,12 +1820,12 @@ impl TaskExecutionManager {
 
         let ts_ms = chrono::Utc::now().timestamp_millis();
         let current_execution_id = instance.current_execution_id().unwrap_or_default();
-        self.report_instance_to_sms(
+        self.sms_reporter.report_instance(
             instance.task_id().to_string(),
             instance.id().to_string(),
             current_execution_id,
             ts_ms,
-            crate::proto::sms::InstanceStatus::Terminated as i32,
+            local_instance_status_to_sms(&instance.status()) as i32,
         );
 
         self.instances.remove(instance.id());
@@ -1523,12 +1847,11 @@ impl TaskExecutionManager {
                 );
             }
             if task.instance_count() == 0 {
-                self.publish_task_status(
+                self.sms_reporter.update_task_status(
                     &task_id,
-                    crate::proto::sms::TaskStatus::Inactive,
+                    self.task_status_to_sms(task),
                     Some("no instances".to_string()),
-                )
-                .await;
+                );
             }
         }
 
@@ -1536,6 +1859,19 @@ impl TaskExecutionManager {
         {
             let mut stats = self.statistics.write();
             stats.active_instances = self.instances.len() as u64;
+        }
+
+        if let Err(error) = self
+            .sms_reporter
+            .delete_instance_via_sms(&task_id, instance.id())
+            .await
+        {
+            warn!(
+                instance_id = %instance.id(),
+                task_id = %task_id,
+                error = %error,
+                "Failed to delete instance record from SMS"
+            );
         }
 
         info!("Stopped instance: {}", instance.id());
@@ -1558,12 +1894,141 @@ impl TaskExecutionManager {
         mut receiver: mpsc::UnboundedReceiver<ExecutionCompletionEvent>,
     ) {
         while let Some(ev) = receiver.recv().await {
-            let _ = self.handle_async_completion(ev).await;
+            let _ = self.complete_inflight_execution(ev).await;
         }
     }
 
-    async fn handle_async_completion(&self, ev: ExecutionCompletionEvent) -> ExecutionResult<()> {
-        let Some((_, pending)) = self.pending_async_executions.remove(&ev.execution_id) else {
+    /// Release runtime-local async execution state and clear current execution markers. / 释放运行时本地异步执行状态并清理当前执行标记。
+    async fn release_inflight_execution_runtime_state(
+        &self,
+        execution_id: &str,
+        inflight_execution: &InflightAsyncExecution,
+    ) {
+        crate::spearlet::execution::host_api::user_stream::map_ws_close_to_channels(execution_id);
+
+        if let Some(instance) = self.instances.get(&inflight_execution.instance_id) {
+            if instance.value().config.runtime_type == super::RuntimeType::Wasm {
+                if let Some(wasm_handle) = instance
+                    .value()
+                    .get_runtime_handle::<crate::spearlet::execution::runtime::wasm::WasmInstanceHandle>(
+                    )
+                {
+                    let mut state = wasm_handle.state.lock().await;
+                    state.is_running = false;
+                    state.current_function = None;
+                }
+            }
+            instance.value().set_current_execution_id(None);
+        }
+        self.unbind_execution_from_instance(&inflight_execution.instance_id, execution_id);
+    }
+
+    /// Update per-instance completion metrics for async executions. / 为异步执行更新实例级完成指标。
+    fn record_inflight_execution_completion_metrics(
+        &self,
+        inflight_execution: &InflightAsyncExecution,
+        final_state: FinalExecutionState,
+        duration_ms: u64,
+    ) {
+        let is_successful =
+            ExecutionPublicStatus::from_public_str(final_state.public_status).is_successful();
+        if let Some(instance) = self.instances.get(&inflight_execution.instance_id) {
+            instance
+                .value()
+                .record_request_completion(is_successful, duration_ms as f64);
+        }
+    }
+
+    /// Finalize async execution logs and publish final SMS state. / 完成异步执行日志封口并发布最终 SMS 状态。
+    async fn finalize_inflight_execution(
+        &self,
+        inflight_execution: &InflightAsyncExecution,
+        ev: &ExecutionCompletionEvent,
+        final_state: FinalExecutionState,
+    ) -> std::collections::HashMap<String, String> {
+        let completed_at_ms = ev.completed_at_ms;
+        let mut log_next_seq = inflight_execution.log_next_seq;
+        let mut wasm_last_seq = inflight_execution.wasm_last_seq;
+        if self
+            .instances
+            .get(&inflight_execution.instance_id)
+            .map(|instance| instance.value().config.runtime_type == super::RuntimeType::Wasm)
+            .unwrap_or(false)
+        {
+            let _ = self
+                .flush_wasm_logs_to_sms(&ev.execution_id, &mut log_next_seq, &mut wasm_last_seq)
+                .await;
+        }
+
+        self.finalize_execution_logs_after_completion(
+            &ev.execution_id,
+            completed_at_ms,
+            final_state,
+            ev.duration_ms,
+            &mut log_next_seq,
+        )
+        .await;
+
+        let metadata = enrich_final_metadata(
+            stringify_runtime_metadata(ev.runtime_metadata.clone()),
+            ev.duration_ms,
+            ev.error_message.as_deref(),
+        );
+        let instance_status = self
+            .instances
+            .get(&inflight_execution.instance_id)
+            .map(|instance| {
+                observed_instance_status_to_sms(&instance.status(), false) as i32
+            })
+            .unwrap_or(crate::proto::sms::InstanceStatus::Unknown as i32);
+        self.report_final_execution_state(
+            &inflight_execution.invocation_id,
+            &inflight_execution.task_id,
+            &inflight_execution.function_name,
+            &inflight_execution.instance_id,
+            &ev.execution_id,
+            final_state,
+            inflight_execution.started_at_ms,
+            completed_at_ms,
+            "",
+            instance_status,
+            metadata.clone(),
+        );
+        crate::spearlet::execution::host_api::clear_wasm_logs_by_execution(&ev.execution_id);
+        metadata
+    }
+
+    /// Persist the final async execution response in the in-memory execution index. / 将最终异步执行响应写入内存执行索引。
+    fn persist_completed_async_execution_response(
+        &self,
+        inflight_execution: InflightAsyncExecution,
+        ev: ExecutionCompletionEvent,
+        final_state: FinalExecutionState,
+        metadata: std::collections::HashMap<String, String>,
+    ) {
+        self.execution_responses.insert(
+            ev.execution_id.clone(),
+            super::ExecutionResponse {
+                execution_id: ev.execution_id,
+                invocation_id: inflight_execution.invocation_id,
+                task_id: inflight_execution.task_id,
+                function_name: inflight_execution.function_name,
+                instance_id: inflight_execution.instance_id,
+                output_data: ev.output,
+                status: final_state.public_status.to_string(),
+                error_message: ev.error_message,
+                execution_time_ms: ev.duration_ms,
+                metadata,
+                timestamp: SystemTime::now(),
+            },
+        );
+    }
+
+    async fn complete_inflight_execution(
+        &self,
+        ev: ExecutionCompletionEvent,
+    ) -> ExecutionResult<()> {
+        let Some((_, inflight_execution)) = self.inflight_async_executions.remove(&ev.execution_id) else {
             return Ok(());
         };
 
@@ -1575,136 +2040,22 @@ impl TaskExecutionManager {
             "async execution completed; closing user stream channels"
         );
 
-        crate::spearlet::execution::host_api::user_stream::map_ws_close_to_channels(
-            &ev.execution_id,
-        );
-
-        if let Some(inst) = self.instances.get(&pending.instance_id) {
-            if inst.value().config.runtime_type == super::RuntimeType::Wasm {
-                if let Some(wasm_handle) = inst
-                    .value()
-                    .get_runtime_handle::<crate::spearlet::execution::runtime::wasm::WasmInstanceHandle>(
-                    )
-                {
-                    let mut st = wasm_handle.state.lock().await;
-                    st.is_running = false;
-                    st.current_function = None;
-                }
-            }
-            inst.value().set_current_execution_id(None);
-        }
-
-        let completed_at_ms = ev.completed_at_ms;
-        let mut log_next_seq = pending.log_next_seq;
-        let mut wasm_last_seq = pending.wasm_last_seq;
-        if self
-            .instances
-            .get(&pending.instance_id)
-            .map(|inst| inst.value().config.runtime_type == super::RuntimeType::Wasm)
-            .unwrap_or(false)
-        {
-            let _ = self
-                .flush_wasm_logs_to_sms(&ev.execution_id, &mut log_next_seq, &mut wasm_last_seq)
-                .await;
-        }
-
-        let is_successful = matches!(
-            ev.execution_status,
-            crate::spearlet::execution::runtime::ExecutionStatus::Completed
-        );
-        let has_failed = matches!(
-            ev.execution_status,
-            crate::spearlet::execution::runtime::ExecutionStatus::Failed
-        );
-
-        if let Some(inst) = self.instances.get(&pending.instance_id) {
-            inst.value()
-                .record_request_completion(is_successful, ev.duration_ms as f64);
-        }
-
-        let _ = self
-            .append_execution_logs_to_sms(
-                &ev.execution_id,
-                &mut log_next_seq,
-                vec![SmsAppendLogLine {
-                    ts_ms: Some(completed_at_ms as u64),
-                    stream: Some("system".to_string()),
-                    level: Some(if is_successful { "info" } else { "warn" }.to_string()),
-                    message: format!(
-                        "execution_completed status={} duration_ms={}",
-                        if is_successful {
-                            "completed"
-                        } else if has_failed {
-                            "failed"
-                        } else {
-                            "pending"
-                        },
-                        ev.duration_ms
-                    ),
-                }],
-            )
+        self.release_inflight_execution_runtime_state(&ev.execution_id, &inflight_execution)
             .await;
-        let _ = self.finalize_execution_logs_to_sms(&ev.execution_id).await;
-
-        let final_status = if is_successful {
-            crate::proto::sms::ExecutionStatus::Completed as i32
-        } else if has_failed {
-            crate::proto::sms::ExecutionStatus::Failed as i32
-        } else {
-            crate::proto::sms::ExecutionStatus::Pending as i32
-        };
-
-        let mut meta: std::collections::HashMap<String, String> = ev
-            .runtime_metadata
-            .into_iter()
-            .map(|(k, v)| (k, v.to_string()))
-            .collect();
-        meta.insert("execution_time_ms".to_string(), ev.duration_ms.to_string());
-        if let Some(err) = ev.error_message.as_ref() {
-            meta.insert("error_message".to_string(), err.clone());
-        }
-
-        self.report_execution_to_sms(
-            pending.invocation_id.clone(),
-            pending.task_id.clone(),
-            pending.function_name.clone(),
-            pending.instance_id.clone(),
-            ev.execution_id.clone(),
-            final_status,
-            pending.started_at_ms,
-            completed_at_ms,
-            meta.clone(),
+        let final_state = FinalExecutionState::from_runtime_status(ev.execution_status.clone());
+        self.record_inflight_execution_completion_metrics(
+            &inflight_execution,
+            final_state,
+            ev.duration_ms,
         );
-        self.report_instance_to_sms(
-            pending.task_id.clone(),
-            pending.instance_id.clone(),
-            ev.execution_id.clone(),
-            completed_at_ms,
-            crate::proto::sms::InstanceStatus::Running as i32,
-        );
-        crate::spearlet::execution::host_api::clear_wasm_logs_by_execution(&ev.execution_id);
-
-        self.executions.insert(
-            ev.execution_id.clone(),
-            super::ExecutionResponse {
-                execution_id: ev.execution_id.clone(),
-                invocation_id: pending.invocation_id,
-                task_id: pending.task_id,
-                function_name: pending.function_name,
-                instance_id: pending.instance_id,
-                output_data: ev.output,
-                status: if is_successful {
-                    "completed".to_string()
-                } else if has_failed {
-                    "failed".to_string()
-                } else {
-                    "pending".to_string()
-                },
-                error_message: ev.error_message,
-                execution_time_ms: ev.duration_ms,
-                metadata: meta,
-                timestamp: SystemTime::now(),
-            },
+        let metadata = self
+            .finalize_inflight_execution(&inflight_execution, &ev, final_state)
+            .await;
+        self.persist_completed_async_execution_response(
+            inflight_execution,
+            ev,
+            final_state,
+            metadata,
         );
 
         Ok(())
@@ -1741,12 +2092,13 @@ impl TaskExecutionManager {
                             .unwrap_or(1);
 
                         if instance.get_metrics().health_check_failures >= threshold {
-                            let _ = self.stop_instance(&instance).await;
+                            let _ = self.stop_and_unregister_instance(&instance).await;
                         }
                     }
                 }
             }
         }
+        self.reconcile_underprovisioned_tasks_once().await;
     }
 
     /// Metrics collection loop / 指标收集循环
@@ -1800,12 +2152,15 @@ impl TaskExecutionManager {
                     _ => continue,
                 }
                 let current_execution_id = instance.current_execution_id().unwrap_or_default();
-                self.report_instance_to_sms(
+                self.sms_reporter.report_instance(
                     instance.task_id.clone(),
                     instance.id().to_string(),
                     current_execution_id,
                     ts_ms,
-                    crate::proto::sms::InstanceStatus::Running as i32,
+                    observed_instance_status_to_sms(
+                        &instance.status(),
+                        instance.current_execution_id().is_some(),
+                    ) as i32,
                 );
             }
         }
@@ -1832,7 +2187,7 @@ impl TaskExecutionManager {
             }
 
             for instance in instances_to_remove {
-                if let Err(e) = self.stop_instance(&instance).await {
+                if let Err(e) = self.stop_and_unregister_instance(&instance).await {
                     warn!("Failed to cleanup idle instance {}: {}", instance.id(), e);
                 }
             }
@@ -1844,10 +2199,7 @@ impl TaskExecutionManager {
                 let task = task_entry.value();
                 if task.instance_count() == 0 {
                     let idle_duration = task.time_since_update();
-                    let not_active = !matches!(
-                        task.status(),
-                        super::task::TaskStatus::Ready | super::task::TaskStatus::Running
-                    );
+                    let not_active = !task.is_retained_when_idle();
                     if not_active
                         || idle_duration.as_millis() > self.config.task_idle_timeout_ms as u128
                     {
@@ -1859,12 +2211,11 @@ impl TaskExecutionManager {
             for task_id in tasks_to_remove {
                 if let Some((_, task)) = self.tasks.remove(&task_id) {
                     // Publish INACTIVE before removal / 移除前上报INACTIVE状态
-                    self.publish_task_status(
+                    self.sms_reporter.update_task_status(
                         task.id(),
-                        crate::proto::sms::TaskStatus::Inactive,
+                        self.task_status_to_sms(&task),
                         Some("cleanup".to_string()),
-                    )
-                    .await;
+                    );
                     if let Some(artifact_entry) = self.artifacts.get(task.artifact_id()) {
                         let artifact = artifact_entry.value();
                         if let Err(e) = artifact.remove_task(task.id()) {
@@ -1903,7 +2254,7 @@ impl TaskExecutionManager {
 
             let completed_execution_ttl = Duration::from_millis(self.config.task_idle_timeout_ms);
             let mut executions_to_remove = Vec::new();
-            for entry in self.executions.iter() {
+            for entry in self.execution_responses.iter() {
                 let e = entry.value();
                 if !e.is_completed() {
                     continue;
@@ -1915,7 +2266,7 @@ impl TaskExecutionManager {
                 }
             }
             for execution_id in executions_to_remove {
-                self.executions.remove(&execution_id);
+                self.execution_responses.remove(&execution_id);
             }
 
             // Update statistics / 更新统计信息
@@ -1928,155 +2279,8 @@ impl TaskExecutionManager {
         }
     }
 
-    fn report_instance_to_sms(
-        &self,
-        task_id: String,
-        instance_id: String,
-        current_execution_id: String,
-        ts_ms: i64,
-        status: i32,
-    ) {
-        let channel = match self.sms_channel.clone() {
-            Some(c) => c,
-            None => return,
-        };
-        let per_attempt = Duration::from_millis(self.spearlet_config.sms_connect_timeout_ms)
-            .min(Duration::from_secs(5))
-            .max(Duration::from_millis(1));
-        let node_uuid = self.spearlet_config.compute_node_uuid();
-        let inst = crate::proto::sms::Instance {
-            instance_id,
-            task_id,
-            node_uuid,
-            status,
-            created_at_ms: ts_ms,
-            updated_at_ms: ts_ms,
-            last_seen_ms: ts_ms,
-            current_execution_id,
-            metadata: std::collections::HashMap::new(),
-        };
-        tokio::spawn(async move {
-            let mut client =
-                crate::proto::sms::instance_registry_service_client::InstanceRegistryServiceClient::new(
-                    channel,
-                );
-            let _ = timeout(per_attempt, client.report_instance(inst)).await;
-        });
-    }
-
-    fn report_execution_to_sms(
-        &self,
-        invocation_id: String,
-        task_id: String,
-        function_name: String,
-        instance_id: String,
-        execution_id: String,
-        status: i32,
-        started_at_ms: i64,
-        completed_at_ms: i64,
-        metadata: std::collections::HashMap<String, String>,
-    ) {
-        let channel = match self.sms_channel.clone() {
-            Some(c) => c,
-            None => return,
-        };
-        let per_attempt = Duration::from_millis(self.spearlet_config.sms_connect_timeout_ms)
-            .min(Duration::from_secs(5))
-            .max(Duration::from_millis(1));
-        let node_uuid = self.spearlet_config.compute_node_uuid();
-        let updated_at_ms = if completed_at_ms > 0 {
-            completed_at_ms
-        } else {
-            started_at_ms
-        };
-        let exe = crate::proto::sms::Execution {
-            execution_id,
-            invocation_id,
-            task_id,
-            function_name,
-            node_uuid,
-            instance_id,
-            status,
-            started_at_ms,
-            completed_at_ms,
-            log_ref: None,
-            metadata,
-            updated_at_ms,
-        };
-        tokio::spawn(async move {
-            let mut client =
-                crate::proto::sms::execution_registry_service_client::ExecutionRegistryServiceClient::new(
-                    channel,
-                );
-            let _ = timeout(per_attempt, client.report_execution(exe)).await;
-        });
-    }
-
-    async fn publish_task_status(
-        &self,
-        task_id: &str,
-        status: crate::proto::sms::TaskStatus,
-        reason: Option<String>,
-    ) {
-        let channel = match self.sms_channel.clone() {
-            Some(c) => c,
-            None => return,
-        };
-        let per_attempt = Duration::from_millis(self.spearlet_config.sms_connect_timeout_ms)
-            .min(Duration::from_secs(5))
-            .max(Duration::from_millis(1));
-        let node_uuid = {
-            let cfg = &self.spearlet_config;
-            let base = format!(
-                "{}:{}:{}",
-                cfg.grpc.addr.ip(),
-                cfg.grpc.addr.port(),
-                cfg.node_name
-            );
-            uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, base.as_bytes()).to_string()
-        };
-        let req = crate::proto::sms::UpdateTaskStatusRequest {
-            task_id: task_id.to_string(),
-            status: status as i32,
-            node_uuid,
-            status_version: 0,
-            updated_at: chrono::Utc::now().timestamp(),
-            reason: reason.unwrap_or_default(),
-        };
-        tokio::spawn(async move {
-            let mut client =
-                crate::proto::sms::task_service_client::TaskServiceClient::new(channel);
-            let _ = timeout(per_attempt, client.update_task_status(req)).await;
-        });
-    }
-
-    async fn publish_task_result(
-        &self,
-        task_id: &str,
-        result_uri: String,
-        result_status: String,
-        completed_at: i64,
-        result_metadata: std::collections::HashMap<String, String>,
-    ) {
-        let channel = match self.sms_channel.clone() {
-            Some(c) => c,
-            None => return,
-        };
-        let per_attempt = Duration::from_millis(self.spearlet_config.sms_connect_timeout_ms)
-            .min(Duration::from_secs(5))
-            .max(Duration::from_millis(1));
-        let req = crate::proto::sms::UpdateTaskResultRequest {
-            task_id: task_id.to_string(),
-            result_uri,
-            result_status,
-            completed_at,
-            result_metadata,
-        };
-        tokio::spawn(async move {
-            let mut client =
-                crate::proto::sms::task_service_client::TaskServiceClient::new(channel);
-            let _ = timeout(per_attempt, client.update_task_result(req)).await;
-        });
+    fn task_status_to_sms(&self, task: &Task) -> crate::proto::sms::TaskStatus {
+        local_task_status_to_sms(&task.status(), task.instance_count())
     }
 
     /// Extract error message from RuntimeExecutionError enum / 从RuntimeExecutionError枚举中提取错误消息
@@ -2085,16 +2289,16 @@ impl TaskExecutionManager {
         match error {
             RuntimeExecutionError::InstanceNotFound { instance_id } => {
                 format!("Instance not found: {}", instance_id)
-            }
+            },
             RuntimeExecutionError::InstanceNotReady { instance_id } => {
                 format!("Instance not ready: {}", instance_id)
-            }
+            },
             RuntimeExecutionError::ExecutionTimeout { timeout_ms } => {
                 format!("Execution timeout after {} ms", timeout_ms)
-            }
+            },
             RuntimeExecutionError::ResourceLimitExceeded { resource, limit } => {
                 format!("Resource limit exceeded: {} (limit: {})", resource, limit)
-            }
+            },
             RuntimeExecutionError::ConfigurationError { message } => message.clone(),
             RuntimeExecutionError::RuntimeError { message } => message.clone(),
             RuntimeExecutionError::IoError { message } => message.clone(),
@@ -2120,714 +2324,23 @@ impl Clone for TaskExecutionManager {
             artifacts: self.artifacts.clone(),
             tasks: self.tasks.clone(),
             instances: self.instances.clone(),
-            executions: self.executions.clone(),
+            desired_task_instances: self.desired_task_instances.clone(),
+            task_reconcile_locks: self.task_reconcile_locks.clone(),
+            execution_responses: self.execution_responses.clone(),
+            active_instance_executions: self.active_instance_executions.clone(),
             execution_semaphore: self.execution_semaphore.clone(),
             statistics: self.statistics.clone(),
             request_counter: AtomicU64::new(self.request_counter.load(Ordering::SeqCst)),
             work_sender: self.work_sender.clone(),
             completion_sender: self.completion_sender.clone(),
-            pending_async_executions: self.pending_async_executions.clone(),
+            inflight_async_executions: self.inflight_async_executions.clone(),
             sms_channel: self.sms_channel.clone(),
+            sms_reporter: self.sms_reporter.clone(),
             shutdown_sender: None, // Clone doesn't get shutdown sender / 克隆不获取关闭发送器
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::spearlet::execution::instance;
-    use crate::spearlet::execution::runtime;
-    use crate::spearlet::execution::runtime::{Runtime, RuntimeCapabilities, RuntimeType};
-    use async_trait::async_trait;
-    use std::collections::HashMap as StdHashMap;
-    use tokio::time::sleep;
-
-    struct DummyRuntime {
-        ty: RuntimeType,
-    }
-
-    #[async_trait]
-    impl Runtime for DummyRuntime {
-        fn runtime_type(&self) -> RuntimeType {
-            self.ty
-        }
-        async fn create_instance(
-            &self,
-            config: &instance::InstanceConfig,
-        ) -> super::ExecutionResult<Arc<instance::TaskInstance>> {
-            Ok(Arc::new(instance::TaskInstance::new(
-                config.task_id.clone(),
-                config.clone(),
-            )))
-        }
-        async fn start_instance(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-        ) -> super::ExecutionResult<()> {
-            Ok(())
-        }
-        async fn stop_instance(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-        ) -> super::ExecutionResult<()> {
-            Ok(())
-        }
-        async fn execute(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-            _context: runtime::ExecutionContext,
-        ) -> super::ExecutionResult<runtime::RuntimeExecutionResponse> {
-            Ok(runtime::RuntimeExecutionResponse::default())
-        }
-        async fn health_check(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-        ) -> super::ExecutionResult<bool> {
-            Ok(true)
-        }
-        async fn get_metrics(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-        ) -> super::ExecutionResult<StdHashMap<String, serde_json::Value>> {
-            Ok(StdHashMap::new())
-        }
-        async fn scale_instance(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-            _new_limits: &instance::InstanceResourceLimits,
-        ) -> super::ExecutionResult<()> {
-            Ok(())
-        }
-        async fn cleanup_instance(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-        ) -> super::ExecutionResult<()> {
-            Ok(())
-        }
-        fn validate_config(
-            &self,
-            _config: &instance::InstanceConfig,
-        ) -> super::ExecutionResult<()> {
-            Ok(())
-        }
-        fn get_capabilities(&self) -> RuntimeCapabilities {
-            RuntimeCapabilities::default()
-        }
-    }
-
-    struct DelayedRuntime {
-        ty: RuntimeType,
-        delay_ms: u64,
-        payload: Vec<u8>,
-    }
-
-    #[async_trait]
-    impl Runtime for DelayedRuntime {
-        fn runtime_type(&self) -> RuntimeType {
-            self.ty
-        }
-        async fn create_instance(
-            &self,
-            config: &instance::InstanceConfig,
-        ) -> super::ExecutionResult<Arc<instance::TaskInstance>> {
-            Ok(Arc::new(instance::TaskInstance::new(
-                config.task_id.clone(),
-                config.clone(),
-            )))
-        }
-        async fn start_instance(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-        ) -> super::ExecutionResult<()> {
-            Ok(())
-        }
-        async fn stop_instance(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-        ) -> super::ExecutionResult<()> {
-            Ok(())
-        }
-        async fn execute(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-            context: runtime::ExecutionContext,
-        ) -> super::ExecutionResult<runtime::RuntimeExecutionResponse> {
-            sleep(Duration::from_millis(self.delay_ms)).await;
-            Ok(runtime::RuntimeExecutionResponse::new_sync(
-                context.execution_id,
-                self.payload.clone(),
-                self.delay_ms,
-            ))
-        }
-        async fn health_check(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-        ) -> super::ExecutionResult<bool> {
-            Ok(true)
-        }
-        async fn get_metrics(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-        ) -> super::ExecutionResult<StdHashMap<String, serde_json::Value>> {
-            Ok(StdHashMap::new())
-        }
-        async fn scale_instance(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-            _new_limits: &instance::InstanceResourceLimits,
-        ) -> super::ExecutionResult<()> {
-            Ok(())
-        }
-        async fn cleanup_instance(
-            &self,
-            _instance: &Arc<instance::TaskInstance>,
-        ) -> super::ExecutionResult<()> {
-            Ok(())
-        }
-        fn validate_config(
-            &self,
-            _config: &instance::InstanceConfig,
-        ) -> super::ExecutionResult<()> {
-            Ok(())
-        }
-        fn get_capabilities(&self) -> RuntimeCapabilities {
-            RuntimeCapabilities::default()
-        }
-    }
-
-    #[tokio::test]
-    async fn test_task_execution_manager_creation() {
-        let config = TaskExecutionManagerConfig::default();
-        let runtime_manager = Arc::new(RuntimeManager::new());
-
-        let manager = TaskExecutionManager::new(
-            config,
-            runtime_manager,
-            Arc::new(crate::spearlet::config::SpearletConfig::default()),
-            None,
-        )
-        .await;
-        assert!(manager.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_execution_statistics() {
-        let mut stats = ExecutionStatistics::default();
-        assert_eq!(stats.total_executions, 0);
-        assert_eq!(stats.successful_executions, 0);
-        assert_eq!(stats.failed_executions, 0);
-
-        stats.total_executions = 10;
-        stats.successful_executions = 8;
-        stats.failed_executions = 2;
-        stats.total_execution_time_ms = 5000;
-        stats.average_execution_time_ms = 500.0;
-
-        assert_eq!(stats.total_executions, 10);
-        assert_eq!(stats.successful_executions, 8);
-        assert_eq!(stats.failed_executions, 2);
-    }
-
-    #[test]
-    fn test_task_execution_manager_config() {
-        let config = TaskExecutionManagerConfig::default();
-        assert_eq!(config.max_concurrent_executions, 1000);
-        assert_eq!(config.max_artifacts, 100);
-        assert_eq!(config.max_tasks_per_artifact, 10);
-        assert_eq!(config.max_instances_per_task, 50);
-    }
-
-    #[tokio::test]
-    async fn test_execution_status_tracking() {
-        let mut rm = RuntimeManager::new();
-        rm.register_runtime(
-            RuntimeType::Process,
-            Box::new(DelayedRuntime {
-                ty: RuntimeType::Process,
-                delay_ms: 200,
-                payload: b"ok".to_vec(),
-            }),
-        )
-        .unwrap();
-        let rm = Arc::new(rm);
-
-        let cfg = TaskExecutionManagerConfig {
-            max_concurrent_executions: 1,
-            ..Default::default()
-        };
-        let manager = TaskExecutionManager::new(
-            cfg,
-            rm,
-            Arc::new(crate::spearlet::config::SpearletConfig::default()),
-            None,
-        )
-        .await
-        .unwrap();
-
-        let spec_local = crate::spearlet::execution::artifact::ArtifactSpec {
-            name: "artifact-long".to_string(),
-            version: "1.0.0".to_string(),
-            description: None,
-            runtime_type: RuntimeType::Process,
-            runtime_config: StdHashMap::new(),
-            location: None,
-            checksum_sha256: None,
-            environment: StdHashMap::new(),
-            resource_limits: Default::default(),
-            invocation_type: crate::spearlet::execution::artifact::InvocationType::ExistingTask,
-            max_execution_timeout_ms: 30000,
-            labels: StdHashMap::new(),
-        };
-        let artifact = manager
-            .ensure_artifact_with_id("artifact-long".to_string(), spec_local)
-            .unwrap();
-
-        use crate::spearlet::execution::task::{
-            HealthCheckConfig, ScalingConfig, TaskSpec, TaskType, TimeoutConfig,
-        };
-        let task_spec = TaskSpec {
-            name: "task-long".to_string(),
-            task_type: TaskType::HttpHandler,
-            runtime_type: artifact.spec.runtime_type,
-            entry_point: "main".to_string(),
-            handler_config: StdHashMap::new(),
-            task_config: StdHashMap::new(),
-            environment: artifact.spec.environment.clone(),
-            invocation_type: artifact.spec.invocation_type.clone(),
-            min_instances: 1,
-            max_instances: 10,
-            target_concurrency: 100,
-            scaling_config: ScalingConfig::default(),
-            health_check: HealthCheckConfig::default(),
-            timeout_config: TimeoutConfig::default(),
-        };
-        manager
-            .ensure_task_with_id("task-long".to_string(), &artifact, task_spec)
-            .unwrap();
-
-        let req = crate::proto::spearlet::InvokeRequest {
-            invocation_id: "inv-long-1".to_string(),
-            execution_id: "exec-long-1".to_string(),
-            task_id: "task-long".to_string(),
-            function_name: crate::spearlet::execution::DEFAULT_ENTRY_FUNCTION_NAME.to_string(),
-            input: Some(crate::proto::spearlet::Payload {
-                content_type: "application/octet-stream".to_string(),
-                data: Vec::new(),
-            }),
-            headers: StdHashMap::new(),
-            environment: StdHashMap::new(),
-            timeout_ms: 0,
-            session_id: String::new(),
-            mode: crate::proto::spearlet::ExecutionMode::Async as i32,
-            force_new_instance: false,
-            metadata: StdHashMap::new(),
-        };
-
-        let mgr2 = manager.clone();
-        let h = tokio::spawn(async move { mgr2.submit_invocation(req).await });
-
-        tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                if let Ok(Some(s)) = manager.get_execution_status("exec-long-1").await {
-                    if s.status == "pending" || s.status == "running" {
-                        break;
-                    }
-                }
-                sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
-
-        let final_resp = h.await.unwrap().unwrap();
-        assert_eq!(final_resp.execution_id, "exec-long-1");
-        assert_eq!(final_resp.status, "completed");
-        assert_eq!(final_resp.output_data, b"ok".to_vec());
-
-        let stored = manager
-            .get_execution_status("exec-long-1")
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(stored.status, "completed");
-    }
-
-    #[tokio::test]
-    async fn test_stop_instance_removes_from_task_and_manager() {
-        let mut rm = RuntimeManager::new();
-        rm.register_runtime(
-            RuntimeType::Process,
-            Box::new(DummyRuntime {
-                ty: RuntimeType::Process,
-            }),
-        )
-        .unwrap();
-        let rm = Arc::new(rm);
-
-        let config = TaskExecutionManagerConfig::default();
-        let manager = TaskExecutionManager::new(
-            config,
-            rm,
-            Arc::new(crate::spearlet::config::SpearletConfig::default()),
-            None,
-        )
-        .await
-        .unwrap();
-
-        let spec_local = crate::spearlet::execution::artifact::ArtifactSpec {
-            name: "artifact-test".to_string(),
-            version: "1.0.0".to_string(),
-            description: None,
-            runtime_type: RuntimeType::Process,
-            runtime_config: StdHashMap::new(),
-            location: None,
-            checksum_sha256: None,
-            environment: StdHashMap::new(),
-            resource_limits: Default::default(),
-            invocation_type: crate::spearlet::execution::artifact::InvocationType::ExistingTask,
-            max_execution_timeout_ms: 30000,
-            labels: StdHashMap::new(),
-        };
-        let artifact = manager
-            .ensure_artifact_with_id("artifact-test".to_string(), spec_local)
-            .unwrap();
-        use crate::spearlet::execution::task::{
-            HealthCheckConfig, ScalingConfig, TaskSpec, TaskType, TimeoutConfig,
-        };
-        let task_spec = TaskSpec {
-            name: "task-test".to_string(),
-            task_type: TaskType::HttpHandler,
-            runtime_type: artifact.spec.runtime_type,
-            entry_point: "main".to_string(),
-            handler_config: StdHashMap::new(),
-            task_config: StdHashMap::new(),
-            environment: artifact.spec.environment.clone(),
-            invocation_type: artifact.spec.invocation_type.clone(),
-            min_instances: 1,
-            max_instances: 10,
-            target_concurrency: 100,
-            scaling_config: ScalingConfig::default(),
-            health_check: HealthCheckConfig::default(),
-            timeout_config: TimeoutConfig::default(),
-        };
-        let task = manager
-            .ensure_task_with_id("task-test".to_string(), &artifact, task_spec)
-            .unwrap();
-        let instance = manager.get_or_create_instance(&task).await.unwrap();
-
-        assert_eq!(task.instance_count(), 1);
-        assert!(manager.get_instance(&instance.id().to_string()).is_some());
-
-        manager.stop_instance(&instance).await.unwrap();
-
-        assert_eq!(task.instance_count(), 0);
-        assert!(task.get_instance(instance.id()).is_none());
-        assert!(manager.get_instance(&instance.id().to_string()).is_none());
-    }
-
-    #[tokio::test]
-    async fn test_cleanup_loop_removes_task_from_artifact() {
-        let mut rm = RuntimeManager::new();
-        rm.register_runtime(
-            RuntimeType::Process,
-            Box::new(DummyRuntime {
-                ty: RuntimeType::Process,
-            }),
-        )
-        .unwrap();
-        let rm = Arc::new(rm);
-
-        let cfg = TaskExecutionManagerConfig {
-            cleanup_interval_ms: 10,
-            task_idle_timeout_ms: 1,
-            ..Default::default()
-        };
-
-        let manager = TaskExecutionManager::new(
-            cfg,
-            rm,
-            Arc::new(crate::spearlet::config::SpearletConfig::default()),
-            None,
-        )
-        .await
-        .unwrap();
-
-        let spec_local = crate::spearlet::execution::artifact::ArtifactSpec {
-            name: "artifact-cleanup".to_string(),
-            version: "1.0.0".to_string(),
-            description: None,
-            runtime_type: RuntimeType::Process,
-            runtime_config: StdHashMap::new(),
-            location: None,
-            checksum_sha256: None,
-            environment: StdHashMap::new(),
-            resource_limits: Default::default(),
-            invocation_type: crate::spearlet::execution::artifact::InvocationType::ExistingTask,
-            max_execution_timeout_ms: 30000,
-            labels: StdHashMap::new(),
-        };
-        let artifact = manager
-            .ensure_artifact_with_id("artifact-cleanup".to_string(), spec_local)
-            .unwrap();
-        use crate::spearlet::execution::task::{
-            HealthCheckConfig, ScalingConfig, TaskSpec, TaskType, TimeoutConfig,
-        };
-        let task_spec = TaskSpec {
-            name: "task-cleanup".to_string(),
-            task_type: TaskType::HttpHandler,
-            runtime_type: artifact.spec.runtime_type,
-            entry_point: "main".to_string(),
-            handler_config: StdHashMap::new(),
-            task_config: StdHashMap::new(),
-            environment: artifact.spec.environment.clone(),
-            invocation_type: artifact.spec.invocation_type.clone(),
-            min_instances: 1,
-            max_instances: 10,
-            target_concurrency: 100,
-            scaling_config: ScalingConfig::default(),
-            health_check: HealthCheckConfig::default(),
-            timeout_config: TimeoutConfig::default(),
-        };
-        let task = manager
-            .ensure_task_with_id("task-cleanup".to_string(), &artifact, task_spec)
-            .unwrap();
-        let task_id = task.id().to_string();
-
-        let handle = {
-            let m = manager.clone();
-            tokio::spawn(async move { m.run_cleanup_loop().await })
-        };
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        handle.abort();
-
-        assert!(manager.get_task(&task_id).is_none());
-        assert!(artifact.get_task(&task_id).is_none());
-    }
-
-    #[tokio::test]
-    async fn test_get_or_create_task_uses_desired_task_id() {
-        let mut rm = RuntimeManager::new();
-        rm.register_runtime(
-            RuntimeType::Process,
-            Box::new(DummyRuntime {
-                ty: RuntimeType::Process,
-            }),
-        )
-        .unwrap();
-        let rm = Arc::new(rm);
-
-        let manager = TaskExecutionManager::new(
-            TaskExecutionManagerConfig::default(),
-            rm,
-            Arc::new(crate::spearlet::config::SpearletConfig::default()),
-            None,
-        )
-        .await
-        .unwrap();
-
-        let spec_local = crate::spearlet::execution::artifact::ArtifactSpec {
-            name: "artifact-fixed".to_string(),
-            version: "1.0.0".to_string(),
-            description: None,
-            runtime_type: RuntimeType::Process,
-            runtime_config: StdHashMap::new(),
-            location: Some("file:///bin/foo".to_string()),
-            checksum_sha256: None,
-            environment: StdHashMap::new(),
-            resource_limits: Default::default(),
-            invocation_type: crate::spearlet::execution::artifact::InvocationType::ExistingTask,
-            max_execution_timeout_ms: 30000,
-            labels: StdHashMap::new(),
-        };
-        let artifact = manager
-            .ensure_artifact_with_id("artifact-fixed".to_string(), spec_local)
-            .unwrap();
-        let desired = "sms-task-123".to_string();
-        use crate::spearlet::execution::task::{
-            HealthCheckConfig, ScalingConfig, TaskSpec, TaskType, TimeoutConfig,
-        };
-        let task_spec = TaskSpec {
-            name: desired.clone(),
-            task_type: TaskType::HttpHandler,
-            runtime_type: artifact.spec.runtime_type,
-            entry_point: "main".to_string(),
-            handler_config: StdHashMap::new(),
-            task_config: StdHashMap::new(),
-            environment: artifact.spec.environment.clone(),
-            invocation_type: artifact.spec.invocation_type.clone(),
-            min_instances: 1,
-            max_instances: 10,
-            target_concurrency: 100,
-            scaling_config: ScalingConfig::default(),
-            health_check: HealthCheckConfig::default(),
-            timeout_config: TimeoutConfig::default(),
-        };
-        let task = manager
-            .ensure_task_with_id(desired.clone(), &artifact, task_spec)
-            .unwrap();
-        assert_eq!(task.id(), desired);
-        assert!(manager.get_task(&desired).is_some());
-    }
-
-    #[tokio::test]
-    async fn test_health_check_failure_triggers_cascade_removal() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-
-        struct FailingRuntime {
-            ty: RuntimeType,
-            fail: Arc<AtomicBool>,
-        }
-
-        #[async_trait]
-        impl Runtime for FailingRuntime {
-            fn runtime_type(&self) -> RuntimeType {
-                self.ty
-            }
-            async fn create_instance(
-                &self,
-                config: &instance::InstanceConfig,
-            ) -> super::ExecutionResult<Arc<instance::TaskInstance>> {
-                Ok(Arc::new(instance::TaskInstance::new(
-                    config.task_id.clone(),
-                    config.clone(),
-                )))
-            }
-            async fn start_instance(
-                &self,
-                _instance: &Arc<instance::TaskInstance>,
-            ) -> super::ExecutionResult<()> {
-                Ok(())
-            }
-            async fn stop_instance(
-                &self,
-                _instance: &Arc<instance::TaskInstance>,
-            ) -> super::ExecutionResult<()> {
-                Ok(())
-            }
-            async fn execute(
-                &self,
-                _instance: &Arc<instance::TaskInstance>,
-                _context: runtime::ExecutionContext,
-            ) -> super::ExecutionResult<runtime::RuntimeExecutionResponse> {
-                Ok(runtime::RuntimeExecutionResponse::default())
-            }
-            async fn health_check(
-                &self,
-                _instance: &Arc<instance::TaskInstance>,
-            ) -> super::ExecutionResult<bool> {
-                if self.fail.load(Ordering::SeqCst) {
-                    Err(super::ExecutionError::HealthCheckFailed {
-                        message: "fail".to_string(),
-                    })
-                } else {
-                    Ok(true)
-                }
-            }
-            async fn get_metrics(
-                &self,
-                _instance: &Arc<instance::TaskInstance>,
-            ) -> super::ExecutionResult<StdHashMap<String, serde_json::Value>> {
-                Ok(StdHashMap::new())
-            }
-            async fn scale_instance(
-                &self,
-                _instance: &Arc<instance::TaskInstance>,
-                _new_limits: &instance::InstanceResourceLimits,
-            ) -> super::ExecutionResult<()> {
-                Ok(())
-            }
-            async fn cleanup_instance(
-                &self,
-                _instance: &Arc<instance::TaskInstance>,
-            ) -> super::ExecutionResult<()> {
-                Ok(())
-            }
-            fn validate_config(
-                &self,
-                _config: &instance::InstanceConfig,
-            ) -> super::ExecutionResult<()> {
-                Ok(())
-            }
-            fn get_capabilities(&self) -> RuntimeCapabilities {
-                RuntimeCapabilities::default()
-            }
-        }
-
-        let mut rm = RuntimeManager::new();
-        let fail_flag = Arc::new(AtomicBool::new(false));
-        rm.register_runtime(
-            RuntimeType::Process,
-            Box::new(FailingRuntime {
-                ty: RuntimeType::Process,
-                fail: fail_flag.clone(),
-            }),
-        )
-        .unwrap();
-        let rm = Arc::new(rm);
-
-        let cfg = TaskExecutionManagerConfig {
-            health_check_interval_ms: 10,
-            ..Default::default()
-        };
-
-        let manager = TaskExecutionManager::new(
-            cfg,
-            rm,
-            Arc::new(crate::spearlet::config::SpearletConfig::default()),
-            None,
-        )
-        .await
-        .unwrap();
-
-        let spec_local = crate::spearlet::execution::artifact::ArtifactSpec {
-            name: "artifact-hc".to_string(),
-            version: "1.0.0".to_string(),
-            description: None,
-            runtime_type: RuntimeType::Process,
-            runtime_config: StdHashMap::new(),
-            location: None,
-            checksum_sha256: None,
-            environment: StdHashMap::new(),
-            resource_limits: Default::default(),
-            invocation_type: crate::spearlet::execution::artifact::InvocationType::ExistingTask,
-            max_execution_timeout_ms: 30000,
-            labels: StdHashMap::new(),
-        };
-        let artifact = manager
-            .ensure_artifact_with_id("artifact-hc".to_string(), spec_local)
-            .unwrap();
-        use crate::spearlet::execution::task::{
-            HealthCheckConfig, ScalingConfig, TaskSpec, TaskType, TimeoutConfig,
-        };
-        let task_spec = TaskSpec {
-            name: "task-hc".to_string(),
-            task_type: TaskType::HttpHandler,
-            runtime_type: artifact.spec.runtime_type,
-            entry_point: "main".to_string(),
-            handler_config: StdHashMap::new(),
-            task_config: StdHashMap::new(),
-            environment: artifact.spec.environment.clone(),
-            invocation_type: artifact.spec.invocation_type.clone(),
-            min_instances: 1,
-            max_instances: 10,
-            target_concurrency: 100,
-            scaling_config: ScalingConfig::default(),
-            health_check: HealthCheckConfig::default(),
-            timeout_config: TimeoutConfig::default(),
-        };
-        let task = manager
-            .ensure_task_with_id("task-hc".to_string(), &artifact, task_spec)
-            .unwrap();
-        let instance = manager.get_or_create_instance(&task).await.unwrap();
-
-        fail_flag.store(true, Ordering::SeqCst);
-        manager.process_health_checks_once().await;
-        manager.process_health_checks_once().await;
-        manager.process_health_checks_once().await;
-
-        assert!(manager.get_instance(&instance.id().to_string()).is_none());
-        assert!(task.get_instance(instance.id()).is_none());
-    }
-}
+#[path = "manager_tests.rs"]
+mod tests;

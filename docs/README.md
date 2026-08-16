@@ -6,6 +6,17 @@ This directory contains project documentation and examples for the spear-next pr
 
 ## Contents / 内容
 
+### Current / 当前文档
+
+- **[ai-backend-unified-control-plane-design-en.md](./ai-backend-unified-control-plane-design-en.md)** - English design for the unified AI backend control plane
+- **[ai-backend-unified-control-plane-design-zh.md](./ai-backend-unified-control-plane-design-zh.md)** - 中文版统一 AI backend 控制面设计文档
+- **[web-admin-overview-en.md](./web-admin-overview-en.md)** - Current Web Admin page and API overview / 当前 Web Admin 页面与 API 概览（英文）
+- **[web-admin-overview-zh.md](./web-admin-overview-zh.md)** - 当前 Web Admin 页面与 API 概览
+- **[web-admin-ui-guide-en.md](./web-admin-ui-guide-en.md)** - Current Web Admin usage guide / 当前 Web Admin 使用指南（英文）
+- **[web-admin-ui-guide-zh.md](./web-admin-ui-guide-zh.md)** - 当前 Web Admin 使用指南
+- **[backend-support-matrix-en.md](./backend-support-matrix-en.md)** - Current backend support matrix / 当前 backend 能力矩阵（英文）
+- **[backend-support-matrix-zh.md](./backend-support-matrix-zh.md)** - 当前 backend 能力矩阵
+
 ### Architecture & Core Concepts / 架构与核心概念
 
 #### SMS Terminology / SMS术语说明
@@ -37,6 +48,17 @@ This directory contains project documentation and examples for the spear-next pr
 
 - **[rocksdb-support-en.md](./rocksdb-support-en.md)** - English documentation for RocksDB integration and usage
 - **[rocksdb-support-zh.md](./rocksdb-support-zh.md)** - 中文版RocksDB集成和使用文档
+
+### AI Backend Control Plane / AI Backend 控制面
+
+- **[ai-backend-unified-control-plane-design-en.md](./ai-backend-unified-control-plane-design-en.md)** - English design for the unified AI backend control plane
+- **[ai-backend-unified-control-plane-design-zh.md](./ai-backend-unified-control-plane-design-zh.md)** - 中文版统一 AI backend 控制面设计文档
+- **[web-admin-overview-en.md](./web-admin-overview-en.md)** - Current Web Admin page and API overview / 当前 Web Admin 页面与 API 概览（英文）
+- **[web-admin-overview-zh.md](./web-admin-overview-zh.md)** - 当前 Web Admin 页面与 API 概览
+- **[web-admin-ui-guide-en.md](./web-admin-ui-guide-en.md)** - Current Web Admin usage guide / 当前 Web Admin 使用指南（英文）
+- **[web-admin-ui-guide-zh.md](./web-admin-ui-guide-zh.md)** - 当前 Web Admin 使用指南
+- **[backend-support-matrix-en.md](./backend-support-matrix-en.md)** - Current backend support matrix / 当前 backend 能力矩阵（英文）
+- **[backend-support-matrix-zh.md](./backend-support-matrix-zh.md)** - 当前 backend 能力矩阵
 
 ## KV Abstraction Layer Overview / KV抽象层概述
 

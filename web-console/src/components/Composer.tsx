@@ -1,4 +1,6 @@
 import { MicSplitControl, type MicMode } from '../voice'
+import { Button } from '../../../web-admin/src/shared/components/ui/button'
+import { Textarea } from '../../../web-admin/src/shared/components/ui/textarea'
 
 export function Composer(props: {
   status: 'disconnected' | 'connecting' | 'connected'
@@ -17,8 +19,8 @@ export function Composer(props: {
 }) {
   return (
     <div className="cw-composer">
-      <textarea
-        className="cw-textarea"
+      <Textarea
+        className="cw-textarea min-h-[52px] resize-none"
         value={props.input}
         onChange={(e) => props.onChangeInput(e.target.value)}
         placeholder={props.status === 'connected' ? 'Message…' : 'Connect to send messages…'}
@@ -30,10 +32,10 @@ export function Composer(props: {
         }}
       />
       <div className="cw-composerActions">
-        <button className="cw-btn cw-btnPrimary" disabled={props.status !== 'connected' || !props.input.trim()} onClick={props.onSend}>
+        <Button size="sm" disabled={props.status !== 'connected' || !props.input.trim()} onClick={props.onSend}>
           <span className="cw-btnGlyph">→</span>
           <span className="cw-btnText">Send</span>
-        </button>
+        </Button>
         <MicSplitControl
           disabled={props.status !== 'connected'}
           recording={props.voiceRecording}
@@ -44,10 +46,10 @@ export function Composer(props: {
           onToggle={props.onToggleMic}
         />
         {props.showCancel ? (
-          <button className="cw-btn cw-danger" disabled={props.status !== 'connected'} onClick={props.onCancel}>
+          <Button variant="destructive" size="sm" disabled={props.status !== 'connected'} onClick={props.onCancel}>
             <span className="cw-btnGlyph">■</span>
             <span className="cw-btnText">Cancel</span>
-          </button>
+          </Button>
         ) : null}
       </div>
       {props.voiceError ? <div className="cw-error cw-errorInline">{props.voiceError}</div> : null}

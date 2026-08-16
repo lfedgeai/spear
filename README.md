@@ -40,6 +40,7 @@ This is the recommended cross-platform local setup (no Kubernetes required). It 
 Use the provided Compose file:
 
 - `deploy/docker/compose.local.yaml`
+- The local Compose stack builds SMS with the `rocksdb` feature enabled and persists both admin metadata and event KV under the `sms-data` volume.
 
 Start:
 
@@ -170,19 +171,40 @@ SPEARlet can import models from a local Ollama on startup and materialize them a
 
 ## Web Admin
 
-Web Admin provides Nodes/Tasks/Files/AI Models pages.
+Web Admin provides Nodes, Tasks, Files, AI Backends, AI Models, Credentials, MCP, and Execution History pages.
 
-- AI Models provides an aggregated view across nodes, split into Local/Remote.
-- Local AI Models supports creating/deleting model deployments on a node.
+- AI Backends is the control-plane write surface for backend definitions, placements, and credentials.
+- AI Models provides a read-only aggregated view across nodes, split into Local and Remote.
+- The AI Backends page now exposes separate create flows:
+  - `Create Remote Backend`
+  - `Create Local Backend`
+- Placement is created during backend creation:
+  - remote backends default to `All Nodes`
+  - local backends default to `Single Node`
+- Backend detail pages expose:
+  - placements
+  - per-node status
+  - read-model views
 
-Local model provisioning (llamacpp):
+Local model provisioning (`llamacpp`):
 
-- `model` is just a display key; actual download uses `params.model_url` when the model file is missing.
-- Supported params:
-  - `model_url`: http/https URL to a `.gguf` file (large files are supported).
-  - `download_timeout_s`: total download budget in seconds (default: 3600).
+- `model` is the routing / display key; the node-local runtime uses metadata-backed runtime parameters.
+- The Web Admin local dialog surfaces the most common `llamacpp` fields directly and persists them into backend metadata.
+- Common fields:
+  - `model_url`: http/https URL to a `.gguf` file.
   - `model_path`: absolute path, or relative to `spearlet.local_models_dir`.
-  - `skip_download=1`: fail if the model file is missing (no download).
+  - `skip_download=1`: fail if the model file is missing instead of downloading.
+  - `download_timeout_s`: total download budget in seconds (default: 3600).
+  - `threads`: forwarded to `llama-server --threads`.
+  - `ctx_size`: forwarded to `llama-server --ctx-size`.
+- Advanced metadata keys still supported by runtime:
+  - `server_mode`
+  - `server_cmd`
+  - `server_cmd_args`
+  - `ready_probe`
+  - `start_timeout_s`
+
+Local `vllm` remains a scaffolded / external-endpoint-oriented path rather than a fully managed local process mode.
 
 Docs:
 

@@ -31,8 +31,8 @@ const SPEAR_LOG_MAX_BYTES: i32 = 16 * 1024;
 const CTL_SET_PARAM: i32 = 1;
 const CTL_GET_METRICS: i32 = 2;
 
-fn guard_termination(host_data: &DefaultHostApi) -> Result<(), CoreError> {
-    if let Some(s) = host_data.check_wasm_termination() {
+fn abort_on_termination_request(host_data: &DefaultHostApi) -> Result<(), CoreError> {
+    if let Some(s) = host_data.read_wasm_termination_request() {
         let msg = match (s.scope, s.message.as_deref()) {
             (
                 crate::spearlet::execution::host_api::termination::TerminationScope::Execution,
@@ -75,7 +75,7 @@ macro_rules! guarded {
          frame: &mut CallingFrame,
          input: Vec<WasmValue>|
          -> Result<Vec<WasmValue>, CoreError> {
-            guard_termination(host_data)?;
+            abort_on_termination_request(host_data)?;
             $f(host_data, instance, frame, input)
         }
     };

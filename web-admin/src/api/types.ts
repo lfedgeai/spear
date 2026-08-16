@@ -88,8 +88,18 @@ export type TaskSummary = {
   status: string
   /** Task priority / 任务优先级 */
   priority: string
-  /** Node UUID / 节点 UUID */
-  node_uuid: string
+  /** Desired replicas / 期望副本数 */
+  desired_replicas?: number
+  /** Currently active instances / 当前活跃副本数 */
+  active_instances?: number
+  /** Currently ready/routable instances / 当前 ready 副本数 */
+  ready_instances?: number
+  /** Whether actual replicas are below target / 是否低于目标副本数 */
+  underprovisioned?: boolean
+  /** Whether replica reconciliation is still in progress / 是否仍在副本收敛中 */
+  reconciling?: boolean
+  /** Scheduling strategy / 调度策略 */
+  scheduling_strategy?: string
   /** Task endpoint / 任务端点 */
   endpoint: string
   /** Task version / 任务版本 */
@@ -104,13 +114,61 @@ export type TaskSummary = {
   registered_at: number
   /** Last heartbeat timestamp (epoch seconds) / 最后心跳时间戳（秒） */
   last_heartbeat: number
+  /** Deletion requested timestamp (epoch seconds) / 删除请求时间戳（秒） */
+  deletion_requested_at?: number
+  /** Deletion reason (optional) / 删除原因（可选） */
+  deletion_reason?: string
 }
 
 export type TaskDetail = {
   /** Whether the task is found / 是否找到任务 */
   found: boolean
   /** Full task object / 完整任务对象 */
-  task?: Record<string, unknown>
+  task?: {
+    task_id: string
+    name: string
+    description?: string
+    status: string
+    priority: string
+    desired_replicas?: number
+    scheduling_strategy?: string | number
+    endpoint: string
+    version: string
+    capabilities?: string[]
+    registered_at?: number
+    last_heartbeat?: number
+    metadata?: Record<string, string>
+    config?: Record<string, string>
+    executable_type?: string
+    executable_uri?: string
+    executable_name?: string
+    executable_checksum?: string
+    executable_args?: string[]
+    executable_env?: Record<string, string>
+    result_uris?: string[]
+    last_result_uri?: string
+    last_result_status?: string
+    last_completed_at?: number
+    last_result_metadata?: Record<string, string>
+    deletion_requested_at?: number
+    deletion_reason?: string
+  }
+}
+
+export type DeleteTaskResponse = {
+  /** Whether the delete request is accepted / 是否接受删除请求 */
+  success: boolean
+  /** Response message / 响应消息 */
+  message?: string
+  /** Task ID / 任务 ID */
+  task_id?: string
+  /** Current task snapshot / 当前任务快照 */
+  task?: {
+    task_id: string
+    status: string
+    deletion_requested_at?: number
+    deletion_reason?: string
+  } | null
 }
 
 export type FileItem = {
@@ -126,18 +184,25 @@ export type FileItem = {
 
 export type InstanceSummary = {
   instance_id: string
+  task_id?: string
   node_uuid: string
   status: string
+  created_at_ms?: number
+  updated_at_ms?: number
   last_seen_ms: number
   current_execution_id: string
 }
 
 export type ExecutionSummary = {
   execution_id: string
+  invocation_id?: string
   task_id: string
+  instance_id?: string
+  node_uuid?: string
   status: string
   started_at_ms: number
   completed_at_ms: number
+  updated_at_ms?: number
   function_name: string
 }
 
@@ -194,6 +259,13 @@ export type GetExecutionResponse = {
   message?: string
   found?: boolean
   execution?: ExecutionDetail
+}
+
+export type ListExecutionHistoryResponse = {
+  success: boolean
+  message?: string
+  executions?: ExecutionSummary[]
+  next_page_token?: string
 }
 
 export type GetInstanceResponse = {
