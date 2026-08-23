@@ -17,6 +17,11 @@ path = "src/apps/sms/main.rs"
 name = "spearlet"
 path = "src/apps/spearlet/main.rs"
 
+[[bin]]
+name = "debug-server"
+path = "src/apps/debug_server/main.rs"
+required-features = ["debug-server-bin"]
+
 [dependencies]
 # Async runtime / 异步运行时
 tokio = { version = "1.0", features = ["full"] }
@@ -62,7 +67,6 @@ anyhow = "1.0"
 thiserror = "1.0"
 
 # Static file embedding / 静态文件嵌入
-rust-embed = "8.0"
 
 # Cryptographic hashing / 加密哈希
 sha2 = "0.10"
@@ -140,3 +144,4 @@ evmap = ["dep:evmap"]
 wasmedge = ["dep:wasmedge-sdk", "dep:wasmedge-sys"]
 mic-device = ["dep:cpal"]
 debug-reporter = []
+debug-server-bin = []

@@ -17,19 +17,17 @@ use std::time::Duration;
 use crate::proto::spearlet::FilterResponse;
 use tokio::sync::{mpsc, Semaphore};
 
+use crate::spearlet::config::RouterGrpcFilterStreamConfig;
+use crate::spearlet::execution::ai::ir::{CanonicalError, CanonicalRequestEnvelope};
 use crate::spearlet::execution::ai::router::filter_inflight::InflightRegistry;
 use crate::spearlet::execution::ai::router::filter_protocol::{
     build_filter_request, trace_from_response,
 };
-use crate::spearlet::execution::ai::router::filter_worker::{
-    start_background_worker, FilterJob,
-};
-use crate::spearlet::config::RouterGrpcFilterStreamConfig;
-use crate::spearlet::execution::ai::ir::{CanonicalError, CanonicalRequestEnvelope};
+use crate::spearlet::execution::ai::router::filter_worker::{start_background_worker, FilterJob};
 use crate::spearlet::execution::ai::router::registry::BackendInstance;
 
 pub use crate::spearlet::execution::ai::router::filter_protocol::{
-    requested_model, FinalActionTrace, FilterTrace,
+    requested_model, FilterTrace, FinalActionTrace,
 };
 
 static GLOBAL_HUB: OnceLock<Arc<RouterFilterStreamHub>> = OnceLock::new();

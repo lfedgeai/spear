@@ -5,13 +5,12 @@ use tokio::time::timeout;
 use tonic::transport::Channel;
 
 use crate::proto::sms::{
-    DeleteInstanceRequest,
     execution_log_ingest_service_client::ExecutionLogIngestServiceClient,
     execution_registry_service_client::ExecutionRegistryServiceClient,
     instance_registry_service_client::InstanceRegistryServiceClient,
-    task_service_client::TaskServiceClient, CompleteTaskDeletionRequest, Execution, ExecutionLogLine,
-    FinalizeExecutionLogsRequest, Instance, TaskStatus, UpdateTaskResultRequest,
-    UpdateTaskStatusRequest,
+    task_service_client::TaskServiceClient, CompleteTaskDeletionRequest, DeleteInstanceRequest,
+    Execution, ExecutionLogLine, FinalizeExecutionLogsRequest, Instance, TaskStatus,
+    UpdateTaskResultRequest, UpdateTaskStatusRequest,
 };
 use crate::spearlet::config::SpearletConfig;
 
@@ -212,7 +211,10 @@ impl SmsReporter {
                 message: format!("DeleteInstance timed out for instance {}", instance_id),
             })?
             .map_err(|e| ExecutionError::RuntimeError {
-                message: format!("DeleteInstance RPC failed for instance {}: {}", instance_id, e),
+                message: format!(
+                    "DeleteInstance RPC failed for instance {}: {}",
+                    instance_id, e
+                ),
             })?;
         Ok(())
     }
@@ -359,7 +361,11 @@ impl SmsReporter {
         let request = tonic::Request::new(FinalizeExecutionLogsRequest {
             execution_id: execution_id.to_string(),
         });
-        let _ = timeout(self.timeout_window(), client.finalize_execution_logs(request)).await;
+        let _ = timeout(
+            self.timeout_window(),
+            client.finalize_execution_logs(request),
+        )
+        .await;
         Ok(())
     }
 }

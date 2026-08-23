@@ -16,7 +16,10 @@ pub(super) async fn get_stats(
     debug!("GET /monitoring/stats");
 
     let stats = state.function_service.get_stats().await;
-    let exec_stats = state.function_service.get_execution_manager().get_statistics();
+    let exec_stats = state
+        .function_service
+        .get_execution_manager()
+        .get_statistics();
 
     Ok(Json(serde_json::json!({
         "total_executions": exec_stats.total_executions,

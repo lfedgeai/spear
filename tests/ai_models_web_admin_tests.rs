@@ -93,10 +93,7 @@ async fn create_admin_test_server(
     let app = create_admin_router(state);
     let server = TestServer::new(app.into_make_service()).unwrap();
 
-    (
-        server,
-        BackendRegistryServiceClient::new(channel.clone()),
-    )
+    (server, BackendRegistryServiceClient::new(channel.clone()))
 }
 
 #[tokio::test]
@@ -112,6 +109,12 @@ async fn test_admin_ai_model_views_lists_local_and_remote_models() {
             "model": "llama3",
             "hosting": "local",
             "backend_kind": "llamacpp",
+            "local": {
+                "provider_family": "llama_cpp",
+                "config": {
+                    "model_path": "/models/llama3.gguf"
+                }
+            },
             "spec": {
                 "base_url": "http://127.0.0.1:8080/v1",
                 "operations": ["chat_completions"],
@@ -124,6 +127,11 @@ async fn test_admin_ai_model_views_lists_local_and_remote_models() {
         .await
         .json();
     assert!(local_backend["success"].as_bool().unwrap());
+    assert_eq!(local_backend["backend"]["local"]["provider_family"], "llama_cpp");
+    assert_eq!(
+        local_backend["backend"]["local"]["config"]["model_path"],
+        "/models/llama3.gguf"
+    );
     let local_backend_id = local_backend["backend"]["backend_id"].as_str().unwrap();
 
     let remote_backend: serde_json::Value = server
@@ -134,11 +142,20 @@ async fn test_admin_ai_model_views_lists_local_and_remote_models() {
             "model": "gpt-4o",
             "hosting": "remote",
             "backend_kind": "openai_chat_completion",
+            "remote": {
+                "provider_family": "open_ai_compatible",
+                "config": {
+                    "base_url": "https://api.openai.com/v1",
+                    "operations": ["chat_completions"],
+                    "features": [],
+                    "transports": ["http"]
+                }
+            },
             "spec": {
-                "base_url": "https://api.openai.com/v1",
-                "operations": ["chat_completions"],
+                "base_url": "",
+                "operations": [],
                 "features": [],
-                "transports": ["http"],
+                "transports": [],
                 "weight": 100,
                 "priority": 0
             }
@@ -146,6 +163,14 @@ async fn test_admin_ai_model_views_lists_local_and_remote_models() {
         .await
         .json();
     assert!(remote_backend["success"].as_bool().unwrap());
+    assert_eq!(
+        remote_backend["backend"]["remote"]["provider_family"],
+        "open_ai_compatible"
+    );
+    assert_eq!(
+        remote_backend["backend"]["remote"]["config"]["base_url"],
+        "https://api.openai.com/v1"
+    );
     let remote_backend_id = remote_backend["backend"]["backend_id"].as_str().unwrap();
 
     let local_placement: serde_json::Value = server
@@ -168,10 +193,7 @@ async fn test_admin_ai_model_views_lists_local_and_remote_models() {
         .json();
     assert!(remote_placement["success"].as_bool().unwrap());
 
-    let body: serde_json::Value = server
-        .get("/admin/api/ai-model-views")
-        .await
-        .json();
+    let body: serde_json::Value = server.get("/admin/api/ai-model-views").await.json();
     assert!(body["success"].as_bool().unwrap());
     let views = body["views"].as_array().unwrap();
     assert!(views
@@ -180,6 +202,64 @@ async fn test_admin_ai_model_views_lists_local_and_remote_models() {
     assert!(views
         .iter()
         .any(|m| m["provider"] == "openai" && m["model"] == "gpt-4o" && m["hosting"] == "remote"));
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_admin_ai_backend_create_normalizes_local_metadata_shape() {
+    let (handle, grpc_url) = start_sms_grpc().await;
+    let (server, _backend_registry) = create_admin_test_server(&grpc_url).await;
+
+    let body: serde_json::Value = server
+        .post("/admin/api/ai-backends")
+        .json(&serde_json::json!({
+            "display_name": "Local llama.cpp",
+            "provider": "llamacpp",
+            "model": "llama3",
+            "hosting": "local",
+            "backend_kind": "llamacpp",
+            "spec": {
+                "base_url": "",
+                "operations": ["chat_completions"],
+                "features": [],
+                "transports": ["http"],
+                "weight": 100,
+                "priority": 0
+            },
+            "local": {
+                "provider_family": "llama_cpp",
+                "config": {
+                    "model_url": " https://models.example.com/llama3.gguf ",
+                    "skip_download": false,
+                    "download_timeout_s": 60,
+                    "threads": 8
+                }
+            },
+            "metadata": {
+                "extra_key": "preserve-me"
+            }
+        }))
+        .await
+        .json();
+
+    assert!(body["success"].as_bool().unwrap());
+    assert_eq!(
+        body["backend"]["metadata"]["model_url"],
+        "https://models.example.com/llama3.gguf"
+    );
+    assert_eq!(body["backend"]["metadata"]["skip_download"], "false");
+    assert_eq!(body["backend"]["metadata"]["download_timeout_s"], "60");
+    assert_eq!(body["backend"]["metadata"]["threads"], "8");
+    assert_eq!(body["backend"]["metadata"]["extra_key"], "preserve-me");
+    assert_eq!(body["backend"]["local"]["provider_family"], "llama_cpp");
+    assert_eq!(
+        body["backend"]["local"]["config"]["model_url"],
+        "https://models.example.com/llama3.gguf"
+    );
+    assert_eq!(body["backend"]["local"]["config"]["skip_download"], false);
+    assert_eq!(body["backend"]["local"]["config"]["download_timeout_s"], 60);
+    assert_eq!(body["backend"]["local"]["config"]["threads"], 8);
 
     handle.abort();
 }
@@ -197,11 +277,20 @@ async fn test_admin_ai_model_views_include_backend_ids_and_instances() {
             "model": "gpt-4o",
             "hosting": "remote",
             "backend_kind": "openai_chat_completion",
+            "remote": {
+                "provider_family": "open_ai_compatible",
+                "config": {
+                    "base_url": "https://api.openai.com/v1",
+                    "operations": ["chat_completions"],
+                    "features": ["streaming"],
+                    "transports": ["http"]
+                }
+            },
             "spec": {
-                "base_url": "https://api.openai.com/v1",
-                "operations": ["chat_completions"],
-                "features": ["streaming"],
-                "transports": ["http"],
+                "base_url": "",
+                "operations": [],
+                "features": [],
+                "transports": [],
                 "weight": 100,
                 "priority": 0
             }
@@ -223,10 +312,7 @@ async fn test_admin_ai_model_views_include_backend_ids_and_instances() {
         .json();
     assert!(placement["success"].as_bool().unwrap());
 
-    let body: serde_json::Value = server
-        .get("/admin/api/ai-model-views")
-        .await
-        .json();
+    let body: serde_json::Value = server.get("/admin/api/ai-model-views").await.json();
     assert!(body["success"].as_bool().unwrap());
     let view = body["views"]
         .as_array()
@@ -236,12 +322,343 @@ async fn test_admin_ai_model_views_include_backend_ids_and_instances() {
         .cloned()
         .expect("view");
     assert_eq!(view["hosting"], "remote");
-    assert!(view["backend_ids"].as_array().unwrap().iter().any(|id| id == backend_id));
+    assert!(view["backend_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == backend_id));
     assert!(view["instances"]
         .as_array()
         .unwrap()
         .iter()
         .any(|instance| instance["node_uuid"] == "node-9"));
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_admin_ai_backend_create_requires_structured_local_input_for_llamacpp() {
+    let (handle, grpc_url) = start_sms_grpc().await;
+    let (server, _backend_registry) = create_admin_test_server(&grpc_url).await;
+
+    let body: serde_json::Value = server
+        .post("/admin/api/ai-backends")
+        .json(&serde_json::json!({
+            "display_name": "Local llama.cpp",
+            "provider": "llamacpp",
+            "model": "llama3",
+            "hosting": "local",
+            "backend_kind": "llamacpp",
+            "spec": {
+                "base_url": "http://127.0.0.1:8080/v1",
+                "operations": ["chat_completions"],
+                "features": [],
+                "transports": ["http"],
+                "weight": 100,
+                "priority": 0
+            },
+            "metadata": {
+                "model_path": "/models/llama3.gguf"
+            }
+        }))
+        .await
+        .json();
+
+    assert!(!body["success"].as_bool().unwrap());
+    assert_eq!(
+        body["message"],
+        "local provider-specific input is required for backend provider llamacpp"
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_admin_ai_backend_create_rejects_duplicate_remote_openai_sources() {
+    let (handle, grpc_url) = start_sms_grpc().await;
+    let (server, _backend_registry) = create_admin_test_server(&grpc_url).await;
+
+    let body: serde_json::Value = server
+        .post("/admin/api/ai-backends")
+        .json(&serde_json::json!({
+            "display_name": "Remote OpenAI",
+            "provider": "openai",
+            "model": "gpt-4o",
+            "hosting": "remote",
+            "backend_kind": "openai_chat_completion",
+            "credential_ref": "legacy-openai",
+            "remote": {
+                "provider_family": "open_ai_compatible",
+                "config": {
+                    "base_url": "https://api.openai.com/v1",
+                    "credential_ref": "openai-prod",
+                    "operations": ["chat_completions"],
+                    "features": ["stream"],
+                    "transports": ["http"]
+                }
+            },
+            "spec": {
+                "base_url": "https://legacy.example.com/v1",
+                "operations": ["chat_completions"],
+                "features": ["stream"],
+                "transports": ["http"],
+                "weight": 100,
+                "priority": 0
+            }
+        }))
+        .await
+        .json();
+
+    assert!(!body["success"].as_bool().unwrap());
+    assert_eq!(
+        body["message"],
+        "remote openai structured input cannot be combined with legacy fields: spec.base_url, credential_ref, spec.operations, spec.features, spec.transports"
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_admin_ai_backend_create_rejects_unsupported_provider() {
+    let (handle, grpc_url) = start_sms_grpc().await;
+    let (server, _backend_registry) = create_admin_test_server(&grpc_url).await;
+
+    let body: serde_json::Value = server
+        .post("/admin/api/ai-backends")
+        .json(&serde_json::json!({
+            "display_name": "Custom Remote",
+            "provider": "anthropic-compatible",
+            "model": "claude-compatible",
+            "hosting": "remote",
+            "backend_kind": "custom_http",
+            "credential_ref": "custom-secret",
+            "spec": {
+                "base_url": "https://custom.example.com/v1",
+                "operations": ["chat_completions"],
+                "features": ["supports_tools"],
+                "transports": ["http"],
+                "weight": 100,
+                "priority": 0
+            },
+            "metadata": {
+                "tenant": "lab"
+            }
+        }))
+        .await
+        .json();
+
+    assert!(!body["success"].as_bool().unwrap());
+    assert_eq!(
+        body["message"],
+        "unsupported backend provider: anthropic-compatible"
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_admin_ai_backend_update_requires_structured_remote_input_for_openai() {
+    let (handle, grpc_url) = start_sms_grpc().await;
+    let (server, _backend_registry) = create_admin_test_server(&grpc_url).await;
+
+    let created: serde_json::Value = server
+        .post("/admin/api/ai-backends")
+        .json(&serde_json::json!({
+            "display_name": "Remote OpenAI",
+            "provider": "openai",
+            "model": "gpt-4o",
+            "hosting": "remote",
+            "backend_kind": "openai_chat_completion",
+            "remote": {
+                "provider_family": "open_ai_compatible",
+                "config": {
+                    "base_url": "https://api.openai.com/v1",
+                    "operations": ["chat_completions"],
+                    "features": [],
+                    "transports": ["http"]
+                }
+            },
+            "spec": {
+                "base_url": "",
+                "operations": [],
+                "features": [],
+                "transports": [],
+                "weight": 100,
+                "priority": 0
+            }
+        }))
+        .await
+        .json();
+    assert!(created["success"].as_bool().unwrap());
+    let backend_id = created["backend"]["backend_id"]
+        .as_str()
+        .expect("backend id should exist");
+
+    let body: serde_json::Value = server
+        .put(&format!("/admin/api/ai-backends/{backend_id}"))
+        .json(&serde_json::json!({
+            "display_name": "Remote OpenAI Updated",
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "hosting": "remote",
+            "backend_kind": "openai_chat_completion",
+            "credential_ref": "openai-prod",
+            "spec": {
+                "base_url": "https://api.openai.com/v1",
+                "operations": ["chat_completions"],
+                "features": [],
+                "transports": ["http"],
+                "weight": 100,
+                "priority": 0
+            },
+            "metadata": {}
+        }))
+        .await
+        .json();
+
+    assert!(!body["success"].as_bool().unwrap());
+    assert_eq!(
+        body["message"],
+        "remote provider-specific input is required for backend provider openai"
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_admin_ai_backend_detail_returns_typed_remote_read_view() {
+    let (handle, grpc_url) = start_sms_grpc().await;
+    let (server, _backend_registry) = create_admin_test_server(&grpc_url).await;
+
+    let created: serde_json::Value = server
+        .post("/admin/api/ai-backends")
+        .json(&serde_json::json!({
+            "display_name": "Remote OpenAI",
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "hosting": "remote",
+            "backend_kind": "openai_chat_completion",
+            "remote": {
+                "provider_family": "open_ai_compatible",
+                "config": {
+                    "base_url": "https://api.openai.com/v1",
+                    "credential_ref": "openai-prod",
+                    "operations": ["chat_completions", "embeddings"],
+                    "features": ["stream"],
+                    "transports": ["http"]
+                }
+            },
+            "spec": {
+                "base_url": "",
+                "operations": [],
+                "features": [],
+                "transports": [],
+                "weight": 100,
+                "priority": 0
+            }
+        }))
+        .await
+        .json();
+    assert!(created["success"].as_bool().unwrap());
+    let backend_id = created["backend"]["backend_id"]
+        .as_str()
+        .expect("backend id should exist");
+
+    let body: serde_json::Value = server
+        .get(&format!("/admin/api/ai-backends/{backend_id}"))
+        .await
+        .json();
+
+    assert!(body["success"].as_bool().unwrap());
+    assert!(body["found"].as_bool().unwrap());
+    assert_eq!(
+        body["backend"]["remote"]["provider_family"],
+        "open_ai_compatible"
+    );
+    assert_eq!(
+        body["backend"]["remote"]["config"]["base_url"],
+        "https://api.openai.com/v1"
+    );
+    assert_eq!(
+        body["backend"]["remote"]["config"]["credential_ref"],
+        "openai-prod"
+    );
+    assert_eq!(
+        body["backend"]["remote"]["config"]["operations"],
+        serde_json::json!(["chat_completions", "embeddings"])
+    );
+    assert_eq!(
+        body["backend"]["remote"]["config"]["features"],
+        serde_json::json!(["stream"])
+    );
+    assert_eq!(
+        body["backend"]["remote"]["config"]["transports"],
+        serde_json::json!(["http"])
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn test_admin_ai_backend_list_returns_typed_local_read_view() {
+    let (handle, grpc_url) = start_sms_grpc().await;
+    let (server, _backend_registry) = create_admin_test_server(&grpc_url).await;
+
+    let created: serde_json::Value = server
+        .post("/admin/api/ai-backends")
+        .json(&serde_json::json!({
+            "display_name": "Local llama.cpp",
+            "provider": "llamacpp",
+            "model": "llama3.1",
+            "hosting": "local",
+            "backend_kind": "llamacpp",
+            "local": {
+                "provider_family": "llama_cpp",
+                "config": {
+                    "model_url": "https://models.example.com/llama3.1.gguf",
+                    "model_path": "/models/llama3.1.gguf",
+                    "skip_download": false,
+                    "download_timeout_s": 90,
+                    "threads": 8,
+                    "ctx_size": 4096
+                }
+            },
+            "spec": {
+                "base_url": "http://127.0.0.1:8080/v1",
+                "operations": ["chat_completions"],
+                "features": [],
+                "transports": ["http"],
+                "weight": 100,
+                "priority": 0
+            }
+        }))
+        .await
+        .json();
+    assert!(created["success"].as_bool().unwrap());
+
+    let body: serde_json::Value = server.get("/admin/api/ai-backends").await.json();
+
+    assert!(body["success"].as_bool().unwrap());
+    let backend = body["backends"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["provider"] == "llamacpp" && item["model"] == "llama3.1")
+        .cloned()
+        .expect("local backend should appear in list");
+    assert_eq!(backend["local"]["provider_family"], "llama_cpp");
+    assert_eq!(
+        backend["local"]["config"]["model_url"],
+        "https://models.example.com/llama3.1.gguf"
+    );
+    assert_eq!(
+        backend["local"]["config"]["model_path"],
+        "/models/llama3.1.gguf"
+    );
+    assert_eq!(backend["local"]["config"]["skip_download"], false);
+    assert_eq!(backend["local"]["config"]["download_timeout_s"], 90);
+    assert_eq!(backend["local"]["config"]["threads"], 8);
+    assert_eq!(backend["local"]["config"]["ctx_size"], 4096);
 
     handle.abort();
 }

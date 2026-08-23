@@ -2,6 +2,7 @@ import type {
   AiBackendSummary,
   AiBackendDesiredState,
   AiBackendHosting,
+  AiBackendRemoteInput,
   WriteAiBackendInput,
 } from '@/api/ai-backends'
 import type { NodeSummary } from '@/api/types'
@@ -172,6 +173,37 @@ function joinCsv(values?: string[] | null): string {
   return (values || []).join(', ')
 }
 
+function optionalString(value?: string | null): string {
+  return value?.trim() || ''
+}
+
+function optionalNumberString(value?: number | null): string {
+  return value === undefined || value === null ? '' : String(value)
+}
+
+function isOpenAiRemoteInput(
+  value?: AiBackendRemoteInput,
+): value is Extract<AiBackendRemoteInput, { provider_family: 'open_ai_compatible' }> {
+  return value?.provider_family === 'open_ai_compatible'
+}
+
+function isOllamaRemoteInput(
+  value?: AiBackendRemoteInput,
+): value is Extract<AiBackendRemoteInput, { provider_family: 'ollama' }> {
+  return value?.provider_family === 'ollama'
+}
+
+function isKnownRemoteProvider(provider: string): boolean {
+  return provider === 'openai' || provider === 'ollama'
+}
+
+function isSupportedProviderForHosting(hosting: AiBackendHosting, provider: string): boolean {
+  const normalizedProvider = provider.trim().toLowerCase()
+  const supportedProviders =
+    hosting === 'local' ? LOCAL_PROVIDER_OPTIONS : REMOTE_PROVIDER_OPTIONS
+  return supportedProviders.includes(normalizedProvider)
+}
+
 export function emptyForm(hosting: AiBackendHosting = 'remote'): AiBackendEditorFormState {
   const provider = defaultProviderForHosting(hosting)
   const backendKind = defaultBackendKindFor(hosting, provider)
@@ -207,86 +239,77 @@ export function emptyForm(hosting: AiBackendHosting = 'remote'): AiBackendEditor
   }
 }
 
-export function metadataStringField(value: string, key: string): string {
-  try {
-    const parsed = parseMetadata(value)
-    const raw = parsed[key]
-    return typeof raw === 'string' ? raw : ''
-  } catch {
-    return ''
-  }
-}
-
-export function metadataBooleanField(value: string, key: string): boolean {
-  try {
-    const parsed = parseMetadata(value)
-    const raw = parsed[key]
-    if (typeof raw === 'boolean') return raw
-    if (typeof raw === 'string') return raw.trim() === '1' || raw.trim().toLowerCase() === 'true'
-    return false
-  } catch {
-    return false
-  }
-}
-
-export function setMetadataStringField(value: string, key: string, nextValue: string): string {
-  let parsed: Record<string, unknown>
-  try {
-    parsed = parseMetadata(value)
-  } catch {
-    parsed = {}
-  }
-  const trimmed = nextValue.trim()
-  if (trimmed) {
-    parsed[key] = trimmed
-  } else {
-    delete parsed[key]
-  }
-  return JSON.stringify(parsed, null, 2)
-}
-
-export function setMetadataBooleanField(value: string, key: string, nextValue: boolean): string {
-  let parsed: Record<string, unknown>
-  try {
-    parsed = parseMetadata(value)
-  } catch {
-    parsed = {}
-  }
-  if (nextValue) {
-    parsed[key] = '1'
-  } else {
-    delete parsed[key]
-  }
-  return JSON.stringify(parsed, null, 2)
-}
-
 export function formFromBackend(backend?: AiBackendSummary | null): AiBackendEditorFormState {
   if (!backend) return emptyForm()
   const metadata = JSON.stringify(backend.metadata || {}, null, 2)
+  const normalizedProvider = backend.provider.trim().toLowerCase()
+  const localProvider =
+    backend.local && backend.local.provider_family === 'llama_cpp' ? backend.local : undefined
+  const remoteOpenAi = isOpenAiRemoteInput(backend.remote) ? backend.remote : undefined
+  const remoteOllama = isOllamaRemoteInput(backend.remote) ? backend.remote : undefined
+  const resolvedCredentialRef = isKnownRemoteProvider(normalizedProvider)
+    ? remoteOpenAi?.config.credential_ref || ''
+    : backend.credential_ref || backend.spec?.credential_ref || ''
+  const resolvedBaseUrl = isKnownRemoteProvider(normalizedProvider)
+    ? remoteOpenAi?.config.base_url || remoteOllama?.config.base_url || ''
+    : backend.spec?.base_url || ''
+  const resolvedOperations = isKnownRemoteProvider(normalizedProvider)
+    ? remoteOpenAi?.config.operations || remoteOllama?.config.operations
+    : backend.spec?.operations
+  const resolvedFeatures = isKnownRemoteProvider(normalizedProvider)
+    ? remoteOpenAi?.config.features || remoteOllama?.config.features
+    : backend.spec?.features
+  const resolvedTransports = isKnownRemoteProvider(normalizedProvider)
+    ? remoteOpenAi?.config.transports || remoteOllama?.config.transports
+    : backend.spec?.transports
+  const resolvedModelUrl =
+    normalizedProvider === 'llamacpp'
+      ? optionalString(localProvider?.config.model_url)
+      : ''
+  const resolvedModelPath =
+    normalizedProvider === 'llamacpp'
+      ? optionalString(localProvider?.config.model_path)
+      : ''
+  const resolvedSkipDownload =
+    normalizedProvider === 'llamacpp'
+      ? (localProvider?.config.skip_download ?? false)
+      : false
+  const resolvedDownloadTimeout =
+    normalizedProvider === 'llamacpp'
+      ? optionalNumberString(localProvider?.config.download_timeout_s)
+      : ''
+  const resolvedThreads =
+    normalizedProvider === 'llamacpp'
+      ? optionalNumberString(localProvider?.config.threads)
+      : ''
+  const resolvedCtxSize =
+    normalizedProvider === 'llamacpp'
+      ? optionalNumberString(localProvider?.config.ctx_size)
+      : ''
   return {
     display_name: backend.display_name || '',
     provider: backend.provider || '',
     model: backend.model || '',
     hosting: backend.hosting === 'local' ? 'local' : 'remote',
     backend_kind: backend.backend_kind || backend.spec?.kind || 'openai-compatible',
-    credential_ref: backend.credential_ref || backend.spec?.credential_ref || '',
+    credential_ref: resolvedCredentialRef,
     desired_state: backend.desired_state === 'disabled' ? 'disabled' : 'enabled',
-    base_url: backend.spec?.base_url || '',
-    operations: joinCsv(backend.spec?.operations),
-    features: joinCsv(backend.spec?.features),
-    transports: joinCsv(backend.spec?.transports),
+    base_url: resolvedBaseUrl,
+    operations: joinCsv(resolvedOperations),
+    features: joinCsv(resolvedFeatures),
+    transports: joinCsv(resolvedTransports),
     weight: String(backend.spec?.weight ?? 100),
     priority: String(backend.spec?.priority ?? 0),
     labels: Object.entries(backend.labels || {})
       .map(([key, value]) => `${key}=${value}`)
       .join('\n'),
     metadata,
-    model_url: metadataStringField(metadata, 'model_url'),
-    model_path: metadataStringField(metadata, 'model_path'),
-    skip_download: metadataBooleanField(metadata, 'skip_download'),
-    download_timeout_s: metadataStringField(metadata, 'download_timeout_s'),
-    threads: metadataStringField(metadata, 'threads'),
-    ctx_size: metadataStringField(metadata, 'ctx_size'),
+    model_url: resolvedModelUrl,
+    model_path: resolvedModelPath,
+    skip_download: resolvedSkipDownload,
+    download_timeout_s: resolvedDownloadTimeout,
+    threads: resolvedThreads,
+    ctx_size: resolvedCtxSize,
     placement_scope: backend.hosting === 'local' ? 'single_node' : 'all_nodes',
     placement_state: 'enabled',
     placement_node_uuid: '',
@@ -341,43 +364,16 @@ export function parseMetadata(value: string): Record<string, unknown> {
 }
 
 export function buildPayload(form: AiBackendEditorFormState): WriteAiBackendInput {
+  if (!isSupportedProviderForHosting(form.hosting, form.provider)) {
+    throw new Error(`Unsupported provider for ${form.hosting} backends: ${form.provider.trim()}`)
+  }
   const metadata = parseMetadata(form.metadata)
-  const modelUrl = form.model_url.trim()
-  if (modelUrl) {
-    metadata.model_url = modelUrl
-  } else {
-    delete metadata.model_url
+  const deleteMetadataKeys = (keys: string[]) => {
+    for (const key of keys) {
+      delete metadata[key]
+    }
   }
-  const modelPath = form.model_path.trim()
-  if (modelPath) {
-    metadata.model_path = modelPath
-  } else {
-    delete metadata.model_path
-  }
-  if (form.skip_download) {
-    metadata.skip_download = '1'
-  } else {
-    delete metadata.skip_download
-  }
-  const downloadTimeout = form.download_timeout_s.trim()
-  if (downloadTimeout) {
-    metadata.download_timeout_s = downloadTimeout
-  } else {
-    delete metadata.download_timeout_s
-  }
-  const threads = form.threads.trim()
-  if (threads) {
-    metadata.threads = threads
-  } else {
-    delete metadata.threads
-  }
-  const ctxSize = form.ctx_size.trim()
-  if (ctxSize) {
-    metadata.ctx_size = ctxSize
-  } else {
-    delete metadata.ctx_size
-  }
-  return {
+  const basePayload: WriteAiBackendInput = {
     display_name: form.display_name.trim(),
     provider: form.provider.trim(),
     model: form.model.trim(),
@@ -396,6 +392,98 @@ export function buildPayload(form: AiBackendEditorFormState): WriteAiBackendInpu
     labels: parseLabels(form.labels),
     metadata,
   }
+
+  if (form.hosting === 'local' && form.provider === 'llamacpp') {
+    deleteMetadataKeys([
+      'model_url',
+      'model_path',
+      'skip_download',
+      'download_timeout_s',
+      'server_mode',
+      'server_cmd',
+      'server_cmd_args',
+      'threads',
+      'ctx_size',
+      'ready_probe',
+      'start_timeout_s',
+    ])
+    return {
+      ...basePayload,
+      local: {
+        provider_family: 'llama_cpp',
+        config: {
+          model_url: form.model_url.trim() || undefined,
+          model_path: form.model_path.trim() || undefined,
+          skip_download: form.skip_download || undefined,
+          download_timeout_s: form.download_timeout_s.trim()
+            ? Number(form.download_timeout_s)
+            : undefined,
+          threads: form.threads.trim() ? Number(form.threads) : undefined,
+          ctx_size: form.ctx_size.trim() ? Number(form.ctx_size) : undefined,
+        },
+      },
+    }
+  }
+
+  if (form.hosting === 'local' && form.provider === 'vllm') {
+    deleteMetadataKeys(['mode', 'managed_externally'])
+    return {
+      ...basePayload,
+      local: {
+        provider_family: 'vllm',
+        config: {},
+      },
+    }
+  }
+
+  if (form.hosting === 'remote' && form.provider === 'openai') {
+    return {
+      ...basePayload,
+      credential_ref: undefined,
+      spec: {
+        ...basePayload.spec,
+        base_url: undefined,
+        operations: [],
+        features: [],
+        transports: [],
+      },
+      remote: {
+        provider_family: 'open_ai_compatible',
+        config: {
+          base_url: form.base_url.trim() || undefined,
+          credential_ref: form.credential_ref.trim() || undefined,
+          operations: splitCsv(form.operations),
+          features: splitCsv(form.features),
+          transports: splitCsv(form.transports),
+        },
+      },
+    }
+  }
+
+  if (form.hosting === 'remote' && form.provider === 'ollama') {
+    return {
+      ...basePayload,
+      credential_ref: undefined,
+      spec: {
+        ...basePayload.spec,
+        base_url: undefined,
+        operations: [],
+        features: [],
+        transports: [],
+      },
+      remote: {
+        provider_family: 'ollama',
+        config: {
+          base_url: form.base_url.trim() || undefined,
+          operations: splitCsv(form.operations),
+          features: splitCsv(form.features),
+          transports: splitCsv(form.transports),
+        },
+      },
+    }
+  }
+
+  return basePayload
 }
 
 function isValidHttpUrl(value: string): boolean {
@@ -416,6 +504,9 @@ export function validateForm(
   const nodes = options?.nodes || []
   if (!form.display_name.trim()) errors.push('Display name is required')
   if (!form.provider.trim()) errors.push('Provider is required')
+  if (form.provider.trim() && !isSupportedProviderForHosting(form.hosting, form.provider)) {
+    errors.push(`Provider ${form.provider.trim()} is not supported for ${form.hosting} backends`)
+  }
   if (!form.model.trim()) errors.push('Model is required')
   if (!form.backend_kind.trim()) errors.push('Backend kind is required')
   if (

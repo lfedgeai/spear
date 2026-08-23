@@ -2,20 +2,19 @@
 //! SPEAR元数据服务器gRPC服务的HTTP网关
 
 use axum::Router;
-use rust_embed::RustEmbed;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::CorsLayer;
 
 use super::routes::create_routes;
 use crate::proto::sms::{
-    ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient,
     admin_credential_service_client::AdminCredentialServiceClient,
+    ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient,
     backend_registry_service_client::BackendRegistryServiceClient,
     execution_index_service_client::ExecutionIndexServiceClient,
     execution_registry_service_client::ExecutionRegistryServiceClient,
     instance_registry_service_client::InstanceRegistryServiceClient,
-    mcp_registry_service_client::McpRegistryServiceClient,
-    node_service_client::NodeServiceClient, placement_service_client::PlacementServiceClient,
+    mcp_registry_service_client::McpRegistryServiceClient, node_service_client::NodeServiceClient,
+    placement_service_client::PlacementServiceClient,
     task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient,
     task_service_client::TaskServiceClient,
 };
@@ -26,12 +25,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::OnceCell;
 use uuid::Uuid;
-
-/// Embedded static files for Swagger UI / Swagger UI的嵌入式静态文件
-#[derive(RustEmbed)]
-#[folder = "static/"]
-#[allow(dead_code)]
-struct StaticFiles;
 
 /// Stream session record / 流会话记录
 #[derive(Clone, Debug)]
@@ -340,7 +333,8 @@ pub struct GatewayState {
     pub execution_index_client: ExecutionIndexServiceClient<tonic::transport::Channel>,
     pub mcp_registry_client: McpRegistryServiceClient<tonic::transport::Channel>,
     pub backend_registry_client: BackendRegistryServiceClient<tonic::transport::Channel>,
-    pub ai_backend_control_plane_client: AiBackendControlPlaneServiceClient<tonic::transport::Channel>,
+    pub ai_backend_control_plane_client:
+        AiBackendControlPlaneServiceClient<tonic::transport::Channel>,
     pub admin_credential_client: AdminCredentialServiceClient<tonic::transport::Channel>,
     /// Stream sessions for WS proxy / WS 代理的流会话
     pub stream_sessions: StreamSessionStore,

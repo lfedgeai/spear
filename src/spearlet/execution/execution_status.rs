@@ -93,7 +93,8 @@ impl ExecutionPublicStatus {
     /// Convert a spearlet execution proto enum value into the normalized public status model.
     /// 将 spearlet 执行 proto 枚举值转换为规范化公开状态模型。
     pub(crate) fn from_spearlet_proto(status: i32) -> Self {
-        match SpearletExecutionStatus::try_from(status).unwrap_or(SpearletExecutionStatus::Unspecified)
+        match SpearletExecutionStatus::try_from(status)
+            .unwrap_or(SpearletExecutionStatus::Unspecified)
         {
             SpearletExecutionStatus::Pending => Self::Pending,
             SpearletExecutionStatus::Running => Self::Running,

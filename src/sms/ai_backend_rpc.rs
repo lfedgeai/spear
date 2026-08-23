@@ -2,22 +2,23 @@ use tonic::{Request, Response, Status};
 
 use crate::proto::sms::{
     ai_backend_control_plane_service_server::AiBackendControlPlaneService as AiBackendControlPlaneServiceTrait,
-    AiBackendDesiredState as ProtoAiBackendDesiredState, AiBackendNodeStatus as ProtoAiBackendNodeStatus,
-    AiModelView as ProtoAiModelView, AiModelViewInstance as ProtoAiModelViewInstance,
-    CreateAiBackendRequest, CreateAiBackendResponse, DeleteAiBackendPlacementRequest,
-    DeleteAiBackendPlacementResponse, DeleteAiBackendRequest, DeleteAiBackendResponse,
-    GetAiBackendRequest, GetAiBackendResponse, ListAiBackendAssignmentsRequest,
-    ListAiBackendAssignmentsResponse, ListAiBackendNodeStatusesRequest,
-    ListAiBackendNodeStatusesResponse, ListAiBackendPlacementsRequest,
-    ListAiBackendPlacementsResponse, ListAiBackendsRequest, ListAiBackendsResponse,
-    ListAiModelViewsRequest, ListAiModelViewsResponse, ReportAiBackendNodeStatusesRequest,
-    ReportAiBackendNodeStatusesResponse, ResolvedAiBackendAssignment as ProtoResolvedAiBackendAssignment,
+    AiBackendDesiredState as ProtoAiBackendDesiredState,
+    AiBackendNodeStatus as ProtoAiBackendNodeStatus, AiModelView as ProtoAiModelView,
+    AiModelViewInstance as ProtoAiModelViewInstance, CreateAiBackendRequest,
+    CreateAiBackendResponse, DeleteAiBackendPlacementRequest, DeleteAiBackendPlacementResponse,
+    DeleteAiBackendRequest, DeleteAiBackendResponse, GetAiBackendRequest, GetAiBackendResponse,
+    ListAiBackendAssignmentsRequest, ListAiBackendAssignmentsResponse,
+    ListAiBackendNodeStatusesRequest, ListAiBackendNodeStatusesResponse,
+    ListAiBackendPlacementsRequest, ListAiBackendPlacementsResponse, ListAiBackendsRequest,
+    ListAiBackendsResponse, ListAiModelViewsRequest, ListAiModelViewsResponse,
+    ReportAiBackendNodeStatusesRequest, ReportAiBackendNodeStatusesResponse,
+    ResolvedAiBackendAssignment as ProtoResolvedAiBackendAssignment,
     SetAiBackendDesiredStateRequest, SetAiBackendDesiredStateResponse, UpdateAiBackendRequest,
     UpdateAiBackendResponse, UpsertAiBackendPlacementRequest, UpsertAiBackendPlacementResponse,
 };
 use crate::sms::ai_backends::model::{
-    AiBackendDesiredStateModel, AiBackendNodeRuntimeStatusModel, AiModelView,
-    AiModelViewInstance, ResolvedBackendAssignment,
+    AiBackendDesiredStateModel, AiBackendNodeRuntimeStatusModel, AiModelView, AiModelViewInstance,
+    ResolvedBackendAssignment,
 };
 use crate::sms::ai_backends::placement_service::{AiBackendPlacementService, UpsertPlacementInput};
 use crate::sms::ai_backends::proto_conv::{
@@ -25,8 +26,8 @@ use crate::sms::ai_backends::proto_conv::{
     domain_status_from_proto, proto_backend_from_domain, proto_placement_from_domain,
     proto_status_from_domain,
 };
-use crate::sms::ai_backends::repository::AiBackendRepository;
 use crate::sms::ai_backends::read_model::build_ai_model_views;
+use crate::sms::ai_backends::repository::AiBackendRepository;
 use crate::sms::ai_backends::service::{
     AiBackendService, CreateAiBackendInput, UpdateAiBackendInput,
 };
@@ -120,7 +121,10 @@ impl AiBackendControlPlaneServiceTrait for SmsServiceImpl {
         let paged = paginate_slice(&filtered, req.limit, req.offset);
         Ok(Response::new(ListAiBackendsResponse {
             total_count,
-            backends: paged.iter().map(|backend| proto_backend_from_domain(backend)).collect(),
+            backends: paged
+                .iter()
+                .map(|backend| proto_backend_from_domain(backend))
+                .collect(),
         }))
     }
 
@@ -131,7 +135,10 @@ impl AiBackendControlPlaneServiceTrait for SmsServiceImpl {
     ) -> Result<Response<GetAiBackendResponse>, Status> {
         let req = request.into_inner();
         let service = self.ai_backend_service();
-        let backend = service.get_backend(&req.backend_id).await.map_err(Status::from)?;
+        let backend = service
+            .get_backend(&req.backend_id)
+            .await
+            .map_err(Status::from)?;
         Ok(Response::new(GetAiBackendResponse {
             found: backend.is_some(),
             backend: backend.as_ref().map(proto_backend_from_domain),
@@ -171,7 +178,10 @@ impl AiBackendControlPlaneServiceTrait for SmsServiceImpl {
     ) -> Result<Response<DeleteAiBackendResponse>, Status> {
         let req = request.into_inner();
         let service = self.ai_backend_service();
-        let deleted = service.delete_backend(&req.backend_id).await.map_err(Status::from)?;
+        let deleted = service
+            .delete_backend(&req.backend_id)
+            .await
+            .map_err(Status::from)?;
         Ok(Response::new(DeleteAiBackendResponse { deleted }))
     }
 
@@ -181,7 +191,8 @@ impl AiBackendControlPlaneServiceTrait for SmsServiceImpl {
         request: Request<SetAiBackendDesiredStateRequest>,
     ) -> Result<Response<SetAiBackendDesiredStateResponse>, Status> {
         let req = request.into_inner();
-        let desired_state = domain_desired_state_from_proto(req.desired_state).map_err(Status::from)?;
+        let desired_state =
+            domain_desired_state_from_proto(req.desired_state).map_err(Status::from)?;
         let service = self.ai_backend_service();
         let backend = service
             .set_desired_state(&req.backend_id, desired_state)
@@ -277,7 +288,10 @@ impl AiBackendControlPlaneServiceTrait for SmsServiceImpl {
             .map_err(Status::from)?;
         Ok(Response::new(ListAiBackendAssignmentsResponse {
             total_count: assignments.len() as i32,
-            assignments: assignments.iter().map(proto_assignment_from_domain).collect(),
+            assignments: assignments
+                .iter()
+                .map(proto_assignment_from_domain)
+                .collect(),
         }))
     }
 
@@ -351,7 +365,10 @@ impl AiBackendControlPlaneServiceTrait for SmsServiceImpl {
         let paged = paginate_slice(&filtered, req.limit, req.offset);
         Ok(Response::new(ListAiModelViewsResponse {
             total_count,
-            views: paged.iter().map(|view| proto_ai_model_view_from_domain(view)).collect(),
+            views: paged
+                .iter()
+                .map(|view| proto_ai_model_view_from_domain(view))
+                .collect(),
         }))
     }
 }
@@ -408,8 +425,12 @@ fn filter_ai_backends<'a>(
 
             if !desired_state.is_empty()
                 && normalize_filter(match backend.desired_state {
-                    crate::sms::ai_backends::model::AiBackendDesiredStateModel::Enabled => "enabled",
-                    crate::sms::ai_backends::model::AiBackendDesiredStateModel::Disabled => "disabled",
+                    crate::sms::ai_backends::model::AiBackendDesiredStateModel::Enabled => {
+                        "enabled"
+                    }
+                    crate::sms::ai_backends::model::AiBackendDesiredStateModel::Disabled => {
+                        "disabled"
+                    }
                 }) != desired_state
             {
                 return false;
@@ -427,7 +448,11 @@ fn filter_ai_backends<'a>(
             }
             let haystack = format!(
                 "{} {} {} {} {}",
-                backend.display_name, backend.backend_id, backend.provider, backend.model, backend.backend_kind
+                backend.display_name,
+                backend.backend_id,
+                backend.provider,
+                backend.model,
+                backend.backend_kind
             );
             normalize_filter(&haystack).contains(&q)
         })
@@ -462,7 +487,11 @@ fn filter_ai_model_views<'a>(
                 return false;
             }
             if !status.is_empty() {
-                let computed = if view.ready_nodes > 0 { "available" } else { "unavailable" };
+                let computed = if view.ready_nodes > 0 {
+                    "available"
+                } else {
+                    "unavailable"
+                };
                 if computed != status {
                     return false;
                 }
@@ -505,7 +534,11 @@ fn proto_ai_model_view_from_domain(view: &AiModelView) -> ProtoAiModelView {
         enabled_nodes: view.enabled_nodes as i32,
         ready_nodes: view.ready_nodes as i32,
         total_nodes: view.total_nodes as i32,
-        instances: view.instances.iter().map(proto_ai_model_view_instance_from_domain).collect(),
+        instances: view
+            .instances
+            .iter()
+            .map(proto_ai_model_view_instance_from_domain)
+            .collect(),
     }
 }
 

@@ -97,7 +97,8 @@ impl SmsServiceImpl {
             .task_assignment_service
             .remove_task_assignments(task_id, updated_at_ms)
             .await;
-        self.apply_assignment_change_result(task_id, result, false).await;
+        self.apply_assignment_change_result(task_id, result, false)
+            .await;
     }
 
     async fn trigger_assignment_fast_path(&self, task_id: &str, nodes: HashSet<String>) {
@@ -160,8 +161,13 @@ impl TaskPlacementAssignmentServiceTrait for SmsServiceImpl {
         if node_uuid.trim().is_empty() {
             return Err(Status::invalid_argument("node_uuid is required"));
         }
-        let assignments = self.task_assignment_service.list_node_assignments(&node_uuid).await;
-        Ok(Response::new(ListNodeTaskAssignmentsResponse { assignments }))
+        let assignments = self
+            .task_assignment_service
+            .list_node_assignments(&node_uuid)
+            .await;
+        Ok(Response::new(ListNodeTaskAssignmentsResponse {
+            assignments,
+        }))
     }
 
     async fn list_task_assignments(
@@ -172,7 +178,10 @@ impl TaskPlacementAssignmentServiceTrait for SmsServiceImpl {
         if task_id.trim().is_empty() {
             return Err(Status::invalid_argument("task_id is required"));
         }
-        let assignments = self.task_assignment_service.list_task_assignments(&task_id).await;
+        let assignments = self
+            .task_assignment_service
+            .list_task_assignments(&task_id)
+            .await;
         Ok(Response::new(ListTaskAssignmentsResponse { assignments }))
     }
 }

@@ -4,7 +4,7 @@
  */
 
 import { Link, useParams } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy } from 'lucide-react'
 import { toast } from 'sonner'
@@ -12,11 +12,13 @@ import { toast } from 'sonner'
 import {
   deleteAiBackend,
   getAiBackend,
+  type AiBackendRemoteInput,
   listAiBackendNodeStatuses,
   listAiBackendPlacements,
   listAiModelViews,
   setAiBackendDesiredState,
   updateAiBackend,
+  type AiBackendSummary,
   type AiModelView,
   type WriteAiBackendInput,
 } from '@/api/ai-backends'
@@ -34,13 +36,108 @@ function StateBadge(props: { state: string }) {
   return <Badge variant="secondary">{props.state}</Badge>
 }
 
-function SummaryRow(props: { label: string; value: React.ReactNode }) {
+function SummaryRow(props: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 text-sm">
       <span className="text-[hsl(var(--muted-foreground))]">{props.label}</span>
       <span>{props.value}</span>
     </div>
   )
+}
+
+type BackendDetailSummaryView = {
+  operations: string[]
+  features: string[]
+  transports: string[]
+  baseUrl: string
+  credentialRef: string
+}
+
+type BackendDetailProviderField = {
+  label: string
+  value: string
+}
+
+function isOpenAiRemoteInput(
+  value?: AiBackendRemoteInput,
+): value is Extract<AiBackendRemoteInput, { provider_family: 'open_ai_compatible' }> {
+  return value?.provider_family === 'open_ai_compatible'
+}
+
+function isOllamaRemoteInput(
+  value?: AiBackendRemoteInput,
+): value is Extract<AiBackendRemoteInput, { provider_family: 'ollama' }> {
+  return value?.provider_family === 'ollama'
+}
+
+function isKnownRemoteProvider(provider: string): boolean {
+  return provider === 'openai' || provider === 'ollama'
+}
+
+export function resolveBackendDetailSummary(backend: AiBackendSummary): BackendDetailSummaryView {
+  const remoteOpenAi = isOpenAiRemoteInput(backend.remote) ? backend.remote : undefined
+  const remoteOllama = isOllamaRemoteInput(backend.remote) ? backend.remote : undefined
+  const normalizedProvider = backend.provider.trim().toLowerCase()
+
+  return {
+    operations: isKnownRemoteProvider(normalizedProvider)
+      ? remoteOpenAi?.config.operations || remoteOllama?.config.operations || []
+      : backend.spec?.operations || [],
+    features: isKnownRemoteProvider(normalizedProvider)
+      ? remoteOpenAi?.config.features || remoteOllama?.config.features || []
+      : backend.spec?.features || [],
+    transports: isKnownRemoteProvider(normalizedProvider)
+      ? remoteOpenAi?.config.transports || remoteOllama?.config.transports || []
+      : backend.spec?.transports || [],
+    baseUrl: isKnownRemoteProvider(normalizedProvider)
+      ? remoteOpenAi?.config.base_url || remoteOllama?.config.base_url || ''
+      : backend.spec?.base_url || '',
+    credentialRef: normalizedProvider === 'openai'
+      ? remoteOpenAi?.config.credential_ref || ''
+      : !isKnownRemoteProvider(normalizedProvider)
+        ? backend.credential_ref || backend.spec?.credential_ref || ''
+        : '',
+  }
+}
+
+export function resolveBackendProviderFields(backend: AiBackendSummary): BackendDetailProviderField[] {
+  if (backend.local?.provider_family === 'llama_cpp') {
+    const fields: BackendDetailProviderField[] = []
+    const config = backend.local.config
+    if (config.model_url) fields.push({ label: 'Model URL', value: config.model_url })
+    if (config.model_path) fields.push({ label: 'Model Path', value: config.model_path })
+    if (config.skip_download !== undefined) {
+      fields.push({ label: 'Skip download', value: String(config.skip_download) })
+    }
+    if (config.download_timeout_s !== undefined) {
+      fields.push({ label: 'Download timeout', value: String(config.download_timeout_s) })
+    }
+    if (config.threads !== undefined) fields.push({ label: 'Threads', value: String(config.threads) })
+    if (config.ctx_size !== undefined) {
+      fields.push({ label: 'Context size', value: String(config.ctx_size) })
+    }
+    return fields
+  }
+
+  if (backend.local?.provider_family === 'vllm') {
+    const fields: BackendDetailProviderField[] = []
+    const config = backend.local.config
+    if (config.mode) fields.push({ label: 'Mode', value: config.mode })
+    if (config.managed_externally !== undefined) {
+      fields.push({ label: 'Managed externally', value: String(config.managed_externally) })
+    }
+    return fields
+  }
+
+  if (backend.remote?.provider_family === 'open_ai_compatible') {
+    return [{ label: 'Provider family', value: 'open_ai_compatible' }]
+  }
+
+  if (backend.remote?.provider_family === 'ollama') {
+    return [{ label: 'Provider family', value: 'ollama' }]
+  }
+
+  return []
 }
 
 function RelatedModelViewsPanel(props: {
@@ -131,6 +228,8 @@ export default function AiBackendDetailPage() {
   })
 
   const backend = detailQuery.data?.backend || null
+  const detailSummary = backend ? resolveBackendDetailSummary(backend) : null
+  const providerFields = backend ? resolveBackendProviderFields(backend) : []
 
   const updateMutation = useMutation({
     mutationFn: async (input: WriteAiBackendInput) => {
@@ -278,29 +377,46 @@ export default function AiBackendDetailPage() {
               <CardContent className="space-y-2">
                 <SummaryRow
                   label="Operations"
-                  value={<span className="font-mono text-xs">{(backend.spec?.operations || []).join(', ') || '-'}</span>}
+                  value={<span className="font-mono text-xs">{detailSummary?.operations.join(', ') || '-'}</span>}
                 />
                 <SummaryRow
                   label="Features"
-                  value={<span className="font-mono text-xs">{(backend.spec?.features || []).join(', ') || '-'}</span>}
+                  value={<span className="font-mono text-xs">{detailSummary?.features.join(', ') || '-'}</span>}
                 />
                 <SummaryRow
                   label="Transports"
-                  value={<span className="font-mono text-xs">{(backend.spec?.transports || []).join(', ') || '-'}</span>}
+                  value={<span className="font-mono text-xs">{detailSummary?.transports.join(', ') || '-'}</span>}
                 />
                 <SummaryRow
                   label="Base URL"
-                  value={<span className="font-mono text-xs">{backend.spec?.base_url || '-'}</span>}
+                  value={<span className="font-mono text-xs">{detailSummary?.baseUrl || '-'}</span>}
                 />
                 <SummaryRow
                   label="Credential ref"
-                  value={<span className="font-mono text-xs">{backend.credential_ref || '-'}</span>}
+                  value={<span className="font-mono text-xs">{detailSummary?.credentialRef || '-'}</span>}
                 />
                 <SummaryRow label="Weight" value={backend.spec?.weight ?? '-'} />
                 <SummaryRow label="Priority" value={backend.spec?.priority ?? '-'} />
               </CardContent>
             </Card>
           </div>
+
+          {providerFields.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Provider Config</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {providerFields.map((field) => (
+                  <SummaryRow
+                    key={field.label}
+                    label={field.label}
+                    value={<span className="font-mono text-xs">{field.value || '-'}</span>}
+                  />
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
 
           <PlacementPanel
             backendId={backend.backend_id}

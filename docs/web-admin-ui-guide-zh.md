@@ -83,6 +83,10 @@
   - `Features`
   - `Transports`
   - `Placement`
+- 对于 `openai`、`openai_compatible`、`ollama` 这类已支持的 remote provider，Web Admin 现在会在创建前执行节点侧 preflight。
+- 这个 preflight 是从目标 SPEARlet 节点发起的，而不是从浏览器或 SMS 进程发起。
+- 对于多节点 placement，默认策略是“创建前抽样严格验证 + 创建后通过 placement reconcile 做全量节点验证”。
+- 如果抽样节点上的 endpoint 可达性、credential 验证或 model 访问失败，创建会立即终止，并返回节点侧错误。
 
 ### Create Local Backend
 
@@ -96,6 +100,9 @@
   - `Threads`
   - `Context Size`
 - 这些字段保存时会自动写回 backend metadata，以兼容当前运行时实现。
+- 当使用 `Model URL` 时，Web Admin 现在会在创建前执行一次节点侧 preflight。
+- 这个 preflight 是从目标节点发起的，而不是从浏览器或 SMS 进程发起。
+- 如果目标节点无法访问该 URL，则创建会立即失败，并直接返回节点侧错误。
 
 ### Placement
 
@@ -104,6 +111,7 @@
   - `All Nodes`
   - `Single Node`
   - `Selected Nodes`
+- `All Nodes` 默认不会在创建前同步阻塞验证每一个节点，而是最多抽样 3 个节点做严格预检，剩余节点交给 assignment controller 在创建后异步完成验证。
 - 还支持每条 placement 的 override：
   - `Weight override`
   - `Priority override`

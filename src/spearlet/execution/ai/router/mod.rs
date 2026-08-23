@@ -1,6 +1,6 @@
+pub mod builder;
 pub mod candidate_explainer;
 pub mod capabilities;
-pub mod builder;
 pub mod debug;
 pub mod filter_decision;
 pub mod filter_inflight;
@@ -14,9 +14,10 @@ pub mod selection;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::spearlet::ai::backend_assembly::{
-    build_instance_from_spec,
-};
+use crate::spearlet::ai::backend_assembly::build_instance_from_spec;
+#[cfg(not(test))]
+use crate::spearlet::ai::dynamic_backend_registry::global_dynamic_backends;
+use crate::spearlet::ai::dynamic_backend_registry::{DynamicBackendRegistry, DynamicBackendSource};
 use crate::spearlet::execution::ai::ir::{CanonicalError, CanonicalRequestEnvelope};
 use crate::spearlet::execution::ai::router::candidate_explainer::build_no_candidate_error;
 use crate::spearlet::execution::ai::router::filter_decision::{
@@ -25,11 +26,6 @@ use crate::spearlet::execution::ai::router::filter_decision::{
 use crate::spearlet::execution::ai::router::policy::SelectionPolicy;
 use crate::spearlet::execution::ai::router::registry::{BackendInstance, BackendRegistry};
 use crate::spearlet::execution::ai::router::selection::{select_backend, snapshot_candidates};
-#[cfg(not(test))]
-use crate::spearlet::ai::dynamic_backend_registry::global_dynamic_backends;
-use crate::spearlet::ai::dynamic_backend_registry::{
-    DynamicBackendRegistry, DynamicBackendSource,
-};
 use parking_lot::RwLock;
 use tracing::debug;
 
@@ -117,9 +113,9 @@ impl Router {
             }
         }
 
-        let merged = self.dynamic_backends.list_merged_sorted(&[
-            DynamicBackendSource::AiControlPlane,
-        ]);
+        let merged = self
+            .dynamic_backends
+            .list_merged_sorted(&[DynamicBackendSource::AiControlPlane]);
         let mut out: Vec<BackendInstance> = Vec::new();
         for b in merged.into_iter() {
             if let Some(inst) = managed_backend_info_to_instance(b) {
@@ -156,7 +152,10 @@ impl Router {
 
     /// Collect one merged view of static and dynamic backends.
     /// 收集静态与动态 backend 的合并视图。
-    fn collect_instances<'a>(&'a self, dyns: &'a Arc<Vec<BackendInstance>>) -> Vec<&'a BackendInstance> {
+    fn collect_instances<'a>(
+        &'a self,
+        dyns: &'a Arc<Vec<BackendInstance>>,
+    ) -> Vec<&'a BackendInstance> {
         let mut by_name: HashMap<String, &BackendInstance> = HashMap::new();
         for inst in self.registry.instances().iter() {
             by_name.insert(inst.spec.name.clone(), inst);
@@ -332,11 +331,11 @@ mod tests {
     use crate::spearlet::execution::ai::ir::{
         ChatCompletionsPayload, ChatMessage, Operation, Payload, RoutingHints, SpeechToTextPayload,
     };
-    use crate::spearlet::execution::ai::streaming::StreamingPlan;
     use crate::spearlet::execution::ai::router::capabilities::Capabilities;
     use crate::spearlet::execution::ai::router::grpc_filter_stream::RouterFilterStreamHub;
     use crate::spearlet::execution::ai::router::policy::SelectionPolicy;
     use crate::spearlet::execution::ai::router::registry::Hosting;
+    use crate::spearlet::execution::ai::streaming::StreamingPlan;
     use serde_json::Value;
     use std::collections::HashMap;
     use std::sync::Arc;

@@ -1,0 +1,41 @@
+{
+  default_sni {$SPEAR_HTTPS_HOST:127.0.0.1}
+  servers {
+    protocols h1 h2
+  }
+}
+
+https://{$SPEAR_HTTPS_HOST:127.0.0.1}:8443 {
+  tls {
+    issuer internal
+    key_type rsa2048
+  }
+
+  handle /admin* {
+    reverse_proxy sms:8081
+  }
+
+  redir / /admin 308
+  respond "not found" 404
+}
+
+https://{$SPEAR_HTTPS_HOST:127.0.0.1}:8444 {
+  tls {
+    issuer internal
+    key_type rsa2048
+  }
+
+  # The console entry serves /console, but frontend API calls stay same-origin
+  # under /api/*, so everything except the root redirect must go to sms:8080.
+  redir / /console 308
+  reverse_proxy sms:8080
+}
+
+https://{$SPEAR_HTTPS_HOST:127.0.0.1}:8445 {
+  tls {
+    issuer internal
+    key_type rsa2048
+  }
+
+  reverse_proxy debug-server:7777
+}

@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use crate::proto::sms::BackendSpec;
 use crate::spearlet::execution::ai::backends::BackendAdapter;
 use crate::spearlet::execution::ai::ir::CanonicalRequestEnvelope;
 use crate::spearlet::execution::ai::router::capabilities::Capabilities;
-use crate::proto::sms::BackendSpec;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hosting {

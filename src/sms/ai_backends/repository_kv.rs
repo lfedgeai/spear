@@ -156,7 +156,10 @@ impl AiBackendRepository for KvAiBackendRepository {
         Ok(record)
     }
 
-    async fn get_backend(&self, backend_id: &str) -> Result<Option<AiBackendRecordModel>, SmsError> {
+    async fn get_backend(
+        &self,
+        backend_id: &str,
+    ) -> Result<Option<AiBackendRecordModel>, SmsError> {
         self.load_record(&keys::backend(backend_id)).await
     }
 
@@ -219,8 +222,11 @@ impl AiBackendRepository for KvAiBackendRepository {
         &self,
         backend_id: &str,
     ) -> Result<Vec<AiBackendPlacementRecordModel>, SmsError> {
-        self.load_records_via_index(&keys::placement_by_backend_prefix(backend_id), keys::placement)
-            .await
+        self.load_records_via_index(
+            &keys::placement_by_backend_prefix(backend_id),
+            keys::placement,
+        )
+        .await
     }
 
     async fn list_placements_by_node(
@@ -253,8 +259,11 @@ impl AiBackendRepository for KvAiBackendRepository {
         &self,
         record: AiBackendNodeStatusRecordModel,
     ) -> Result<AiBackendNodeStatusRecordModel, SmsError> {
-        self.store_record(&keys::status(&record.backend_id, &record.node_uuid), &record)
-            .await?;
+        self.store_record(
+            &keys::status(&record.backend_id, &record.node_uuid),
+            &record,
+        )
+        .await?;
         self.kv
             .put(
                 &keys::status_by_backend(&record.backend_id, &record.node_uuid),
@@ -286,7 +295,11 @@ impl AiBackendRepository for KvAiBackendRepository {
         .await
     }
 
-    async fn delete_node_status(&self, backend_id: &str, node_uuid: &str) -> Result<bool, SmsError> {
+    async fn delete_node_status(
+        &self,
+        backend_id: &str,
+        node_uuid: &str,
+    ) -> Result<bool, SmsError> {
         self.kv
             .delete(&keys::status_by_backend(backend_id, node_uuid))
             .await?;
@@ -355,7 +368,10 @@ mod tests {
 
         repo.upsert_placement(placement.clone()).await.unwrap();
 
-        assert_eq!(repo.list_placements().await.unwrap(), vec![placement.clone()]);
+        assert_eq!(
+            repo.list_placements().await.unwrap(),
+            vec![placement.clone()]
+        );
         assert_eq!(
             repo.list_placements_by_backend("backend-1").await.unwrap(),
             vec![placement.clone()]
@@ -387,7 +403,9 @@ mod tests {
         repo.upsert_node_status(status.clone()).await.unwrap();
 
         assert_eq!(
-            repo.list_node_statuses_by_backend("backend-1").await.unwrap(),
+            repo.list_node_statuses_by_backend("backend-1")
+                .await
+                .unwrap(),
             vec![status.clone()]
         );
         assert_eq!(

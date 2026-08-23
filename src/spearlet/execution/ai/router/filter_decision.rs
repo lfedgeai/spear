@@ -69,7 +69,9 @@ pub fn apply_filter_response<'a>(
             outcome.dropped_names.push(name.to_string());
         }
         if let Some(w) = d.weight_override {
-            outcome.weight_overrides.insert(name.to_string(), w.min(10_000));
+            outcome
+                .weight_overrides
+                .insert(name.to_string(), w.min(10_000));
         }
     }
     outcome.dropped_names.sort();

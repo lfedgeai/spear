@@ -79,6 +79,15 @@ pub fn create_admin_router(state: GatewayState) -> Router {
             }),
         )
         .route(
+            "/admin/api/ai-backends/preflight",
+            post({
+                let state = state.clone();
+                move |body: Json<super::AiBackendPreflightBody>| {
+                    super::preflight_ai_backend_admin(state.clone(), body)
+                }
+            }),
+        )
+        .route(
             "/admin/api/ai-backends/{backend_id}",
             get({
                 let state = state.clone();

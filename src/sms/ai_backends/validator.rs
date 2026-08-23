@@ -1,5 +1,6 @@
 //! Validation helpers for unified AI backends / 统一 AI backend 的校验辅助
 
+use crate::ai_backend_types::{AllowedHosting, CanonicalBackendKind};
 use crate::sms::ai_backends::model::{
     AiBackendHostingModel, AiBackendManagementModeModel, AiBackendPlacementRecordModel,
     AiBackendRecordModel, AiBackendSpecModel,
@@ -72,8 +73,13 @@ fn validate_non_empty(value: &str, field_name: &str) -> Result<(), SmsError> {
 fn validate_hosting_management_mode(record: &AiBackendRecordModel) -> Result<(), SmsError> {
     let matches = matches!(
         (record.hosting, record.management_mode),
-        (AiBackendHostingModel::Remote, AiBackendManagementModeModel::SmsRemote)
-            | (AiBackendHostingModel::Local, AiBackendManagementModeModel::SmsLocal)
+        (
+            AiBackendHostingModel::Remote,
+            AiBackendManagementModeModel::SmsRemote
+        ) | (
+            AiBackendHostingModel::Local,
+            AiBackendManagementModeModel::SmsLocal
+        )
     );
     if matches {
         Ok(())
@@ -85,22 +91,21 @@ fn validate_hosting_management_mode(record: &AiBackendRecordModel) -> Result<(),
 }
 
 fn validate_backend_kind_for_hosting(record: &AiBackendRecordModel) -> Result<(), SmsError> {
-    let kind = record.backend_kind.trim().to_ascii_lowercase();
-    let is_local_only = matches!(kind.as_str(), "llamacpp" | "llama_cpp" | "llama.cpp" | "vllm" | "vllm-openai");
-    let is_remote_only = matches!(
-        kind.as_str(),
-        "openai_chat_completion" | "openai_realtime_ws" | "ollama_chat"
-    );
+    let kind = CanonicalBackendKind::parse(&record.backend_kind);
 
     match record.hosting {
-        AiBackendHostingModel::Remote if is_local_only => Err(SmsError::InvalidRequest(format!(
-            "backend_kind {} is local-only and cannot be used with remote hosting",
-            record.backend_kind
-        ))),
-        AiBackendHostingModel::Local if is_remote_only => Err(SmsError::InvalidRequest(format!(
-            "backend_kind {} is remote-only and cannot be used with local hosting",
-            record.backend_kind
-        ))),
+        AiBackendHostingModel::Remote if kind.allowed_hosting() == AllowedHosting::LocalOnly => {
+            Err(SmsError::InvalidRequest(format!(
+                "backend_kind {} is local-only and cannot be used with remote hosting",
+                record.backend_kind
+            )))
+        }
+        AiBackendHostingModel::Local if kind.allowed_hosting() == AllowedHosting::RemoteOnly => {
+            Err(SmsError::InvalidRequest(format!(
+                "backend_kind {} is remote-only and cannot be used with local hosting",
+                record.backend_kind
+            )))
+        }
         _ => Ok(()),
     }
 }
@@ -130,7 +135,9 @@ fn validate_record_spec_consistency(record: &AiBackendRecordModel) -> Result<(),
         ));
     }
 
-    if matches!(record.hosting, AiBackendHostingModel::Remote) && record.spec.base_url.trim().is_empty() {
+    if matches!(record.hosting, AiBackendHostingModel::Remote)
+        && record.spec.base_url.trim().is_empty()
+    {
         return Err(SmsError::InvalidRequest(
             "remote backends require spec.base_url".to_string(),
         ));
@@ -217,7 +224,8 @@ mod tests {
             updated_at_ms: 1,
         };
 
-        let err = validate_backend_record(&record).expect_err("mismatched management_mode should fail");
+        let err =
+            validate_backend_record(&record).expect_err("mismatched management_mode should fail");
         assert!(matches!(err, SmsError::InvalidRequest(_)));
     }
 
@@ -249,8 +257,73 @@ mod tests {
             updated_at_ms: 1,
         };
 
-        let err = validate_backend_record(&record).expect_err("remote hosting should reject local-only kind");
+        let err = validate_backend_record(&record)
+            .expect_err("remote hosting should reject local-only kind");
         assert!(matches!(err, SmsError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn rejects_remote_with_local_only_backend_kind_alias() {
+        let record = AiBackendRecordModel {
+            backend_id: "backend-1".to_string(),
+            display_name: "Backend 1".to_string(),
+            provider: "llamacpp".to_string(),
+            model: "qwen".to_string(),
+            hosting: AiBackendHostingModel::Remote,
+            backend_kind: "llama.cpp".to_string(),
+            desired_state: AiBackendDesiredStateModel::Enabled,
+            management_mode: AiBackendManagementModeModel::SmsRemote,
+            credential_ref: None,
+            spec: AiBackendSpecModel {
+                kind: "llama.cpp".to_string(),
+                operations: vec!["chat_completions".to_string()],
+                provider: "llamacpp".to_string(),
+                model: "qwen".to_string(),
+                base_url: "https://example.com".to_string(),
+                credential_ref: String::new(),
+                ..sample_spec()
+            },
+            labels: BTreeMap::new(),
+            metadata: serde_json::json!({}),
+            generation: 1,
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        };
+
+        let err = validate_backend_record(&record)
+            .expect_err("remote hosting should reject local-only alias kind");
+        assert!(matches!(err, SmsError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn allows_local_ollama_chat_backend_kind() {
+        let record = AiBackendRecordModel {
+            backend_id: "backend-1".to_string(),
+            display_name: "Backend 1".to_string(),
+            provider: "ollama".to_string(),
+            model: "llama3.1:8b".to_string(),
+            hosting: AiBackendHostingModel::Local,
+            backend_kind: "ollama_chat".to_string(),
+            desired_state: AiBackendDesiredStateModel::Enabled,
+            management_mode: AiBackendManagementModeModel::SmsLocal,
+            credential_ref: None,
+            spec: AiBackendSpecModel {
+                kind: "ollama_chat".to_string(),
+                operations: vec!["chat_completions".to_string()],
+                provider: "ollama".to_string(),
+                model: "llama3.1:8b".to_string(),
+                base_url: "http://127.0.0.1:11434".to_string(),
+                credential_ref: String::new(),
+                ..sample_spec()
+            },
+            labels: BTreeMap::new(),
+            metadata: serde_json::json!({}),
+            generation: 1,
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        };
+
+        validate_backend_record(&record).expect("local ollama_chat should be allowed");
     }
 
     #[test]

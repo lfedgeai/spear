@@ -19,11 +19,9 @@ async fn start_test_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let svc = Arc::new(
-        FunctionServiceImpl::new(Arc::new(SpearletConfig::default()), None)
-            .await
-            .unwrap(),
-    );
+    let svc = FunctionServiceImpl::new(Arc::new(SpearletConfig::default()), None)
+        .await
+        .unwrap();
     let invocation = InvocationServiceServer::new(svc.clone());
     let execution = ExecutionServiceServer::new(svc);
 

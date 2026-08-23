@@ -1,15 +1,16 @@
-use std::{sync::Arc, time::Duration};
 use prost::Message;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 
-use crate::proto::sms::{
-    events_service_client::EventsServiceClient, subscribe_events_selector::Selector, EventEnvelope,
-    EventOp, ResourceType, SubscribeEventsRequest, SubscribeEventsSelector, TaskEvent, TaskEventKind,
-};
 #[cfg(test)]
 use crate::proto::sms::Task;
+use crate::proto::sms::{
+    events_service_client::EventsServiceClient, subscribe_events_selector::Selector, EventEnvelope,
+    EventOp, ResourceType, SubscribeEventsRequest, SubscribeEventsSelector, TaskEvent,
+    TaskEventKind,
+};
 use crate::spearlet::config::SpearletConfig;
 use crate::spearlet::execution::{manager::TaskExecutionManager, ExecutionError};
 use crate::spearlet::task_event_cursor::TaskEventCursorStore;
@@ -67,24 +68,24 @@ impl TaskEventSubscriber {
                 let per_attempt = Duration::from_millis(cfg.sms_connect_timeout_ms)
                     .min(Duration::from_secs(5))
                     .max(Duration::from_millis(1));
-                let mut stream = match tokio::time::timeout(
-                    per_attempt,
-                    events_client.subscribe_events(req),
-                )
-                .await
-                {
-                    Ok(Ok(r)) => r.into_inner(),
-                    Ok(Err(e)) => {
-                        warn!(error = %e, "SubscribeEvents RPC failed, retrying");
-                        tokio::time::sleep(Duration::from_millis(cfg.sms_connect_retry_ms)).await;
-                        continue;
-                    }
-                    Err(_) => {
-                        warn!("SubscribeEvents RPC timeout, retrying");
-                        tokio::time::sleep(Duration::from_millis(cfg.sms_connect_retry_ms)).await;
-                        continue;
-                    }
-                };
+                let mut stream =
+                    match tokio::time::timeout(per_attempt, events_client.subscribe_events(req))
+                        .await
+                    {
+                        Ok(Ok(r)) => r.into_inner(),
+                        Ok(Err(e)) => {
+                            warn!(error = %e, "SubscribeEvents RPC failed, retrying");
+                            tokio::time::sleep(Duration::from_millis(cfg.sms_connect_retry_ms))
+                                .await;
+                            continue;
+                        }
+                        Err(_) => {
+                            warn!("SubscribeEvents RPC timeout, retrying");
+                            tokio::time::sleep(Duration::from_millis(cfg.sms_connect_retry_ms))
+                                .await;
+                            continue;
+                        }
+                    };
                 loop {
                     match stream.next().await {
                         Some(Ok(env)) => {
@@ -136,7 +137,8 @@ impl TaskEventSubscriber {
             debug!(event_id = %env.event_id, resource_type = env.resource_type, "Ignoring non-task unified event");
             return Ok(());
         }
-        if !matches!(env.op, x if x == EventOp::Create as i32 || x == EventOp::Cancel as i32 || x == EventOp::Update as i32) {
+        if !matches!(env.op, x if x == EventOp::Create as i32 || x == EventOp::Cancel as i32 || x == EventOp::Update as i32)
+        {
             debug!(event_id = %env.event_id, op = env.op, "Ignoring unsupported task unified event op");
             return Ok(());
         }
@@ -161,7 +163,10 @@ impl TaskEventSubscriber {
         ev: TaskEvent,
     ) -> Result<(), String> {
         if ev.kind == TaskEventKind::Create as i32 {
-            match mgr.materialize_local_task_from_sms_create_event(&ev.task_id).await {
+            match mgr
+                .materialize_local_task_from_sms_create_event(&ev.task_id)
+                .await
+            {
                 Ok(_) => {}
                 Err(ExecutionError::TaskNotFound { .. }) => {
                     warn!(
@@ -173,7 +178,10 @@ impl TaskEventSubscriber {
                 Err(error) => return Err(error.to_string()),
             }
         } else if ev.kind == TaskEventKind::Update as i32 {
-            match mgr.fetch_and_materialize_local_task_by_id(&ev.task_id).await {
+            match mgr
+                .fetch_and_materialize_local_task_by_id(&ev.task_id)
+                .await
+            {
                 Ok(_) => {}
                 Err(ExecutionError::TaskNotFound { .. }) => {
                     warn!(
@@ -227,8 +235,8 @@ impl TaskEventSubscriber {
 mod tests {
     use super::*;
     use crate::proto::sms::{
-        task_service_server::TaskServiceServer,
-        Task, TaskEvent, TaskEventKind, TaskExecutable, TaskPriority, TaskStatus,
+        task_service_server::TaskServiceServer, Task, TaskEvent, TaskEventKind, TaskExecutable,
+        TaskPriority, TaskStatus,
     };
     use crate::sms::service::SmsServiceImpl;
     use crate::spearlet::execution::instance;
@@ -411,7 +419,10 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         let local_task = mgr.get_task_by_id("task-x").expect("task should exist");
-        assert_eq!(local_task.status(), crate::spearlet::execution::task::TaskStatus::Ready);
+        assert_eq!(
+            local_task.status(),
+            crate::spearlet::execution::task::TaskStatus::Ready
+        );
         assert!(mgr.get_artifact_by_id("deadbeef").is_some());
     }
 

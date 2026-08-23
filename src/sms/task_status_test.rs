@@ -5,12 +5,12 @@ use crate::config::base::StorageConfig;
 use crate::proto::sms::{
     execution_index_service_server::ExecutionIndexService as ExecutionIndexServiceTrait,
     instance_registry_service_server::InstanceRegistryService as InstanceRegistryServiceTrait,
-    Instance, InstanceStatus, ListTaskInstancesRequest,
     node_service_server::NodeService as NodeServiceTrait,
-    task_service_server::TaskService as TaskServiceTrait, CompleteTaskDeletionRequest,
     task_placement_assignment_service_server::TaskPlacementAssignmentService as TaskPlacementAssignmentServiceTrait,
-    DeleteTaskRequest, GetTaskRequest, ListNodeTaskAssignmentsRequest, Node, RegisterNodeRequest,
-    RegisterTaskRequest, ResolveEndpointRequest, TaskPriority, TaskStatus, UpdateTaskStatusRequest,
+    task_service_server::TaskService as TaskServiceTrait, CompleteTaskDeletionRequest,
+    DeleteTaskRequest, GetTaskRequest, Instance, InstanceStatus, ListNodeTaskAssignmentsRequest,
+    ListTaskInstancesRequest, Node, RegisterNodeRequest, RegisterTaskRequest,
+    ResolveEndpointRequest, TaskPriority, TaskStatus, UpdateTaskStatusRequest,
 };
 use crate::sms::service::SmsServiceImpl;
 use uuid::Uuid;
@@ -322,7 +322,13 @@ async fn complete_task_deletion_waits_for_active_instances_to_disappear() {
     )
     .await
     .unwrap();
-    let task_id = register_resp.get_ref().task.as_ref().unwrap().task_id.clone();
+    let task_id = register_resp
+        .get_ref()
+        .task
+        .as_ref()
+        .unwrap()
+        .task_id
+        .clone();
     let now_ms = chrono::Utc::now().timestamp_millis();
 
     InstanceRegistryServiceTrait::report_instance(
@@ -394,9 +400,7 @@ async fn complete_task_deletion_waits_for_active_instances_to_disappear() {
 
     let complete = TaskServiceTrait::complete_task_deletion(
         &sms_service,
-        Request::new(CompleteTaskDeletionRequest {
-            task_id: task_id,
-        }),
+        Request::new(CompleteTaskDeletionRequest { task_id: task_id }),
     )
     .await
     .unwrap()

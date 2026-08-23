@@ -12,9 +12,8 @@ use axum::{
 use super::gateway::GatewayState;
 use super::handlers::{
     console_index, console_static, create_stream_session, delete_file, delete_node, delete_task,
-    download_file,
-    endpoint_ws_proxy, get_execution, get_file_meta, get_instance, get_node, get_node_resource,
-    get_node_with_resource, get_task, health_check, heartbeat, list_files,
+    download_file, endpoint_ws_proxy, get_execution, get_file_meta, get_instance, get_node,
+    get_node_resource, get_node_with_resource, get_task, health_check, heartbeat, list_files,
     list_instance_executions, list_node_resources, list_nodes, list_task_instances, list_tasks,
     openapi_spec, place_invocation, presign_upload, register_node, register_task,
     report_invocation_outcome, stream_ws_proxy, swagger_ui, swagger_ui_assets, update_node,
@@ -56,10 +55,7 @@ pub(crate) fn create_routes(state: GatewayState) -> Router {
             "/api/v1/tasks/{task_id}/instances",
             get(list_task_instances),
         )
-        .route(
-            "/api/v1/instances/{instance_id}",
-            get(get_instance),
-        )
+        .route("/api/v1/instances/{instance_id}", get(get_instance))
         .route(
             "/api/v1/instances/{instance_id}/executions",
             get(list_instance_executions),

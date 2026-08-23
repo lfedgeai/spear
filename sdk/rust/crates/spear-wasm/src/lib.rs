@@ -245,7 +245,10 @@ fn parse_epoll_events(bytes: &[u8]) -> Result<Vec<EpollEvent>, SpearError> {
 pub fn epoll_create() -> Result<EpollFd, SpearError> {
     #[cfg(target_arch = "wasm32")]
     {
-        let fd = rc_to_result(unsafe { spear_wasm_sys::spear_epoll_create() }, "epoll_create")?;
+        let fd = rc_to_result(
+            unsafe { spear_wasm_sys::spear_epoll_create() },
+            "epoll_create",
+        )?;
         Ok(EpollFd(fd))
     }
 
@@ -291,7 +294,12 @@ pub fn epoll_wait(
             let out_ptr_i32 = out.as_mut_ptr() as usize as i32;
             let out_len_ptr_i32 = (&mut out_len as *mut u32) as usize as i32;
             let rc = unsafe {
-                spear_wasm_sys::spear_epoll_wait(epfd.raw(), out_ptr_i32, out_len_ptr_i32, timeout_ms)
+                spear_wasm_sys::spear_epoll_wait(
+                    epfd.raw(),
+                    out_ptr_i32,
+                    out_len_ptr_i32,
+                    timeout_ms,
+                )
             };
             if rc >= 0 {
                 out.truncate(out_len as usize);
@@ -731,7 +739,12 @@ pub fn rtasr_clear(fd: Fd) -> Result<(), SpearError> {
 
 /// Configure RTASR autoflush policy / 配置 RTASR 自动 flush 策略
 pub fn rtasr_set_autoflush_json(fd: Fd, json: &str) -> Result<(), SpearError> {
-    rtasr_ctl_json(fd, constants::SPEAR_RTA_CTL_SET_AUTOFLUSH, json, "rtasr_ctl")
+    rtasr_ctl_json(
+        fd,
+        constants::SPEAR_RTA_CTL_SET_AUTOFLUSH,
+        json,
+        "rtasr_ctl",
+    )
 }
 
 /// Chat request context wrapper / Chat 请求上下文封装
@@ -772,7 +785,13 @@ impl ChatRequestContext {
             let (role_ptr, role_len) = cast_ptr_len(role_b);
             let (content_ptr, content_len) = cast_ptr_len(content_b);
             let rc = unsafe {
-                spear_wasm_sys::cchat_write_msg(self.fd.0, role_ptr, role_len, content_ptr, content_len)
+                spear_wasm_sys::cchat_write_msg(
+                    self.fd.0,
+                    role_ptr,
+                    role_len,
+                    content_ptr,
+                    content_len,
+                )
             };
             return rc_to_unit(rc, "cchat_write_msg");
         }
@@ -826,7 +845,8 @@ impl ChatRequestContext {
         {
             let fn_b = fn_json.as_bytes();
             let (fn_ptr, fn_len) = cast_ptr_len(fn_b);
-            let rc = unsafe { spear_wasm_sys::cchat_write_fn(self.fd.0, fn_offset, fn_ptr, fn_len) };
+            let rc =
+                unsafe { spear_wasm_sys::cchat_write_fn(self.fd.0, fn_offset, fn_ptr, fn_len) };
             return rc_to_unit(rc, "cchat_write_fn");
         }
 
@@ -937,9 +957,7 @@ mod tests {
 
     #[test]
     fn test_parse_epoll_events() {
-        let bytes = [
-            1u8, 0, 0, 0, 0x01, 0, 0, 0, 2, 0, 0, 0, 0x18, 0, 0, 0,
-        ];
+        let bytes = [1u8, 0, 0, 0, 0x01, 0, 0, 0, 2, 0, 0, 0, 0x18, 0, 0, 0];
         let events = parse_epoll_events(&bytes).unwrap();
         assert_eq!(
             events,

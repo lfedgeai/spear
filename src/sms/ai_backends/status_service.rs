@@ -34,7 +34,12 @@ impl AiBackendStatusService {
                     record.node_uuid
                 )));
             }
-            if self.repository.get_backend(&record.backend_id).await?.is_none() {
+            if self
+                .repository
+                .get_backend(&record.backend_id)
+                .await?
+                .is_none()
+            {
                 return Err(SmsError::NotFound(format!(
                     "backend {} not found",
                     record.backend_id
@@ -53,7 +58,10 @@ impl AiBackendStatusService {
         &self,
         backend_id: &str,
     ) -> Result<Vec<AiBackendNodeStatusRecordModel>, SmsError> {
-        let mut statuses = self.repository.list_node_statuses_by_backend(backend_id).await?;
+        let mut statuses = self
+            .repository
+            .list_node_statuses_by_backend(backend_id)
+            .await?;
         statuses.sort_by(|left, right| left.node_uuid.cmp(&right.node_uuid));
         Ok(statuses)
     }

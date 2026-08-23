@@ -11,11 +11,11 @@ use crate::sms::instance_execution_index::InstanceExecutionIndex;
 use crate::sms::placement::outcome::normalize_outcome_class;
 use crate::sms::placement::policy::select_top_candidates;
 use crate::sms::placement::state::PlacementState;
+use crate::sms::registry::mcp::{delete_mcp_record, list_mcp_records, upsert_mcp_record};
+use crate::sms::registry::state::{BackendRegistryState, McpRegistryState};
 use crate::sms::runtime::{
     build_runtime_stores, start_assignment_reconcile_loop, start_cleanup_loop,
 };
-use crate::sms::registry::mcp::{delete_mcp_record, list_mcp_records, upsert_mcp_record};
-use crate::sms::registry::state::{BackendRegistryState, McpRegistryState};
 use crate::sms::services::{
     node_service::NodeService, resource_service::ResourceService,
     task_assignment_service::TaskAssignmentService as TaskAssignmentServiceImpl,
@@ -26,8 +26,8 @@ use anyhow::Context;
 use futures::{stream::unfold, StreamExt};
 use tracing::{debug, warn};
 
-use crate::sms::ai_backends::KvAiBackendRepository;
 use crate::sms::admin_credentials::AdminCredentialsState;
+use crate::sms::ai_backends::KvAiBackendRepository;
 
 // Import proto types / 导入proto类型
 use crate::proto::sms::{
@@ -43,6 +43,7 @@ use crate::proto::sms::{
     placement_service_server::PlacementService as PlacementServiceTrait,
     AppendExecutionLogsRequest,
     AppendExecutionLogsResponse,
+    BackendSpec,
     BackendStatus,
     DeleteCredentialRequest,
     DeleteCredentialResponse,
@@ -57,10 +58,10 @@ use crate::proto::sms::{
     Execution,
     FinalizeExecutionLogsRequest,
     FinalizeExecutionLogsResponse,
-    GetInstanceRequest,
-    GetInstanceResponse,
     GetExecutionRequest,
     GetExecutionResponse,
+    GetInstanceRequest,
+    GetInstanceResponse,
     GetNodeBackendsRequest,
     GetNodeBackendsResponse,
     GetNodeRequest,
@@ -104,16 +105,15 @@ use crate::proto::sms::{
     ReportInvocationOutcomeResponse,
     ReportNodeBackendsRequest,
     ReportNodeBackendsResponse,
-    BackendSpec,
     SubscribeEventsRequest,
     UpdateNodeRequest,
     UpdateNodeResourceRequest,
     UpdateNodeResourceResponse,
     UpdateNodeResponse,
-    UpsertMcpServerRequest,
-    UpsertMcpServerResponse,
     UpsertCredentialRequest,
     UpsertCredentialResponse,
+    UpsertMcpServerRequest,
+    UpsertMcpServerResponse,
     WatchCredentialMaterialsRequest,
     WatchCredentialMaterialsResponse,
     WatchCredentialsRequest,
@@ -469,7 +469,6 @@ impl SmsServiceImpl {
     pub fn node_service(&self) -> Arc<RwLock<NodeService>> {
         self.node_service.clone()
     }
-
 }
 
 #[tonic::async_trait]
@@ -522,7 +521,8 @@ impl McpRegistryServiceTrait for SmsServiceImpl {
         &self,
         request: Request<DeleteMcpServerRequest>,
     ) -> Result<Response<DeleteMcpServerResponse>, Status> {
-        let revision = delete_mcp_record(&self.mcp_registry, request.into_inner().server_id).await?;
+        let revision =
+            delete_mcp_record(&self.mcp_registry, request.into_inner().server_id).await?;
         Ok(Response::new(DeleteMcpServerResponse { revision }))
     }
 }
@@ -661,7 +661,10 @@ impl AdminCredentialServiceTrait for SmsServiceImpl {
     ) -> Result<Response<DeleteCredentialResponse>, Status> {
         let req = request.into_inner();
         let (revision, deleted) = self.admin_credentials.delete(&req.name).await?;
-        Ok(Response::new(DeleteCredentialResponse { revision, deleted }))
+        Ok(Response::new(DeleteCredentialResponse {
+            revision,
+            deleted,
+        }))
     }
 
     async fn watch_credentials(
@@ -669,7 +672,10 @@ impl AdminCredentialServiceTrait for SmsServiceImpl {
         request: Request<WatchCredentialsRequest>,
     ) -> Result<Response<Self::WatchCredentialsStream>, Status> {
         let req = request.into_inner();
-        let stream = self.admin_credentials.watch_infos(req.since_revision).await?;
+        let stream = self
+            .admin_credentials
+            .watch_infos(req.since_revision)
+            .await?;
         Ok(Response::new(stream))
     }
 
@@ -1288,10 +1294,19 @@ impl ExecutionIndexServiceTrait for SmsServiceImpl {
         request: Request<ListExecutionsRequest>,
     ) -> Result<Response<ListExecutionsResponse>, Status> {
         let req = request.into_inner();
-        let limit = if req.limit <= 0 { 100 } else { req.limit as usize };
+        let limit = if req.limit <= 0 {
+            100
+        } else {
+            req.limit as usize
+        };
         let (executions, next_page_token) = self
             .instance_execution_index
-            .list_executions(Some(&req.task_id), Some(&req.status), limit, &req.page_token)
+            .list_executions(
+                Some(&req.task_id),
+                Some(&req.status),
+                limit,
+                &req.page_token,
+            )
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(ListExecutionsResponse {

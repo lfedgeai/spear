@@ -50,8 +50,7 @@ pub async fn maybe_import_ollama_serving_models(cfg: &mut SpearletConfig) -> Res
         return Ok(0);
     }
 
-    let existing_names: HashSet<String> =
-        cfg.ai.backends.iter().map(|b| b.name.clone()).collect();
+    let existing_names: HashSet<String> = cfg.ai.backends.iter().map(|b| b.name.clone()).collect();
     let mut imported = 0usize;
 
     for model in model_names {

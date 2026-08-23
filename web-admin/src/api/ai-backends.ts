@@ -45,6 +45,8 @@ export type AiBackendSummary = {
   management_mode: AiBackendManagementMode | 'unspecified'
   credential_ref?: string | null
   spec?: AiBackendSpec | null
+  local?: AiBackendLocalInput
+  remote?: AiBackendRemoteInput
   labels?: Record<string, string>
   metadata?: Record<string, unknown>
   generation: number
@@ -140,6 +142,41 @@ export type MutationAiBackendResponse = {
   message?: string
 }
 
+export type AiBackendPreflightNodeResult = {
+  node_uuid: string
+  success: boolean
+  latency_ms?: number | null
+  details:
+    | {
+        kind: 'local_model'
+        source_kind?: string | null
+        effective_model_path?: string | null
+        model_path_exists: boolean
+        final_url?: string | null
+        http_status?: number | null
+        content_length?: number | null
+      }
+    | {
+        kind: 'remote_provider'
+        provider: string
+        phase: string
+        error_code?: string | null
+        resolved_endpoint?: string | null
+        http_status?: number | null
+        provider_code?: string | null
+        checks: Array<{ name: string; ok: boolean }>
+        auth_valid?: boolean | null
+        model_accessible?: boolean | null
+      }
+  message: string
+}
+
+export type AiBackendPreflightResponse = {
+  success: boolean
+  results?: AiBackendPreflightNodeResult[]
+  message?: string
+}
+
 export type ListAiBackendPlacementsResponse = {
   success: boolean
   placements?: AiBackendPlacement[]
@@ -203,8 +240,60 @@ export type WriteAiBackendInput = {
     priority?: number
   }
   labels?: Record<string, string>
+  local?: WriteAiBackendLocalInput
+  remote?: WriteAiBackendRemoteInput
   metadata?: Record<string, unknown>
 }
+
+export type AiBackendLocalInput =
+  | {
+      provider_family: 'llama_cpp'
+      config: {
+        model_url?: string
+        model_path?: string
+        skip_download?: boolean
+        download_timeout_s?: number
+        server_mode?: string
+        server_cmd?: string
+        server_cmd_args?: string
+        threads?: number
+        ctx_size?: number
+        ready_probe?: string
+        start_timeout_s?: number
+      }
+    }
+  | {
+      provider_family: 'vllm'
+      config: {
+        mode?: string
+        managed_externally?: boolean
+      }
+    }
+
+export type AiBackendRemoteInput =
+  | {
+      provider_family: 'open_ai_compatible'
+      config: {
+        base_url?: string
+        credential_ref?: string
+        operations?: string[]
+        features?: string[]
+        transports?: string[]
+      }
+    }
+  | {
+      provider_family: 'ollama'
+      config: {
+        base_url?: string
+        operations?: string[]
+        features?: string[]
+        transports?: string[]
+      }
+    }
+
+export type WriteAiBackendLocalInput = AiBackendLocalInput
+
+export type WriteAiBackendRemoteInput = AiBackendRemoteInput
 
 export type WriteAiBackendPlacementInput = {
   placement_id?: string
@@ -213,6 +302,13 @@ export type WriteAiBackendPlacementInput = {
   desired_state?: AiBackendDesiredState
   weight_override?: number
   priority_override?: number
+}
+
+export type PreflightAiBackendInput = {
+  backend: WriteAiBackendInput
+  node_uuids: string[]
+  verification_policy?: 'single_node_strict' | 'sampled_strict' | 'strict_all_nodes' | 'best_effort'
+  requested_checks?: string[]
 }
 
 /**
@@ -247,6 +343,18 @@ export function getAiBackend(backendId: string) {
  */
 export function createAiBackend(input: WriteAiBackendInput) {
   return fetchJson<MutationAiBackendResponse>(buildAdminPath('/ai-backends'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+/**
+ * Preflight one AI backend draft on target nodes before creation.
+ * 在创建前对目标节点执行 AI backend 草稿预检。
+ */
+export function preflightAiBackend(input: PreflightAiBackendInput) {
+  return fetchJson<AiBackendPreflightResponse>(buildAdminPath('/ai-backends/preflight'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),

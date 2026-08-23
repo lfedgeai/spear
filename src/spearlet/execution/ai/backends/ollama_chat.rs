@@ -1,12 +1,12 @@
 use serde_json::{json, Value};
 use std::time::Duration;
 
-use crate::spearlet::execution::ai::backends::BackendAdapter;
 use crate::spearlet::execution::ai::backends::http_json::{
-    build_json_payload_response, ensure_chat_operation, filtered_chat_params,
-    insert_tools_if_any, join_url, parse_json_response_body, post_json_blocking,
-    require_non_empty_field, upstream_status_error,
+    build_json_payload_response, ensure_chat_operation, filtered_chat_params, insert_tools_if_any,
+    join_url, parse_json_response_body, post_json_blocking, require_non_empty_field,
+    upstream_status_error,
 };
+use crate::spearlet::execution::ai::backends::BackendAdapter;
 use crate::spearlet::execution::ai::ir::{
     CanonicalError, CanonicalRequestEnvelope, CanonicalResponseEnvelope, Operation, Payload,
 };
@@ -138,18 +138,11 @@ impl BackendAdapter for OllamaChatBackendAdapter {
 
         let url = join_url(&self.base_url, "api/chat");
         let timeout = req.timeout_ms.map(Duration::from_millis);
-        let resp = post_json_blocking(
-            Operation::ChatCompletions,
-            url,
-            body_bytes,
-            timeout,
-            None,
-        )?;
+        let resp = post_json_blocking(Operation::ChatCompletions, url, body_bytes, timeout, None)?;
 
         let status_u16 = resp.status as u16;
         let ok = (200..300).contains(&status_u16);
-        let parsed =
-            parse_json_response_body(req.operation.clone(), resp.status, &resp.body)?;
+        let parsed = parse_json_response_body(req.operation.clone(), resp.status, &resp.body)?;
 
         if !ok {
             let extra = Self::extract_error_message(&parsed);
@@ -180,11 +173,11 @@ impl BackendAdapter for OllamaChatBackendAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::spearlet::execution::ai::ir::ResultPayload;
     use axum::{routing::post, Json, Router};
     use serde_json::json;
     use std::collections::HashMap;
     use tokio::net::TcpListener;
-    use crate::spearlet::execution::ai::ir::ResultPayload;
 
     fn chat_req(model: &str) -> CanonicalRequestEnvelope {
         use crate::spearlet::execution::ai::ir::{

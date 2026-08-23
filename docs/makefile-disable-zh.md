@@ -24,7 +24,7 @@ SUBDIRS := $(shell find $(REPO_ROOT) -mindepth 1 -maxdepth 3 -type d -exec test 
 
 1. **过滤机制** / **Filtering Mechanism**: 在 `SUBDIRS` 变量定义中添加了 `| grep -v spear-next` 过滤器
 2. **排除目录** / **Excluded Directory**: `spear-next` 目录现在被排除在自动构建流程之外
-3. **保持兼容** / **Compatibility**: 其他子项目（如 `sdk/python`、`sdk/cpp`）的构建流程保持不变
+3. **保持兼容** / **Compatibility**: 其他子项目的构建流程保持不变
 
 ## 影响的目标 / Affected Targets
 

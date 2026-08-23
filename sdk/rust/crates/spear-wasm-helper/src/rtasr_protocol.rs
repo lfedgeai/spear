@@ -15,11 +15,16 @@ pub fn parse_transcript_event(payload: &[u8]) -> Option<TranscriptEvent> {
     let event_type = value.get("type")?.as_str()?;
 
     match event_type {
-        "speech_started" | "input_audio_buffer.speech_started" => Some(TranscriptEvent::SpeechStarted),
+        "speech_started" | "input_audio_buffer.speech_started" => {
+            Some(TranscriptEvent::SpeechStarted)
+        }
         "input_audio_transcription.delta"
         | "conversation.item.input_audio_transcription.delta"
         | "output_audio_transcript.delta" => {
-            let delta = value.get("delta").and_then(Value::as_str).unwrap_or_default();
+            let delta = value
+                .get("delta")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             Some(TranscriptEvent::Delta(delta.to_string()))
         }
         "input_audio_transcription.completed"
@@ -42,7 +47,8 @@ mod tests {
 
     #[test]
     fn parse_delta_supports_conversation_item_namespace() {
-        let payload = br#"{"type":"conversation.item.input_audio_transcription.delta","delta":"hello"}"#;
+        let payload =
+            br#"{"type":"conversation.item.input_audio_transcription.delta","delta":"hello"}"#;
         let event = parse_transcript_event(payload).unwrap();
         assert_eq!(event, TranscriptEvent::Delta("hello".to_string()));
     }

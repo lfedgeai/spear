@@ -1,12 +1,10 @@
 use std::collections::HashSet;
 
-use crate::spearlet::ai::backend_assembly::{
-    build_instance_from_config,
-};
+use crate::spearlet::ai::backend_assembly::build_instance_from_config;
+use crate::spearlet::ai::credential_resolver::CredentialResolver;
 use crate::spearlet::execution::ai::router::policy::SelectionPolicy;
 use crate::spearlet::execution::ai::router::registry::{BackendInstance, BackendRegistry};
 use crate::spearlet::execution::runtime::RuntimeConfig;
-use crate::spearlet::ai::credential_resolver::CredentialResolver;
 
 /// Build an in-process backend registry from a *runtime config snapshot*.
 /// 从 *runtime config 快照* 构建进程内 backend registry。
@@ -25,7 +23,10 @@ pub fn build_registry_from_runtime_config(
     runtime_config: &RuntimeConfig,
 ) -> (BackendRegistry, SelectionPolicy) {
     let Some(cfg) = runtime_config.spearlet_config.as_ref() else {
-        return (BackendRegistry::new(Vec::new()), SelectionPolicy::WeightedRandom);
+        return (
+            BackendRegistry::new(Vec::new()),
+            SelectionPolicy::WeightedRandom,
+        );
     };
     RegistryBuilder::new(runtime_config, cfg).build()
 }
@@ -81,10 +82,6 @@ impl<'a> RegistryBuilder<'a> {
             return None;
         }
 
-        build_instance_from_config(
-            b,
-            Some(&self.credential_resolver),
-            self.stub_enabled(),
-        )
+        build_instance_from_config(b, Some(&self.credential_resolver), self.stub_enabled())
     }
 }

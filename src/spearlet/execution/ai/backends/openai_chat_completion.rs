@@ -2,12 +2,12 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 use crate::spearlet::ai::credential_resolver::{CredentialResolution, CredentialResolver};
-use crate::spearlet::execution::ai::backends::BackendAdapter;
 use crate::spearlet::execution::ai::backends::http_json::{
-    build_json_payload_response, ensure_chat_operation, filtered_chat_params,
-    insert_tools_if_any, join_url, parse_json_response_body, post_json_blocking,
-    require_non_empty_field, upstream_status_error,
+    build_json_payload_response, ensure_chat_operation, filtered_chat_params, insert_tools_if_any,
+    join_url, parse_json_response_body, post_json_blocking, require_non_empty_field,
+    upstream_status_error,
 };
+use crate::spearlet::execution::ai::backends::BackendAdapter;
 use crate::spearlet::execution::ai::ir::{
     CanonicalError, CanonicalRequestEnvelope, CanonicalResponseEnvelope, Operation, Payload,
 };
@@ -182,7 +182,9 @@ impl BackendAdapter for OpenAIChatCompletionBackendAdapter {
             CredentialResolution::Ready(secret) => Some(secret),
             CredentialResolution::Disabled
             | CredentialResolution::NotSynced
-            | CredentialResolution::Missing if self.credential_ref.is_some() => {
+            | CredentialResolution::Missing
+                if self.credential_ref.is_some() =>
+            {
                 return Err(CanonicalError {
                     code: credential_state.code().to_string(),
                     message: credential_state
@@ -205,8 +207,7 @@ impl BackendAdapter for OpenAIChatCompletionBackendAdapter {
 
         let status_u16 = resp.status as u16;
         let ok = (200..300).contains(&status_u16);
-        let parsed =
-            parse_json_response_body(req.operation.clone(), resp.status, &resp.body)?;
+        let parsed = parse_json_response_body(req.operation.clone(), resp.status, &resp.body)?;
 
         if !ok {
             let extra = Self::extract_openai_error_message(&parsed);
@@ -218,10 +219,7 @@ impl BackendAdapter for OpenAIChatCompletionBackendAdapter {
         }
 
         Ok(build_json_payload_response(
-            req,
-            &self.name,
-            parsed,
-            resp.body,
+            req, &self.name, parsed, resp.body,
         ))
     }
 }
@@ -237,13 +235,12 @@ mod tests {
 
     #[test]
     fn test_build_body_does_not_require_api_key() {
-        let adapter =
-            OpenAIChatCompletionBackendAdapter::new(
-                "openai",
-                "https://api.openai.com/v1",
-                None,
-                None,
-            );
+        let adapter = OpenAIChatCompletionBackendAdapter::new(
+            "openai",
+            "https://api.openai.com/v1",
+            None,
+            None,
+        );
         let req = CanonicalRequestEnvelope {
             version: 1,
             request_id: "r1".to_string(),
@@ -353,9 +350,10 @@ mod tests {
 
     #[test]
     fn test_invoke_returns_credential_disabled_when_dynamic_credential_is_disabled() {
-        let _guard = crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
-            .lock()
-            .expect("lock");
+        let _guard =
+            crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
+                .lock()
+                .expect("lock");
         let store = crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials();
         store.clear();
         store.set_credentials(vec![CredentialMaterial {

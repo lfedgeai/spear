@@ -101,21 +101,6 @@ impl NodeResourceInfo {
         now.signed_duration_since(self.updated_at) > max_age
     }
 
-    /// Update resource metadata / 更新资源元数据
-    pub fn update_metadata(&mut self, key: String, value: String) {
-        self.resource_metadata.insert(key, value);
-    }
-
-    /// Get memory usage in bytes / 获取内存使用量（字节）
-    pub fn get_memory_usage_bytes(&self) -> i64 {
-        self.used_memory_bytes
-    }
-
-    /// Get available disk space in bytes / 获取可用磁盘空间（字节）
-    pub fn get_available_disk_bytes(&self) -> i64 {
-        self.total_disk_bytes - self.used_disk_bytes
-    }
-
     /// Check if node is under high load / 检查节点是否处于高负载状态
     pub fn is_high_load(&self) -> bool {
         self.cpu_usage_percent > 80.0

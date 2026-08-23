@@ -79,15 +79,15 @@ impl TaskService {
 
     /// Resolve a routable task by endpoint.
     /// 根据 endpoint 解析当前可路由的 task。
-    pub async fn resolve_routable_task_by_endpoint(&self, endpoint: &str) -> SmsResult<Option<Task>> {
+    pub async fn resolve_routable_task_by_endpoint(
+        &self,
+        endpoint: &str,
+    ) -> SmsResult<Option<Task>> {
         let normalized = normalize_gateway_endpoint(endpoint)?;
         let idx = self.endpoint_index.read().await;
         if let Some(task_id) = idx.get(&normalized).cloned() {
             drop(idx);
-            return Ok(self
-                .get_task(&task_id)
-                .await?
-                .filter(is_routable_task));
+            return Ok(self.get_task(&task_id).await?.filter(is_routable_task));
         }
         Ok(None)
     }
@@ -157,7 +157,6 @@ impl TaskService {
         self.remove_task(task_id).await
     }
 
-
     /// List tasks with filters / 使用过滤器列出任务
     pub async fn list_tasks_with_filters(
         &self,
@@ -205,7 +204,6 @@ impl TaskService {
 
         Ok(filtered_tasks)
     }
-
 }
 
 impl Default for TaskService {
@@ -254,11 +252,17 @@ mod tests {
         let mut svc = TaskService::new();
         svc.register_task(make_task("t1", "Echo_01")).await.unwrap();
 
-        let t = svc.resolve_routable_task_by_endpoint("echo_01").await.unwrap();
+        let t = svc
+            .resolve_routable_task_by_endpoint("echo_01")
+            .await
+            .unwrap();
         assert!(t.is_some());
         assert_eq!(t.unwrap().task_id, "t1");
 
-        let t2 = svc.resolve_routable_task_by_endpoint("ECHO_01").await.unwrap();
+        let t2 = svc
+            .resolve_routable_task_by_endpoint("ECHO_01")
+            .await
+            .unwrap();
         assert!(t2.is_some());
         assert_eq!(t2.unwrap().endpoint, "echo_01");
     }
@@ -282,11 +286,19 @@ mod tests {
     async fn remove_task_removes_endpoint_index() {
         let mut svc = TaskService::new();
         svc.register_task(make_task("t1", "echo")).await.unwrap();
-        assert!(svc.resolve_routable_task_by_endpoint("echo").await.unwrap().is_some());
+        assert!(svc
+            .resolve_routable_task_by_endpoint("echo")
+            .await
+            .unwrap()
+            .is_some());
 
         let removed = svc.remove_task("t1").await.unwrap();
         assert!(removed);
-        assert!(svc.resolve_routable_task_by_endpoint("echo").await.unwrap().is_none());
+        assert!(svc
+            .resolve_routable_task_by_endpoint("echo")
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]
@@ -303,7 +315,11 @@ mod tests {
         assert_eq!(deleting.status, TaskStatus::Deleting as i32);
         assert_eq!(deleting.deletion_reason, "delete requested");
         assert_eq!(deleting.deletion_requested_at, ts);
-        assert!(svc.resolve_routable_task_by_endpoint("echo").await.unwrap().is_none());
+        assert!(svc
+            .resolve_routable_task_by_endpoint("echo")
+            .await
+            .unwrap()
+            .is_none());
         assert!(svc.get_task("t1").await.unwrap().is_some());
     }
 
@@ -353,7 +369,15 @@ mod tests {
         svc.register_task(make_task("t1", "echo")).await.unwrap();
         svc.register_task(make_task("t1", "echo2")).await.unwrap();
 
-        assert!(svc.resolve_routable_task_by_endpoint("echo").await.unwrap().is_none());
-        assert!(svc.resolve_routable_task_by_endpoint("echo2").await.unwrap().is_some());
+        assert!(svc
+            .resolve_routable_task_by_endpoint("echo")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(svc
+            .resolve_routable_task_by_endpoint("echo2")
+            .await
+            .unwrap()
+            .is_some());
     }
 }

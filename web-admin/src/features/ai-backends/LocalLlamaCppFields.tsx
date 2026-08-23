@@ -3,10 +3,6 @@ import type { Dispatch, SetStateAction } from 'react'
 import { Input } from '@/components/ui/input'
 
 import type { AiBackendEditorFormState } from './AiBackendEditorForm'
-import {
-  setMetadataBooleanField,
-  setMetadataStringField,
-} from './AiBackendEditorForm'
 
 export default function LocalLlamaCppFields(props: {
   form: AiBackendEditorFormState
@@ -18,7 +14,7 @@ export default function LocalLlamaCppFields(props: {
       <div>
         <div className="text-sm font-medium">Local llama.cpp Runtime</div>
         <div className="text-xs text-[hsl(var(--muted-foreground))]">
-          These fields are stored in metadata and used by the node-local llama.cpp supervisor.
+          These fields are stored as typed local config and normalized into runtime metadata on save.
         </div>
       </div>
 
@@ -31,7 +27,6 @@ export default function LocalLlamaCppFields(props: {
               setForm((current) => ({
                 ...current,
                 model_url: event.target.value,
-                metadata: setMetadataStringField(current.metadata, 'model_url', event.target.value),
               }))
             }
             placeholder="e.g. https://host/path/model.gguf"
@@ -45,7 +40,6 @@ export default function LocalLlamaCppFields(props: {
               setForm((current) => ({
                 ...current,
                 model_path: event.target.value,
-                metadata: setMetadataStringField(current.metadata, 'model_path', event.target.value),
               }))
             }
             placeholder="e.g. /models/llama/model.gguf"
@@ -61,11 +55,6 @@ export default function LocalLlamaCppFields(props: {
             setForm((current) => ({
               ...current,
               skip_download: event.target.checked,
-              metadata: setMetadataBooleanField(
-                current.metadata,
-                'skip_download',
-                event.target.checked,
-              ),
             }))
           }
         />
@@ -81,11 +70,6 @@ export default function LocalLlamaCppFields(props: {
               setForm((current) => ({
                 ...current,
                 download_timeout_s: event.target.value,
-                metadata: setMetadataStringField(
-                  current.metadata,
-                  'download_timeout_s',
-                  event.target.value,
-                ),
               }))
             }
             placeholder="3600"
@@ -99,7 +83,6 @@ export default function LocalLlamaCppFields(props: {
               setForm((current) => ({
                 ...current,
                 threads: event.target.value,
-                metadata: setMetadataStringField(current.metadata, 'threads', event.target.value),
               }))
             }
             placeholder="8"
@@ -113,7 +96,6 @@ export default function LocalLlamaCppFields(props: {
               setForm((current) => ({
                 ...current,
                 ctx_size: event.target.value,
-                metadata: setMetadataStringField(current.metadata, 'ctx_size', event.target.value),
               }))
             }
             placeholder="4096"

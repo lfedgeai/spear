@@ -12,10 +12,13 @@ import {
   createAiBackend,
   deleteAiBackend,
   listAiBackends,
+  listAiBackendNodeStatuses,
   listAiModelViews,
+  preflightAiBackend,
   setAiBackendDesiredState,
   upsertAiBackendPlacement,
   updateAiBackend,
+  type AiBackendNodeStatusSnapshot,
   type AiBackendSummary,
   type WriteAiBackendInput,
 } from '@/api/ai-backends'
@@ -39,6 +42,43 @@ function StateBadge(props: { state: string }) {
 function AvailabilityBadge(props: { readyNodes: number }) {
   if (props.readyNodes > 0) return <Badge variant="success">available</Badge>
   return <Badge variant="secondary">unavailable</Badge>
+}
+
+function summarizeBackendStatusReason(statuses: AiBackendNodeStatusSnapshot[] | undefined): string {
+  if (!statuses || statuses.length === 0) {
+    return 'no node status'
+  }
+
+  const priorityOrder: Array<AiBackendNodeStatusSnapshot['status']> = [
+    'error',
+    'degraded',
+    'reconciling',
+    'pending',
+    'disabled',
+    'ready',
+    'unspecified',
+  ]
+
+  const sorted = [...statuses].sort(
+    (left, right) => priorityOrder.indexOf(left.status) - priorityOrder.indexOf(right.status),
+  )
+  const primary = sorted[0]
+  const normalizedReason = primary.status_reason?.trim()
+  const sameReasonCount = statuses.filter((status) => {
+    return (
+      status.status === primary.status &&
+      (status.status_reason?.trim() || '') === (normalizedReason || '')
+    )
+  }).length
+
+  const label = normalizedReason || primary.status
+  if (statuses.length === 1) {
+    return label
+  }
+  if (sameReasonCount > 1) {
+    return `${label} (${sameReasonCount} nodes)`
+  }
+  return `${label} (${primary.node_uuid})`
 }
 
 export default function AiBackendsPage() {
@@ -85,23 +125,44 @@ export default function AiBackendsPage() {
 
   const createMutation = useMutation({
     mutationFn: async (input: { backend: WriteAiBackendInput; placementPolicy?: PlacementPolicyInput }) => {
+      const targetNodeUuids =
+        input.placementPolicy?.scope === 'all_nodes'
+          ? (await listNodes({ sort_by: 'last_heartbeat', order: 'desc', limit: 200 })).nodes.map(
+              (node) => node.uuid,
+            )
+          : input.placementPolicy?.node_uuids || []
+
+      if (input.placementPolicy && targetNodeUuids.length === 0) {
+        throw new Error('No nodes available for placement')
+      }
+
+      const supportsRemotePreflight =
+        input.backend.hosting === 'remote' &&
+        ['openai', 'openai_compatible', 'ollama'].includes(input.backend.provider)
+      const supportsLocalPreflight =
+        input.backend.hosting === 'local' && input.backend.provider === 'llamacpp'
+      if ((supportsRemotePreflight || supportsLocalPreflight) && targetNodeUuids.length > 0) {
+        const preflight = await preflightAiBackend({
+          backend: input.backend,
+          node_uuids: targetNodeUuids,
+          verification_policy:
+            targetNodeUuids.length <= 1 ? 'single_node_strict' : 'sampled_strict',
+          requested_checks:
+            input.backend.hosting === 'remote'
+              ? ['connectivity', 'auth', 'model_access']
+              : undefined,
+        })
+        if (!preflight.success) {
+          throw new Error(preflight.message || 'AI backend preflight failed')
+        }
+      }
+
       const response = await createAiBackend(input.backend)
       if (!response.success) throw new Error(response.message || 'Failed to create AI backend')
       const backendId = response.backend?.backend_id
       if (!backendId) throw new Error('Backend created without backend_id')
 
       if (input.placementPolicy) {
-        const targetNodeUuids =
-          input.placementPolicy.scope === 'all_nodes'
-            ? (await listNodes({ sort_by: 'last_heartbeat', order: 'desc', limit: 200 })).nodes.map(
-                (node) => node.uuid,
-              )
-            : input.placementPolicy.node_uuids
-
-        if (targetNodeUuids.length === 0) {
-          throw new Error('No nodes available for placement')
-        }
-
         await Promise.all(
           targetNodeUuids.map(async (nodeUuid) => {
             const placementResponse = await upsertAiBackendPlacement({
@@ -169,6 +230,24 @@ export default function AiBackendsPage() {
 
   const backends = query.data?.backends || []
   const modelViews = modelQuery.data?.views || []
+  const statusReasonQuery = useQuery({
+    queryKey: ['ai-backend-status-reasons', backends.map((backend) => backend.backend_id)],
+    enabled: viewMode === 'backends' && backends.length > 0,
+    refetchInterval: 15_000,
+    queryFn: async () => {
+      const entries = await Promise.all(
+        backends.map(async (backend) => {
+          const response = await listAiBackendNodeStatuses(backend.backend_id)
+          return [
+            backend.backend_id,
+            summarizeBackendStatusReason(response.success ? response.statuses : undefined),
+          ] as const
+        }),
+      )
+      return Object.fromEntries(entries)
+    },
+  })
+  const statusReasonByBackendId = statusReasonQuery.data || {}
   const totalCount =
     viewMode === 'backends' ? query.data?.total_count || 0 : modelQuery.data?.total_count || 0
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
@@ -367,6 +446,7 @@ export default function AiBackendsPage() {
                     <th className="px-3 py-2">Hosting</th>
                     <th className="px-3 py-2">Kind</th>
                     <th className="px-3 py-2">Desired State</th>
+                    <th className="px-3 py-2">Status reason</th>
                     <th className="px-3 py-2">Generation</th>
                     <th className="px-3 py-2">Actions</th>
                   </tr>
@@ -397,6 +477,13 @@ export default function AiBackendsPage() {
                       <td className="px-3 py-2 font-mono text-xs">{backend.backend_kind}</td>
                       <td className="px-3 py-2">
                         <StateBadge state={backend.desired_state} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="max-w-[240px] truncate text-xs text-[hsl(var(--muted-foreground))]">
+                          {statusReasonQuery.isLoading
+                            ? 'Loading…'
+                            : statusReasonByBackendId[backend.backend_id] || 'no node status'}
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-xs">{backend.generation}</td>
                       <td className="px-3 py-2">

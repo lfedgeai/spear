@@ -1,252 +1,143 @@
 # SPEAR Next
 
-SPEAR Next is the Rust/async implementation of SPEAR’s core services:
-
-- **SMS**: the metadata/control-plane server.
-- **SPEARlet**: the node-side agent/runtime.
+SPEAR Next is the Rust/async implementation of SPEAR’s core platform.
+It provides a control plane, node runtime, browser console, and admin UI for running and operating task/execution workloads.
 
 Chinese README: [README.zh.md](./README.zh.md)
 
-## Repository layout
+## What SPEAR Is
 
-- `src/apps/sms`: SMS binary entrypoint
-- `src/apps/spearlet`: SPEARlet binary entrypoint
-- `web-admin/`: Web Admin frontend source
-- `assets/admin/`: built Web Admin static assets embedded/served by SMS
-- `samples/wasm-c/`: C-based WASM samples (WASI)
-- `docs/`: design notes and usage guides
+SPEAR is designed for scenarios where you need to:
+
+- register and manage tasks centrally
+- run workloads on node-side runtimes
+- expose browser-facing endpoints and live sessions
+- operate files, executions, and AI backends from a web UI
+
+In this repository, the two core runtime services are:
+
+- **SMS**: control plane, metadata service, HTTP/gRPC gateway, Console host, Web Admin host
+- **SPEARlet**: node agent and execution runtime that connects to SMS and runs workloads
 
 ## Architecture
 
 ![SPEAR architecture](docs/diagrams/spear-architecture.png)
 
-## Quick start
+Typical request path:
+
+1. A user connects through Console, API, or endpoint gateway.
+2. SMS resolves metadata, tasks, routing, and session state.
+3. SPEARlet executes the workload on a node.
+4. Results, streams, logs, and status flow back through SMS.
+
+## First-Time Setup
 
 ### Prerequisites
 
-- Rust toolchain (latest stable recommended)
-- Docker (Docker Desktop on macOS/Windows, or Docker Engine on Linux)
-- Docker Compose v2 (`docker compose`)
+- Docker
+- Docker Compose v2 via `docker compose`
 
-This repo uses `protoc-bin-vendored`, so you typically don’t need to install `protoc` manually.
+For most first-time users, Docker Compose is the recommended way to start.
 
-### Run locally with Docker Compose (SMS + SPEARlet)
+## Run With Docker Compose
 
-This is the recommended cross-platform local setup (no Kubernetes required). It runs:
+### HTTP Deployment
 
-- SMS (gRPC + HTTP gateway + optional Web Admin)
-- SPEARlet (agent/runtime) connecting to SMS via the Compose network
-
-Use the provided Compose file:
-
-- `deploy/docker/compose.local.yaml`
-- The local Compose stack builds SMS with the `rocksdb` feature enabled and persists both admin metadata and event KV under the `sms-data` volume.
-
-Start:
+Start the default local stack:
 
 ```bash
 docker compose -f deploy/docker/compose.local.yaml up -d --build
 ```
 
-Useful endpoints (default host ports):
+Default URLs:
 
-- SMS health: `http://127.0.0.1:18080/health`
+- Console: `http://127.0.0.1:18080/console`
+- SMS API / health: `http://127.0.0.1:18080/health`
 - SMS Swagger: `http://127.0.0.1:18080/swagger-ui/`
-- SPEAR Console (served by SMS): `http://127.0.0.1:18080/console`
-- SMS Web Admin: `http://127.0.0.1:18082/`
+- Web Admin: `http://127.0.0.1:18082/`
 - SPEARlet health: `http://127.0.0.1:18081/health`
+- Debug Server: `http://127.0.0.1:17777/`
 
-Stop:
+Stop the stack:
 
 ```bash
 docker compose -f deploy/docker/compose.local.yaml down
 ```
 
-Remove local data (volumes):
+Remove local data:
 
 ```bash
 docker compose -f deploy/docker/compose.local.yaml down -v
 ```
 
-Common build/network notes:
+### HTTPS Deployment
 
-- If Docker Hub is not reachable, override base images via environment variables (example mirrors):
+SPEAR supports a local HTTPS overlay for browser-facing pages.
+The current Compose setup keeps internal service traffic on HTTP and terminates TLS at Caddy, which is the recommended local deployment pattern in this repository.
 
-```bash
-export NODE_IMAGE=docker.m.daocloud.io/library/node:20-bookworm-slim
-export RUST_IMAGE=docker.m.daocloud.io/library/rust:1.91-bookworm
-export DEBIAN_IMAGE=docker.m.daocloud.io/library/debian:trixie-slim
-docker compose -f deploy/docker/compose.local.yaml up -d --build
-```
-
-- If you use Local AI Models (llama.cpp), SPEARlet needs `llama-server`. The Compose file defaults to a build target that includes it. You can override:
+Start HTTP + HTTPS together:
 
 ```bash
-SPEARLET_BUILD_TARGET=runtime_with_node_and_llama docker compose -f deploy/docker/compose.local.yaml up -d --build spearlet
+docker compose \
+  -f deploy/docker/compose.local.yaml \
+  -f deploy/docker/compose.https.yaml \
+  up -d --build
 ```
 
-### Build
+Default HTTPS URLs:
 
-```bash
-make build
+- Web Admin: `https://127.0.0.1:18443/admin`
+- Console: `https://127.0.0.1:18444/console`
+- Debug Server: `https://127.0.0.1:18445/`
 
-# release
-make build-release
+Detailed HTTPS notes:
 
-# build with Rust features (e.g. sled / rocksdb)
-make FEATURES=sled build
+- [deploy/docker/README-https.md](./deploy/docker/README-https.md)
 
-# enable local microphone capture implementation (optional)
-make FEATURES=mic-device build
+### What The Compose Stack Starts
 
-# macOS shortcut (equivalent to FEATURES+=mic-device)
-make mac-build
-```
+- `sms`: control plane and browser-facing gateway
+- `spearlet`: node runtime connected to SMS
+- `debug-server`: runtime debug log viewer
+- `https-proxy`: optional Caddy-based TLS entrypoint when `compose.https.yaml` is included
 
-### Run SMS
+## Where To Start In The UI
 
-```bash
-./target/debug/sms
+After the stack is up:
 
-# enable Web Admin
-./target/debug/sms --enable-web-admin --web-admin-addr 127.0.0.1:8081
-```
+- Open **Console** to verify browser access and endpoint sessions
+- Open **Web Admin** to inspect nodes, tasks, files, executions, and AI backends
 
-Useful endpoints:
+If you are using SPEAR for the first time, the usual flow is:
 
-- HTTP gateway: `http://127.0.0.1:8080`
-- Swagger UI: `http://127.0.0.1:8080/swagger-ui/`
-- OpenAPI spec: `http://127.0.0.1:8080/api/openapi.json`
-- gRPC: `127.0.0.1:50051`
-- Web Admin (when enabled): `http://127.0.0.1:8081/admin`
+1. Start the Compose stack
+2. Open Web Admin
+3. Upload files or register tasks
+4. Open Console and connect to an endpoint or execution
 
-### Run SPEARlet
+## Repository Map
 
-SPEARlet connects to SMS once you provide `--sms-grpc-addr` (then it auto-registers by default).
+These paths matter most for first-time exploration:
 
-```bash
-./target/debug/spearlet --sms-grpc-addr 127.0.0.1:50051
-```
+- `src/apps/sms`: SMS binary entrypoint
+- `src/apps/spearlet`: SPEARlet binary entrypoint
+- `src/debug_server`: Rust debug server
+- `web-admin/`: admin frontend source
+- `web-console/`: console frontend source
+- `deploy/docker/`: local Docker Compose deployment files
+- `docs/`: architecture, usage, and design documentation
+- `samples/`: WASM and streaming examples
 
-## Configuration
+## Key Docs
 
-### Config file locations
-
-- SMS: `~/.sms/config.toml` (or `--config <path>`)
-- SPEARlet: `~/.spear/config.toml` (or `--config <path>`)
-
-Repo-shipped examples:
-
-- SMS: `config/sms/config.toml`
-- SPEARlet: `config/spearlet/config.toml`
-
-### Priority
-
-1. CLI `--config` file
-2. Home config (`~/.sms/config.toml` or `~/.spear/config.toml`)
-3. Environment variables (`SMS_*`, `SPEARLET_*`)
-4. Built-in defaults
-
-### Secrets
-
-Do not put secrets into config files. Use `spearlet.ai.credentials[].api_key_env` to reference environment variables and bind them from backends via `credential_ref`.
-
-AI backend notes:
-
-- `[[spearlet.ai.backends]] hosting` is required and must be `local` or `remote`.
-- `credential_ref` is optional. If set, the referenced env var must exist (otherwise the backend is filtered). If not set, the backend is treated as “no-auth” (useful for self-hosted proxies).
-
-### Ollama discovery
-
-SPEARlet can import models from a local Ollama on startup and materialize them as AI backends.
-
-- Docs: `docs/ollama-discovery-en.md`
-
-## Routing and debugging
-
-- **Route by model**: if some backends are configured with `model = "..."`, requests can be routed by setting only `model` (no explicit `backend` required).
-- **Observe the selected backend**:
-  - `cchat_recv` JSON includes a top-level `_spear.backend` / `_spear.model`.
-  - Router emits a `router selected backend` debug log after selection.
-
-## Web Admin
-
-Web Admin provides Nodes, Tasks, Files, AI Backends, AI Models, Credentials, MCP, and Execution History pages.
-
-- AI Backends is the control-plane write surface for backend definitions, placements, and credentials.
-- AI Models provides a read-only aggregated view across nodes, split into Local and Remote.
-- The AI Backends page now exposes separate create flows:
-  - `Create Remote Backend`
-  - `Create Local Backend`
-- Placement is created during backend creation:
-  - remote backends default to `All Nodes`
-  - local backends default to `Single Node`
-- Backend detail pages expose:
-  - placements
-  - per-node status
-  - read-model views
-
-Local model provisioning (`llamacpp`):
-
-- `model` is the routing / display key; the node-local runtime uses metadata-backed runtime parameters.
-- The Web Admin local dialog surfaces the most common `llamacpp` fields directly and persists them into backend metadata.
-- Common fields:
-  - `model_url`: http/https URL to a `.gguf` file.
-  - `model_path`: absolute path, or relative to `spearlet.local_models_dir`.
-  - `skip_download=1`: fail if the model file is missing instead of downloading.
-  - `download_timeout_s`: total download budget in seconds (default: 3600).
-  - `threads`: forwarded to `llama-server --threads`.
-  - `ctx_size`: forwarded to `llama-server --ctx-size`.
-- Advanced metadata keys still supported by runtime:
-  - `server_mode`
-  - `server_cmd`
-  - `server_cmd_args`
-  - `ready_probe`
-  - `start_timeout_s`
-
-Local `vllm` remains a scaffolded / external-endpoint-oriented path rather than a fully managed local process mode.
-
-Docs:
-
-- `docs/web-admin-overview-en.md`
-- `docs/web-admin-ui-guide-en.md`
-
-## WASM samples
-
-```bash
-make samples
-```
-
-Artifacts are written to `samples/build/` (WASM-C), `samples/build/js/` (WASM-JS), and `samples/build/rust/` (WASM-Rust).
-
-Docs:
-
-- `docs/samples-build-guide-en.md`
-- `samples/README-en.md`
-- `samples/wasm-js/README-en.md`
-- `samples/wasm-rust/README-en.md`
-- `sdk/rust/crates/spear-boa/README.md`
-- `sdk/rust/crates/spear-wasm-helper/README.md`
-- `docs/spear-console-voice-input-design-en.md`
-
-## Development
-
-```bash
-make help
-make dev
-make ci
-```
-
-UI tests (Playwright):
-
-```bash
-make test-ui
-```
-
-## Documentation
-
-- `docs/INDEX.md`
+- Architecture overview: [docs/project-architecture-overview-en.md](./docs/project-architecture-overview-en.md)
+- Docs index: [docs/INDEX.md](./docs/INDEX.md)
+- Web Admin overview: [docs/web-admin-overview-en.md](./docs/web-admin-overview-en.md)
+- Web Admin guide: [docs/web-admin-ui-guide-en.md](./docs/web-admin-ui-guide-en.md)
+- Console overview: [docs/spear-console-overview-en.md](./docs/spear-console-overview-en.md)
+- Samples guide: [docs/samples-build-guide-en.md](./docs/samples-build-guide-en.md)
+- HTTPS deployment: [deploy/docker/README-https.md](./deploy/docker/README-https.md)
 
 ## License
 
-Apache-2.0. See `LICENSE`.
+Apache-2.0. See [LICENSE](./LICENSE).

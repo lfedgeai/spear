@@ -110,7 +110,8 @@ pub struct AdminCredentialsState {
 
 impl std::fmt::Debug for AdminCredentialsState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AdminCredentialsState").finish_non_exhaustive()
+        f.debug_struct("AdminCredentialsState")
+            .finish_non_exhaustive()
     }
 }
 
@@ -148,7 +149,11 @@ impl AdminCredentialsState {
         let snap = self.snapshot.read().await;
         Ok((
             snap.revision,
-            snap.credentials.iter().cloned().map(info_from_record).collect(),
+            snap.credentials
+                .iter()
+                .cloned()
+                .map(info_from_record)
+                .collect(),
         ))
     }
 
@@ -162,9 +167,14 @@ impl AdminCredentialsState {
         Ok((snap.revision, materials))
     }
 
-    pub async fn watch_infos(&self, since_revision: u64) -> Result<WatchStream<WatchCredentialsResponse>, Status> {
+    pub async fn watch_infos(
+        &self,
+        since_revision: u64,
+    ) -> Result<WatchStream<WatchCredentialsResponse>, Status> {
         let stream = self.watch.watch(since_revision, |e| e.revision).await?;
-        Ok(Box::pin(stream.map(|item| item.map(|event| WatchCredentialsResponse { event: Some(event) }))))
+        Ok(Box::pin(stream.map(|item| {
+            item.map(|event| WatchCredentialsResponse { event: Some(event) })
+        })))
     }
 
     pub async fn watch_materials(

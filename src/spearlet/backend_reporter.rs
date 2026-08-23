@@ -15,8 +15,8 @@ use crate::proto::sms::{
 use crate::spearlet::ai::backend_assembly::backend_spec_from_config;
 use crate::spearlet::ai::credential_resolver::{CredentialResolution, CredentialResolver};
 use crate::spearlet::ai::dynamic_backend_registry::global_dynamic_backends;
-use crate::spearlet::config::SpearletConfig;
 use crate::spearlet::ai::dynamic_backend_registry::DynamicBackendSource;
+use crate::spearlet::config::SpearletConfig;
 use crate::spearlet::controller::Controller;
 
 #[derive(Clone, Debug, Default)]
@@ -288,7 +288,11 @@ mod tests {
         let global = crate::spearlet::ai::dynamic_backend_registry::global_dynamic_backends();
         global.set_backends(
             DynamicBackendSource::AiControlPlane,
-            vec![mk_backend("cp-remote", "openai_chat_completion", BackendOrigin::Sms)],
+            vec![mk_backend(
+                "cp-remote",
+                "openai_chat_completion",
+                BackendOrigin::Sms,
+            )],
         );
 
         let reported = collect_reportable_backends(&cfg);
@@ -300,18 +304,16 @@ mod tests {
 
         assert_eq!(
             names,
-            vec![
-                "cp-remote".to_string(),
-                "static-openai".to_string()
-            ]
+            vec!["cp-remote".to_string(), "static-openai".to_string()]
         );
     }
 
     #[test]
     fn build_backend_info_list_reports_disabled_dynamic_credential_as_unavailable() {
-        let _guard = crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
-            .lock()
-            .expect("lock");
+        let _guard =
+            crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
+                .lock()
+                .expect("lock");
         let store = crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials();
         store.clear();
         store.set_credentials(vec![CredentialMaterial {

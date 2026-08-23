@@ -5,9 +5,9 @@ use serde_urlencoded;
 use std::collections::HashMap;
 
 use crate::sms::handlers::{
-    health_check, HttpHeartbeatRequest, HttpRegisterNodeRequest, HttpUpdateNodeRequest,
-    HttpUpdateNodeResourceRequest, ListNodeResourcesQuery, ListNodesQuery, ListTasksParams,
-    DeleteTaskParams, RegisterTaskParams,
+    health_check, DeleteTaskParams, HttpHeartbeatRequest, HttpRegisterNodeRequest,
+    HttpUpdateNodeRequest, HttpUpdateNodeResourceRequest, ListNodeResourcesQuery, ListNodesQuery,
+    ListTasksParams, RegisterTaskParams,
 };
 
 // Mock tests for handlers that don't require gRPC clients / 不需要gRPC客户端的处理器模拟测试
@@ -223,7 +223,7 @@ fn test_list_tasks_params_deserialization() {
 }
 
 #[test]
- fn test_delete_task_params_serialization() {
+fn test_delete_task_params_serialization() {
     // Test delete task params serialization / 测试删除任务参数序列化
     let params = DeleteTaskParams {
         reason: Some("Task completed successfully".to_string()),

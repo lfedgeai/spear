@@ -126,6 +126,7 @@ When a single task has multiple instances across nodes (and therefore multiple u
 
 - Load-balancing should be done per “logical stream” (SSF `stream_id`), not by binding an endpoint to a single execution.
 - To allow multiple client connections to share the same execution, SMS must provide `stream_id` namespace isolation (rewrite/mapping). Otherwise different clients will naturally reuse `stream_id=1/2/...` and collide inside an execution.
+- The current implementation prefers preserving the original `client_stream_id` (for example the common `1/2` text/voice pair) whenever that id is still free inside the execution. A new `upstream_stream_id` is allocated only on collision, so single-client user-stream workloads keep stable stream semantics while multi-client sharing still remains isolated.
 
 #### 4.4.1 Per-stream routing
 

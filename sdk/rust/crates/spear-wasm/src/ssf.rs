@@ -1,6 +1,8 @@
 use crate::{constants, SpearError};
 
-pub use spear_ssf::{HeaderV1 as SsfV1Header, MsgType as SsfMsgType, SSF_HEADER_LEN_V1, SSF_MAGIC, SSF_VERSION_V1};
+pub use spear_ssf::{
+    HeaderV1 as SsfV1Header, MsgType as SsfMsgType, SSF_HEADER_LEN_V1, SSF_MAGIC, SSF_VERSION_V1,
+};
 
 fn invalid_frame(op: &'static str) -> SpearError {
     SpearError {

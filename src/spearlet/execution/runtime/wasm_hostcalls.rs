@@ -17,9 +17,6 @@ use wasmedge_sys::ffi;
 use wasmedge_sys::instance::function::AsFunc;
 use wasmedge_sys::{Executor, Function};
 
-// Helper function to extract DefaultHostApi from host data
-fn _unused() {}
-
 const SPEAR_ERR_INVALID_FD: i32 = -SPEAR_EBADF;
 const SPEAR_ERR_INVALID_PTR: i32 = -SPEAR_EFAULT;
 const SPEAR_ERR_BUFFER_TOO_SMALL: i32 = -SPEAR_ENOSPC;

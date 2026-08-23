@@ -11,9 +11,7 @@ use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
 
 use crate::proto::sms::admin_credential_service_client::AdminCredentialServiceClient;
-use crate::proto::sms::{
-    ListCredentialMaterialsRequest, WatchCredentialMaterialsRequest,
-};
+use crate::proto::sms::{ListCredentialMaterialsRequest, WatchCredentialMaterialsRequest};
 use crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials;
 use crate::spearlet::controller::Controller;
 
@@ -292,7 +290,11 @@ impl CredentialSyncService {
         }
     }
 
-    fn apply_snapshot(&self, revision: u64, credentials: Vec<crate::proto::sms::CredentialMaterial>) {
+    fn apply_snapshot(
+        &self,
+        revision: u64,
+        credentials: Vec<crate::proto::sms::CredentialMaterial>,
+    ) {
         if revision == 0 {
             return;
         }
@@ -329,9 +331,10 @@ mod tests {
 
     #[test]
     fn credential_sync_status_snapshot_reports_ready_state() {
-        let _guard = crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
-            .lock()
-            .expect("lock");
+        let _guard =
+            crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
+                .lock()
+                .expect("lock");
         let store = global_dynamic_credentials();
         store.clear();
         store.set_credentials(vec![crate::proto::sms::CredentialMaterial {

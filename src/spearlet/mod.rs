@@ -27,11 +27,11 @@
 //!                         └─────────────────┘
 //! ```
 
-pub mod backend_reporter;
-pub(crate) mod debug_reporter;
 pub mod ai;
-pub mod controller;
+pub mod backend_reporter;
 pub mod config;
+pub mod controller;
+pub(crate) mod debug_reporter;
 pub mod execution;
 pub mod function_service;
 pub mod grpc_server;
@@ -45,8 +45,8 @@ pub mod param_keys;
 pub mod registration;
 pub mod sms_connector;
 pub mod task_assignments;
-pub mod task_events;
 mod task_event_cursor;
+pub mod task_events;
 
 #[cfg(test)]
 mod config_test;

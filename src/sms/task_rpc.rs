@@ -5,9 +5,9 @@ use crate::proto::sms::{
     task_service_server::TaskService as TaskServiceTrait, CompleteTaskDeletionRequest,
     CompleteTaskDeletionResponse, DeleteTaskRequest, DeleteTaskResponse, GetTaskRequest,
     GetTaskResponse, ListTasksRequest, ListTasksResponse, RegisterTaskRequest,
-    RegisterTaskResponse, ResolveEndpointRequest, ResolveEndpointResponse,
-    Task, TaskEventKind, UnregisterTaskRequest, UnregisterTaskResponse, UpdateTaskResultRequest, UpdateTaskResultResponse,
-    UpdateTaskStatusRequest, UpdateTaskStatusResponse,
+    RegisterTaskResponse, ResolveEndpointRequest, ResolveEndpointResponse, Task, TaskEventKind,
+    UnregisterTaskRequest, UnregisterTaskResponse, UpdateTaskResultRequest,
+    UpdateTaskResultResponse, UpdateTaskStatusRequest, UpdateTaskStatusResponse,
 };
 use crate::sms::service::SmsServiceImpl;
 
@@ -175,7 +175,10 @@ impl TaskServiceTrait for SmsServiceImpl {
     ) -> Result<Response<ResolveEndpointResponse>, Status> {
         let req = request.into_inner();
         let task_service = self.task_service.read().await;
-        match task_service.resolve_routable_task_by_endpoint(&req.endpoint).await {
+        match task_service
+            .resolve_routable_task_by_endpoint(&req.endpoint)
+            .await
+        {
             Ok(Some(task)) => Ok(Response::new(ResolveEndpointResponse {
                 found: true,
                 task: Some(task),
@@ -204,7 +207,7 @@ impl TaskServiceTrait for SmsServiceImpl {
                     &req.task_id,
                     chrono::Utc::now().timestamp_millis(),
                 )
-                    .await;
+                .await;
                 Ok(Response::new(UnregisterTaskResponse {
                     success: true,
                     message: "Task unregistered successfully".to_string(),

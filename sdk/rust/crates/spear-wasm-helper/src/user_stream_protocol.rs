@@ -24,7 +24,8 @@ pub enum StreamMessageError {
 
 pub fn parse_stream_message(frame: &[u8]) -> Result<IncomingStreamMessage, StreamMessageError> {
     let (header, meta, data) = split_v1(frame).map_err(|_| StreamMessageError::InvalidFrame)?;
-    let msg_type = MsgType::try_from(header.msg_type).map_err(|_| StreamMessageError::UnsupportedType)?;
+    let msg_type =
+        MsgType::try_from(header.msg_type).map_err(|_| StreamMessageError::UnsupportedType)?;
 
     match msg_type {
         MsgType::Ctrl => {
@@ -32,14 +33,16 @@ pub fn parse_stream_message(frame: &[u8]) -> Result<IncomingStreamMessage, Strea
             Ok(IncomingStreamMessage::Ctrl(ctrl))
         }
         MsgType::Data => {
-            let payload = parse_data_meta_v1(meta).map_err(|_| StreamMessageError::InvalidDataMeta)?;
+            let payload =
+                parse_data_meta_v1(meta).map_err(|_| StreamMessageError::InvalidDataMeta)?;
             Ok(IncomingStreamMessage::Data {
                 meta: payload,
                 data: data.to_vec(),
             })
         }
         MsgType::Commit => {
-            let payload = parse_data_meta_v1(meta).map_err(|_| StreamMessageError::InvalidCommitMeta)?;
+            let payload =
+                parse_data_meta_v1(meta).map_err(|_| StreamMessageError::InvalidCommitMeta)?;
             Ok(IncomingStreamMessage::Commit { meta: payload })
         }
         MsgType::Close | MsgType::Error => Err(StreamMessageError::UnsupportedType),

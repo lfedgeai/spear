@@ -1,0 +1,19 @@
+services:
+  https-proxy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      - sms
+      - debug-server
+    ports:
+      - ${SMS_WEB_ADMIN_HTTPS_PORT:-18443}:8443
+      - ${SMS_CONSOLE_HTTPS_PORT:-18444}:8444
+      - ${DEBUG_SERVER_HTTPS_PORT:-18445}:8445
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:

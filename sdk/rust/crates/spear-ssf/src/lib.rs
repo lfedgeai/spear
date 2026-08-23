@@ -122,7 +122,11 @@ pub fn split_v1(frame: &[u8]) -> Result<(HeaderV1, &[u8], &[u8]), Error> {
     let meta_start = header_len;
     let data_start = meta_start + meta_len;
     let data_end = data_start + data_len;
-    Ok((hdr, &frame[meta_start..data_start], &frame[data_start..data_end]))
+    Ok((
+        hdr,
+        &frame[meta_start..data_start],
+        &frame[data_start..data_end],
+    ))
 }
 
 pub fn rewrite_stream_id_inplace(frame: &mut [u8], stream_id: u32) -> Result<(), Error> {

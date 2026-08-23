@@ -24,7 +24,10 @@ impl FinalExecutionState {
     /// Build a final state from runtime success/failure flags.
     /// 根据运行时成功/失败标记构建最终状态。
     pub(super) fn from_result_flags(is_successful: bool, has_failed: bool) -> Self {
-        Self::from_sms_status(result_flags_to_sms_execution_status(is_successful, has_failed))
+        Self::from_sms_status(result_flags_to_sms_execution_status(
+            is_successful,
+            has_failed,
+        ))
     }
 
     /// Build a final state directly from runtime execution status.

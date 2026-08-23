@@ -147,20 +147,19 @@ impl LiveCaptionApp {
         }
 
         if event.has_flag(constants::SPEAR_EPOLLIN) {
-            loop {
-                match self.text_stream.fd() {
-                    Some(fd) => match user_stream_read_alloc(fd) {
-                        Ok(Some(frame)) => {
-                            if let Ok(IncomingStreamMessage::Ctrl(ctrl)) = parse_stream_message(&frame) {
-                                if is_open_handshake(&ctrl, self.text_stream.modality()) {
-                                    self.text_stream.mark_protocol_opened();
-                                }
+            // Drain every queued control frame before returning to epoll.
+            // 在返回 epoll 前，尽量清空当前已排队的控制帧。
+            while let Some(fd) = self.text_stream.fd() {
+                match user_stream_read_alloc(fd) {
+                    Ok(Some(frame)) => {
+                        if let Ok(IncomingStreamMessage::Ctrl(ctrl)) = parse_stream_message(&frame) {
+                            if is_open_handshake(&ctrl, self.text_stream.modality()) {
+                                self.text_stream.mark_protocol_opened();
                             }
                         }
-                        Ok(None) => break,
-                        Err(err) => return Err(render_error(err)),
-                    },
-                    None => break,
+                    }
+                    Ok(None) => break,
+                    Err(err) => return Err(render_error(err)),
                 }
             }
         }
@@ -230,14 +229,14 @@ impl LiveCaptionApp {
                 }
             }
             IncomingStreamMessage::Data { meta, data } => {
-                let _ = meta;
+                let _meta = meta;
                 if let Some(session) = self.rtasr.as_mut() {
                     debug_guest(format!("voice data bytes={}", data.len()));
                     session.append_audio(&data).map_err(render_error)?;
                 }
             }
             IncomingStreamMessage::Commit { meta } => {
-                let _ = meta;
+                let _meta = meta;
                 if let Some(session) = self.rtasr.as_mut() {
                     debug_guest("voice commit");
                     session.flush_commit().map_err(render_error)?;
@@ -264,16 +263,10 @@ impl LiveCaptionApp {
         for event in transcript_events {
             match event {
                 TranscriptEvent::SpeechStarted => {
-                    if !self.caption_open {
-                        self.caption_open = true;
-                        self.text_output.write(&current_hms_prefix().map_err(render_error)?);
-                    }
+                    self.open_caption_if_needed()?;
                 }
                 TranscriptEvent::Delta(delta) => {
-                    if !self.caption_open {
-                        self.caption_open = true;
-                        self.text_output.write(&current_hms_prefix().map_err(render_error)?);
-                    }
+                    self.open_caption_if_needed()?;
                     if !delta.is_empty() {
                         self.text_output.write(delta);
                     }
@@ -288,6 +281,16 @@ impl LiveCaptionApp {
             }
             self.flush_text_output()?;
         }
+        Ok(())
+    }
+
+    fn open_caption_if_needed(&mut self) -> Result<(), String> {
+        if self.caption_open {
+            return Ok(());
+        }
+        self.caption_open = true;
+        self.text_output
+            .write(&current_hms_prefix().map_err(render_error)?);
         Ok(())
     }
 

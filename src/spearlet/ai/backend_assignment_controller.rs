@@ -15,20 +15,26 @@ use tonic::transport::Channel;
 
 use crate::proto::sms::ai_backend_control_plane_service_client::AiBackendControlPlaneServiceClient;
 use crate::proto::sms::{
-    AiBackendHosting, AiBackendNodeStatus, AiBackendNodeStatusRecord,
-    BackendInfo, ListAiBackendAssignmentsRequest,
-    ReportAiBackendNodeStatusesRequest, ResolvedAiBackendAssignment,
+    AiBackendHosting, AiBackendNodeStatus, AiBackendNodeStatusRecord, BackendInfo,
+    ListAiBackendAssignmentsRequest, ReportAiBackendNodeStatusesRequest,
+    ResolvedAiBackendAssignment,
 };
 use crate::spearlet::ai::backend_assembly::{apply_runtime_overrides, available_backend_info};
+use crate::spearlet::ai::credential_resolver::CredentialResolver;
 use crate::spearlet::ai::dynamic_backend_registry::{
     global_dynamic_backends, DynamicBackendSource,
 };
+use crate::spearlet::ai::remote_preflight::{default_requested_checks, preflight_remote_backend};
 use crate::spearlet::backend_reporter::BackendReportTrigger;
 use crate::spearlet::config::SpearletConfig;
 use crate::spearlet::controller::Controller;
 use crate::spearlet::local_models::llamacpp::LlamaCppSupervisor;
-use crate::spearlet::local_models::provider::{resolve_local_provider_kind, LocalProviderKind};
-use crate::spearlet::local_models::vllm::{VllmPreparedAssignment, VllmSupervisor};
+use crate::spearlet::local_models::provider::{
+    resolve_local_provider_kind_for_assignment, LocalProviderKind,
+};
+use crate::spearlet::local_models::vllm::{
+    VllmPreparedAssignment, VllmSupervisor,
+};
 
 /// Controller that materializes control-plane assignments into runtime backends.
 /// 将控制面 assignment 落地为运行时 backend 的控制器。
@@ -43,6 +49,92 @@ pub struct BackendAssignmentController {
     backend_report_trigger: BackendReportTrigger,
     started: AtomicBool,
     self_weak: Weak<BackendAssignmentController>,
+}
+
+/// Typed local runtime family derived from one local assignment.
+/// 从单个 local assignment 推导出的强类型运行时家族。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LocalAssignmentRuntimeFamily {
+    /// llama.cpp managed local runtime / llama.cpp 托管本地运行时
+    LlamaCpp,
+    /// vLLM local runtime family / vLLM 本地运行时家族
+    Vllm,
+    /// Unsupported local runtime family / 不支持的本地运行时家族
+    Unsupported(String),
+}
+
+impl LocalAssignmentRuntimeFamily {
+    /// Classify one local assignment into a runtime family.
+    /// 将一个 local assignment 分类为运行时家族。
+    fn from_assignment(
+        backend: &crate::proto::sms::AiBackendRecord,
+        spec: &crate::proto::sms::BackendSpec,
+    ) -> Self {
+        match resolve_local_provider_kind_for_assignment(
+            &backend.backend_kind,
+            &spec.kind,
+            &spec.provider,
+        ) {
+            LocalProviderKind::LlamaCpp => Self::LlamaCpp,
+            LocalProviderKind::Vllm => Self::Vllm,
+            LocalProviderKind::Unsupported(kind) => Self::Unsupported(kind),
+        }
+    }
+}
+
+/// Typed llama.cpp assignment params derived from backend metadata.
+/// 从 backend metadata 派生的强类型 llama.cpp assignment 参数。
+#[derive(Debug, Clone)]
+struct LlamaCppAssignmentParams {
+    raw: std::collections::HashMap<String, String>,
+    should_pull: bool,
+}
+
+impl LlamaCppAssignmentParams {
+    /// Build typed llama.cpp params from optional backend metadata.
+    /// 从可选 backend metadata 构建强类型 llama.cpp 参数。
+    fn from_metadata(metadata: Option<&prost_types::Struct>) -> Self {
+        let raw = metadata_to_string_map(metadata);
+        let should_pull = compute_llamacpp_should_pull(&raw);
+        Self { raw, should_pull }
+    }
+
+    /// Borrow the raw metadata map for downstream supervisor calls.
+    /// 为下游 supervisor 调用借出原始 metadata 映射。
+    fn raw(&self) -> &std::collections::HashMap<String, String> {
+        &self.raw
+    }
+
+    /// Whether controller reconcile expects a pull/download stage.
+    /// 控制器收敛是否预期会经过拉取/下载阶段。
+    fn should_pull(&self) -> bool {
+        self.should_pull
+    }
+}
+
+/// Typed vLLM assignment params derived from backend metadata.
+/// 从 backend metadata 派生的强类型 vLLM assignment 参数。
+#[derive(Debug, Clone)]
+struct VllmAssignmentParams {
+    raw: std::collections::HashMap<String, String>,
+}
+
+impl VllmAssignmentParams {
+    /// Build typed vLLM params from spec and optional backend metadata.
+    /// 基于 spec 与可选 backend metadata 构建强类型 vLLM 参数。
+    fn from_spec_and_metadata(
+        _spec: &crate::proto::sms::BackendSpec,
+        metadata: Option<&prost_types::Struct>,
+    ) -> Self {
+        let raw = metadata_to_string_map(metadata);
+        Self { raw }
+    }
+
+    /// Borrow the raw metadata map for downstream supervisor calls.
+    /// 为下游 supervisor 调用借出原始 metadata 映射。
+    fn raw(&self) -> &std::collections::HashMap<String, String> {
+        &self.raw
+    }
 }
 
 impl BackendAssignmentController {
@@ -171,7 +263,8 @@ impl BackendAssignmentController {
         }
         self.llamacpp.stop_removed(&live_local_ids).await;
 
-        global_dynamic_backends().set_backends(DynamicBackendSource::AiControlPlane, runtime_backends);
+        global_dynamic_backends()
+            .set_backends(DynamicBackendSource::AiControlPlane, runtime_backends);
         self.backend_report_trigger.trigger();
 
         client
@@ -199,8 +292,8 @@ impl BackendAssignmentController {
         let spec = backend.spec.as_ref()?;
         let now_ms = Utc::now().timestamp_millis();
 
-        let hosting = AiBackendHosting::try_from(backend.hosting)
-            .unwrap_or(AiBackendHosting::Unspecified);
+        let hosting =
+            AiBackendHosting::try_from(backend.hosting).unwrap_or(AiBackendHosting::Unspecified);
 
         if hosting == AiBackendHosting::Remote {
             let mut runtime_spec = spec.clone();
@@ -209,34 +302,71 @@ impl BackendAssignmentController {
                 placement.weight_override,
                 placement.priority_override,
             );
-
-            runtime_backends.push(available_backend_info(runtime_spec.clone()));
-
-            return Some(AiBackendNodeStatusRecord {
-                backend_id: backend.backend_id.clone(),
-                node_uuid: node_uuid.to_string(),
-                observed_generation: backend.generation,
-                status: AiBackendNodeStatus::Ready as i32,
-                status_reason: String::new(),
-                runtime_backend_name: runtime_spec.name.clone(),
-                endpoint: runtime_spec.base_url.clone(),
-                available: true,
-                operations: runtime_spec.operations.clone(),
-                features: runtime_spec.features.clone(),
-                transports: runtime_spec.transports.clone(),
-                last_heartbeat_at_ms: now_ms,
-            });
+            let resolver = crate::spearlet::ai::credential_resolver::global()
+                .unwrap_or_else(|| CredentialResolver::from_config(self.config.as_ref()));
+            let requested_checks = default_requested_checks(&runtime_spec);
+            let report =
+                preflight_remote_backend(&self.http, &resolver, &runtime_spec, &requested_checks)
+                    .await;
+            if report.success {
+                runtime_backends.push(available_backend_info(runtime_spec.clone()));
+                return Some(ready_status_for_runtime_spec(
+                    backend,
+                    &runtime_spec,
+                    node_uuid,
+                    now_ms,
+                ));
+            }
+            let report_message = report.message;
+            let failed_status = if report
+                .error_code
+                .as_deref()
+                .is_some_and(|code| code == "credential_not_synced")
+            {
+                pending_status_for_backend(
+                    backend,
+                    &runtime_spec,
+                    node_uuid,
+                    now_ms,
+                    report_message.clone(),
+                )
+            } else {
+                error_status_for_backend(backend, &runtime_spec, node_uuid, now_ms, report_message)
+            };
+            return Some(failed_status);
         }
 
         let deployment_id = backend.backend_id.clone();
         live_local_ids.insert(deployment_id.clone());
 
-        match resolve_local_provider_kind([
-            backend.backend_kind.as_str(),
-            spec.kind.as_str(),
-            spec.provider.as_str(),
-        ]) {
-            LocalProviderKind::LlamaCpp => {
+        self.reconcile_local_assignment(
+            LocalAssignmentRuntimeFamily::from_assignment(backend, spec),
+            client,
+            backend,
+            placement,
+            spec,
+            runtime_backends,
+            node_uuid,
+            now_ms,
+        )
+        .await
+    }
+
+    /// Reconcile one local assignment through the typed runtime family selector.
+    /// 通过强类型运行时家族选择器收敛单个 local assignment。
+    async fn reconcile_local_assignment(
+        &self,
+        family: LocalAssignmentRuntimeFamily,
+        client: &mut AiBackendControlPlaneServiceClient<Channel>,
+        backend: &crate::proto::sms::AiBackendRecord,
+        placement: &crate::proto::sms::AiBackendPlacementRecord,
+        spec: &crate::proto::sms::BackendSpec,
+        runtime_backends: &mut Vec<BackendInfo>,
+        node_uuid: &str,
+        now_ms: i64,
+    ) -> Option<AiBackendNodeStatusRecord> {
+        match family {
+            LocalAssignmentRuntimeFamily::LlamaCpp => {
                 self.reconcile_llamacpp_assignment(
                     client,
                     backend,
@@ -248,10 +378,15 @@ impl BackendAssignmentController {
                 )
                 .await
             }
-            LocalProviderKind::Vllm => {
-                self.reconcile_vllm_assignment(backend, placement, spec, runtime_backends, node_uuid, now_ms)
-            }
-            LocalProviderKind::Unsupported(kind) => Some(pending_status_for_backend(
+            LocalAssignmentRuntimeFamily::Vllm => self.reconcile_vllm_assignment(
+                backend,
+                placement,
+                spec,
+                runtime_backends,
+                node_uuid,
+                now_ms,
+            ),
+            LocalAssignmentRuntimeFamily::Unsupported(kind) => Some(pending_status_for_backend(
                 backend,
                 spec,
                 node_uuid,
@@ -288,9 +423,9 @@ impl BackendAssignmentController {
         }
 
         let deployment_id = backend.backend_id.clone();
-        let params = metadata_to_string_map(backend.metadata.as_ref());
-        let should_pull = llamacpp_should_pull(&params);
-        let spec_key = local_assignment_spec_key(backend, placement, &params);
+        let params = LlamaCppAssignmentParams::from_metadata(backend.metadata.as_ref());
+        let should_pull = params.should_pull();
+        let spec_key = local_assignment_spec_key(backend, placement, params.raw());
         let initial_reason = if should_pull { "pulling" } else { "starting" }.to_string();
         self.report_single_status(
             client,
@@ -307,7 +442,7 @@ impl BackendAssignmentController {
             &deployment_id,
             &spec_key,
             model,
-            &params
+            params.raw()
         ));
         loop {
             tokio::select! {
@@ -374,21 +509,11 @@ impl BackendAssignmentController {
         node_uuid: &str,
         now_ms: i64,
     ) -> Option<AiBackendNodeStatusRecord> {
-        let params = metadata_to_string_map(backend.metadata.as_ref());
-        match self.vllm.prepare_assignment(spec, &params) {
-            VllmPreparedAssignment::ExternalEndpoint => {
-                let endpoint = spec.base_url.trim();
-                if endpoint.is_empty() {
-                    return Some(error_status_for_backend(
-                        backend,
-                        spec,
-                        node_uuid,
-                        now_ms,
-                        "vLLM external_endpoint mode requires spec.base_url".to_string(),
-                    ));
-                }
-
+        let params = VllmAssignmentParams::from_spec_and_metadata(spec, backend.metadata.as_ref());
+        match self.vllm.prepare_assignment(spec, params.raw()) {
+            VllmPreparedAssignment::ExternalEndpoint(endpoint) => {
                 let mut runtime_spec = spec.clone();
+                runtime_spec.base_url = endpoint.base_url;
                 apply_runtime_overrides(
                     &mut runtime_spec,
                     placement.weight_override,
@@ -402,13 +527,9 @@ impl BackendAssignmentController {
                     now_ms,
                 ))
             }
-            VllmPreparedAssignment::Placeholder { reason } => Some(pending_status_for_backend(
-                backend,
-                spec,
-                node_uuid,
-                now_ms,
-                reason,
-            )),
+            VllmPreparedAssignment::Placeholder { reason } => {
+                Some(pending_status_for_backend(backend, spec, node_uuid, now_ms, reason))
+            }
         }
     }
 
@@ -446,17 +567,26 @@ impl Controller for BackendAssignmentController {
     }
 }
 
-/// Decide whether llama.cpp reconcile is expected to perform a pull step.
-/// 判断 llama.cpp 收敛过程中是否预期会执行拉取阶段。
-fn llamacpp_should_pull(params: &std::collections::HashMap<String, String>) -> bool {
+/// Compute whether llama.cpp reconcile is expected to perform a pull step.
+/// 计算 llama.cpp 收敛是否预期会执行拉取阶段。
+fn compute_llamacpp_should_pull(params: &std::collections::HashMap<String, String>) -> bool {
     !params
         .get("server_mode")
         .map(|value| value.trim().eq_ignore_ascii_case("raw"))
         .unwrap_or(false)
         && !params
             .get("skip_download")
-            .map(|value| value.trim() == "1")
+            .map(|value| parse_metadata_truthy(value))
             .unwrap_or(false)
+}
+
+/// Parse a truthy metadata value used by local assignment helpers.
+/// 解析 local assignment helper 使用的 metadata 真值字符串。
+fn parse_metadata_truthy(value: &str) -> bool {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => true,
+        _ => false,
+    }
 }
 
 /// Build a ready status from a runtime spec.
@@ -560,7 +690,9 @@ fn error_status_for_backend(
 
 /// Convert metadata Struct into string params for local drivers.
 /// 把 metadata Struct 转成 local driver 使用的字符串参数表。
-fn metadata_to_string_map(value: Option<&prost_types::Struct>) -> std::collections::HashMap<String, String> {
+fn metadata_to_string_map(
+    value: Option<&prost_types::Struct>,
+) -> std::collections::HashMap<String, String> {
     let mut out = std::collections::HashMap::new();
     let Some(value) = value else {
         return out;
@@ -617,9 +749,15 @@ mod tests {
         AiBackendDesiredState, AiBackendManagementMode, AiBackendPlacementRecord, AiBackendRecord,
         BackendOrigin, BackendSpec,
     };
+    use axum::{routing::get, Json, Router};
+    use serde_json::{json, Value};
+    use tokio::net::TcpListener;
     use tonic::transport::Endpoint;
 
-    fn sample_assignment(hosting: AiBackendHosting, backend_kind: &str) -> ResolvedAiBackendAssignment {
+    fn sample_assignment(
+        hosting: AiBackendHosting,
+        backend_kind: &str,
+    ) -> ResolvedAiBackendAssignment {
         ResolvedAiBackendAssignment {
             backend: Some(AiBackendRecord {
                 backend_id: "backend-1".to_string(),
@@ -677,7 +815,9 @@ mod tests {
         assignment
     }
 
-    fn clear_assignment_base_url(mut assignment: ResolvedAiBackendAssignment) -> ResolvedAiBackendAssignment {
+    fn clear_assignment_base_url(
+        mut assignment: ResolvedAiBackendAssignment,
+    ) -> ResolvedAiBackendAssignment {
         if let Some(backend) = assignment.backend.as_mut() {
             if let Some(spec) = backend.spec.as_mut() {
                 spec.base_url.clear();
@@ -701,16 +841,51 @@ mod tests {
         )
     }
 
+    async fn start_json_server(
+        path: &'static str,
+        payload: Value,
+    ) -> (tokio::task::JoinHandle<()>, String) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let app = Router::new().route(
+            path,
+            get(move || {
+                let payload = payload.clone();
+                async move { Json(payload) }
+            }),
+        );
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve");
+        });
+        (handle, format!("http://{}", addr))
+    }
+
     #[tokio::test]
     async fn materializes_remote_assignment_into_runtime_backend() {
+        let (handle, base_url) = start_json_server(
+            "/api/tags",
+            json!({
+                "models": [{"name": "gpt-4.1"}]
+            }),
+        )
+        .await;
         let controller = test_controller();
         let mut client = test_client();
         let mut runtime_backends = Vec::new();
         let mut live_local_ids = std::collections::HashSet::new();
+        let mut assignment = sample_assignment(AiBackendHosting::Remote, "ollama_chat");
+        let backend = assignment.backend.as_mut().expect("backend");
+        backend.provider = "ollama".to_string();
+        backend.credential_ref = None;
+        let spec = backend.spec.as_mut().expect("spec");
+        spec.kind = "ollama_chat".to_string();
+        spec.provider = "ollama".to_string();
+        spec.base_url = base_url;
+        spec.credential_ref.clear();
         let status = controller
             .materialize_assignment(
                 &mut client,
-                &sample_assignment(AiBackendHosting::Remote, "openai-compatible"),
+                &assignment,
                 &mut runtime_backends,
                 &mut live_local_ids,
                 "node-1",
@@ -723,6 +898,7 @@ mod tests {
         assert_eq!(runtime_backends[0].spec.as_ref().unwrap().priority, 7);
         assert_eq!(status.status, AiBackendNodeStatus::Ready as i32);
         assert!(status.available);
+        handle.abort();
     }
 
     #[tokio::test]
@@ -785,10 +961,18 @@ mod tests {
             .into_iter()
             .collect(),
         };
+        let mut assignment =
+            sample_assignment_with_metadata(AiBackendHosting::Local, "vllm", metadata);
+        assignment
+            .backend
+            .as_mut()
+            .and_then(|backend| backend.spec.as_mut())
+            .expect("backend spec")
+            .base_url = "http://127.0.0.1:8000/v1".to_string();
         let status = controller
             .materialize_assignment(
                 &mut client,
-                &sample_assignment_with_metadata(AiBackendHosting::Local, "vllm", metadata),
+                &assignment,
                 &mut runtime_backends,
                 &mut live_local_ids,
                 "node-1",
@@ -797,6 +981,14 @@ mod tests {
             .expect("status");
 
         assert_eq!(runtime_backends.len(), 1);
+        assert_eq!(
+            runtime_backends[0]
+                .spec
+                .as_ref()
+                .expect("runtime spec")
+                .base_url,
+            "http://127.0.0.1:8000/v1"
+        );
         assert_eq!(status.status, AiBackendNodeStatus::Ready as i32);
         assert!(status.available);
     }
@@ -823,11 +1015,88 @@ mod tests {
         let params = metadata_to_string_map(Some(&metadata));
 
         assert_eq!(params.get("threads").map(String::as_str), Some("8"));
-        assert_eq!(params.get("skip_download").map(String::as_str), Some("true"));
+        assert_eq!(
+            params.get("skip_download").map(String::as_str),
+            Some("true")
+        );
     }
 
     #[test]
-    fn resolves_local_assignment_driver_from_backend_kind_and_spec_fields() {
+    fn llamacpp_assignment_params_capture_should_pull() {
+        let mut fields = std::collections::BTreeMap::new();
+        fields.insert(
+            "skip_download".to_string(),
+            prost_types::Value {
+                kind: Some(ProstValueKind::BoolValue(true)),
+            },
+        );
+        let metadata = prost_types::Struct {
+            fields: fields.into_iter().collect(),
+        };
+
+        let params = LlamaCppAssignmentParams::from_metadata(Some(&metadata));
+        assert_eq!(
+            params.raw().get("skip_download").map(String::as_str),
+            Some("true")
+        );
+        assert!(!params.should_pull());
+    }
+
+    #[test]
+    fn vllm_assignment_params_preserve_metadata_scalars() {
+        let spec = BackendSpec {
+            name: String::new(),
+            kind: "vllm-openai".to_string(),
+            operations: vec!["chat".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+            weight: 1,
+            priority: 0,
+            base_url: String::new(),
+            provider: "vllm".to_string(),
+            model: "foo".to_string(),
+            hosting: crate::proto::sms::BackendHosting::NodeLocal as i32,
+            credential_ref: String::new(),
+            origin: BackendOrigin::Sms as i32,
+            deployment_id: String::new(),
+        };
+        let mut fields = std::collections::BTreeMap::new();
+        fields.insert(
+            "mode".to_string(),
+            prost_types::Value {
+                kind: Some(ProstValueKind::StringValue("external_endpoint".to_string())),
+            },
+        );
+        let metadata = prost_types::Struct {
+            fields: fields.into_iter().collect(),
+        };
+
+        let params = VllmAssignmentParams::from_spec_and_metadata(&spec, Some(&metadata));
+        assert_eq!(
+            params.raw().get("mode").map(String::as_str),
+            Some("external_endpoint")
+        );
+    }
+
+    #[test]
+    fn resolves_local_assignment_runtime_family_from_backend_kind_and_spec_fields() {
+        let backend = AiBackendRecord {
+            backend_id: "backend-1".to_string(),
+            display_name: "Backend 1".to_string(),
+            provider: "vllm".to_string(),
+            model: "foo".to_string(),
+            hosting: AiBackendHosting::Local as i32,
+            backend_kind: "custom".to_string(),
+            desired_state: AiBackendDesiredState::Enabled as i32,
+            management_mode: AiBackendManagementMode::SmsLocal as i32,
+            credential_ref: None,
+            spec: None,
+            labels: Default::default(),
+            metadata: None,
+            generation: 1,
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        };
         let spec = BackendSpec {
             name: String::new(),
             kind: "vllm-openai".to_string(),
@@ -845,27 +1114,29 @@ mod tests {
             deployment_id: String::new(),
         };
 
+        let mut llamacpp_backend = backend.clone();
+        llamacpp_backend.backend_kind = "llama.cpp".to_string();
         assert_eq!(
-            resolve_local_provider_kind(["llama.cpp", spec.kind.as_str(), spec.provider.as_str()]),
-            LocalProviderKind::LlamaCpp
+            LocalAssignmentRuntimeFamily::from_assignment(&llamacpp_backend, &spec),
+            LocalAssignmentRuntimeFamily::LlamaCpp
         );
         assert_eq!(
-            resolve_local_provider_kind(["custom", spec.kind.as_str(), spec.provider.as_str()]),
-            LocalProviderKind::Vllm
+            LocalAssignmentRuntimeFamily::from_assignment(&backend, &spec),
+            LocalAssignmentRuntimeFamily::Vllm
         );
     }
 
     #[test]
-    fn llamacpp_should_pull_respects_server_mode_and_skip_download() {
+    fn compute_llamacpp_should_pull_respects_server_mode_and_skip_download() {
         let mut params = std::collections::HashMap::new();
-        assert!(llamacpp_should_pull(&params));
+        assert!(compute_llamacpp_should_pull(&params));
 
         params.insert("server_mode".to_string(), "raw".to_string());
-        assert!(!llamacpp_should_pull(&params));
+        assert!(!compute_llamacpp_should_pull(&params));
 
         params.remove("server_mode");
         params.insert("skip_download".to_string(), "1".to_string());
-        assert!(!llamacpp_should_pull(&params));
+        assert!(!compute_llamacpp_should_pull(&params));
     }
 
     #[test]
@@ -874,17 +1145,11 @@ mod tests {
         let backend = assignment.backend.as_ref().unwrap();
         let spec = backend.spec.as_ref().unwrap();
 
-        let status = reconciling_status_for_backend(
-            backend,
-            spec,
-            "node-1",
-            123,
-            "starting".to_string(),
-        );
+        let status =
+            reconciling_status_for_backend(backend, spec, "node-1", 123, "starting".to_string());
 
         assert_eq!(status.status, AiBackendNodeStatus::Reconciling as i32);
         assert_eq!(status.status_reason, "starting");
         assert!(!status.available);
     }
-
 }

@@ -48,17 +48,17 @@ fn js_value_to_bytes(value: &JsValue, ctx: &mut Context) -> JsResult<Vec<u8>> {
             let byte_offset = u8.byte_offset(ctx)?;
             let byte_length = u8.byte_length(ctx)?;
             let buffer = u8.buffer(ctx)?;
-            let buffer_obj = buffer
-                .as_object()
-                .ok_or_else(|| JsNativeError::typ().with_message("Uint8Array buffer is not an object"))?;
+            let buffer_obj = buffer.as_object().ok_or_else(|| {
+                JsNativeError::typ().with_message("Uint8Array buffer is not an object")
+            })?;
             let array_buffer = JsArrayBuffer::from_object(buffer_obj.clone())?;
-            let data = array_buffer
-                .data()
-                .ok_or_else(|| JsNativeError::typ().with_message("Uint8Array buffer is detached"))?;
+            let data = array_buffer.data().ok_or_else(|| {
+                JsNativeError::typ().with_message("Uint8Array buffer is detached")
+            })?;
             let end = byte_offset.saturating_add(byte_length);
-            let bytes = data
-                .get(byte_offset..end)
-                .ok_or_else(|| JsNativeError::range().with_message("Uint8Array view out of bounds"))?;
+            let bytes = data.get(byte_offset..end).ok_or_else(|| {
+                JsNativeError::range().with_message("Uint8Array view out of bounds")
+            })?;
             return Ok(bytes.to_vec());
         }
     }
@@ -67,7 +67,9 @@ fn js_value_to_bytes(value: &JsValue, ctx: &mut Context) -> JsResult<Vec<u8>> {
         .to_string(ctx)?
         .to_std_string()
         .map_err(|e| JsNativeError::error().with_message(format!("invalid string: {e}")))?;
-    Ok(s.encode_utf16().map(|u| (u & 0xFF) as u8).collect::<Vec<u8>>())
+    Ok(s.encode_utf16()
+        .map(|u| (u & 0xFF) as u8)
+        .collect::<Vec<u8>>())
 }
 
 fn js_bytes_to_value(bytes: Vec<u8>, ctx: &mut Context) -> JsResult<JsValue> {
@@ -91,7 +93,9 @@ pub fn init_tool_runtime(context: &mut Context, slots: usize) {
     });
 }
 
-fn with_tool_runtime_mut<R>(f: impl FnOnce(&mut Context, &mut [Option<JsValue>]) -> R) -> Result<R, i32> {
+fn with_tool_runtime_mut<R>(
+    f: impl FnOnce(&mut Context, &mut [Option<JsValue>]) -> R,
+) -> Result<R, i32> {
     let ctx_ptr = TOOL_CTX_PTR.with(|p| p.get());
     if ctx_ptr.is_null() {
         return Err(-libc::EIO);
@@ -107,18 +111,28 @@ fn with_tool_runtime_mut<R>(f: impl FnOnce(&mut Context, &mut [Option<JsValue>])
 }
 
 const SPEAR_MODULE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear.mjs"));
-const SPEAR_CHAT_MODULE: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_chat.mjs"));
+const SPEAR_CHAT_MODULE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/js/spear_chat.mjs"
+));
 const SPEAR_SSF_MODULE: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_ssf.mjs"));
-const SPEAR_RTASR_MODULE: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_rtasr.mjs"));
-const SPEAR_TIME_FORMAT_MODULE: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_time_format.mjs"));
-const SPEAR_RTASR_EVENT_MODULE: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_rtasr_event.mjs"));
-const SPEAR_STREAM_GATE_MODULE: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/js/spear_stream_gate.mjs"));
+const SPEAR_RTASR_MODULE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/js/spear_rtasr.mjs"
+));
+const SPEAR_TIME_FORMAT_MODULE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/js/spear_time_format.mjs"
+));
+const SPEAR_RTASR_EVENT_MODULE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/js/spear_rtasr_event.mjs"
+));
+const SPEAR_STREAM_GATE_MODULE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/js/spear_stream_gate.mjs"
+));
 const SPEAR_USER_STREAM_PROTOCOL_MODULE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/src/js/spear_user_stream_protocol.mjs"
@@ -127,7 +141,9 @@ const SPEAR_USER_STREAM_PROTOCOL_MODULE: &str = include_str!(concat!(
 fn json_stringify(ctx: &mut Context, value: JsValue) -> JsResult<String> {
     let json = ctx.global_object().get(js_string!("JSON"), ctx)?;
     let Some(json_obj) = json.as_object().cloned() else {
-        return Err(JsNativeError::typ().with_message("JSON is not an object").into());
+        return Err(JsNativeError::typ()
+            .with_message("JSON is not an object")
+            .into());
     };
     let stringify = json_obj.get(js_string!("stringify"), ctx)?;
     let Some(callable) = stringify.as_callable().cloned() else {
@@ -168,13 +184,20 @@ fn tool_write_output(out_ptr: i32, out_len_ptr: i32, payload: &[u8]) -> i32 {
     0
 }
 
-fn tool_trampoline_common(slot: usize, args_ptr: i32, args_len: i32, out_ptr: i32, out_len_ptr: i32) -> i32 {
+fn tool_trampoline_common(
+    slot: usize,
+    args_ptr: i32,
+    args_len: i32,
+    out_ptr: i32,
+    out_len_ptr: i32,
+) -> i32 {
     if args_ptr <= 0 || args_len < 0 {
         let s = tool_error_json("invalid_args", "invalid args pointer/length");
         return tool_write_output(out_ptr, out_len_ptr, s.as_bytes());
     }
 
-    let args_bytes = unsafe { std::slice::from_raw_parts(args_ptr as *const u8, args_len as usize) };
+    let args_bytes =
+        unsafe { std::slice::from_raw_parts(args_ptr as *const u8, args_len as usize) };
     let args_json = match std::str::from_utf8(args_bytes) {
         Ok(s) => s,
         Err(_) => {
@@ -188,11 +211,17 @@ fn tool_trampoline_common(slot: usize, args_ptr: i32, args_len: i32, out_ptr: i3
             return Ok::<_, JsNativeError>(tool_error_json("slot_oob", "tool slot out of range"));
         }
         let Some(handler) = handlers[slot].clone() else {
-            return Ok::<_, JsNativeError>(tool_error_json("handler_not_found", "tool handler not found"));
+            return Ok::<_, JsNativeError>(tool_error_json(
+                "handler_not_found",
+                "tool handler not found",
+            ));
         };
 
         let Some(callable) = handler.as_callable().cloned() else {
-            return Ok::<_, JsNativeError>(tool_error_json("handler_not_callable", "tool handler not callable"));
+            return Ok::<_, JsNativeError>(tool_error_json(
+                "handler_not_callable",
+                "tool handler not callable",
+            ));
         };
 
         let res = callable.call(
@@ -209,9 +238,7 @@ fn tool_trampoline_common(slot: usize, args_ptr: i32, args_len: i32, out_ptr: i3
             }
         };
 
-        json_stringify(ctx, res).map_err(|e| {
-            JsNativeError::error().with_message(e.to_string())
-        })
+        json_stringify(ctx, res).map_err(|e| JsNativeError::error().with_message(e.to_string()))
     }) {
         Ok(Ok(s)) => s,
         Ok(Err(e)) => tool_error_json("stringify_failed", &e.to_string()),
@@ -244,9 +271,7 @@ seq_macro::seq!(N in 0..32 {
 pub const DEFAULT_TOOL_SLOTS: usize = TOOL_TRAMPOLINES.len();
 
 fn tool_trampoline_offset(slot: usize) -> Option<i32> {
-    TOOL_TRAMPOLINES
-        .get(slot)
-        .map(|f| *f as usize as i32)
+    TOOL_TRAMPOLINES.get(slot).map(|f| *f as usize as i32)
 }
 
 #[derive(Debug, Clone)]
@@ -262,9 +287,18 @@ impl BuiltinModuleRegistry {
             ("spear/chat".to_string(), Arc::from(SPEAR_CHAT_MODULE)),
             ("spear/ssf".to_string(), Arc::from(SPEAR_SSF_MODULE)),
             ("spear/rtasr".to_string(), Arc::from(SPEAR_RTASR_MODULE)),
-            ("spear/time_format".to_string(), Arc::from(SPEAR_TIME_FORMAT_MODULE)),
-            ("spear/rtasr_event".to_string(), Arc::from(SPEAR_RTASR_EVENT_MODULE)),
-            ("spear/stream_gate".to_string(), Arc::from(SPEAR_STREAM_GATE_MODULE)),
+            (
+                "spear/time_format".to_string(),
+                Arc::from(SPEAR_TIME_FORMAT_MODULE),
+            ),
+            (
+                "spear/rtasr_event".to_string(),
+                Arc::from(SPEAR_RTASR_EVENT_MODULE),
+            ),
+            (
+                "spear/stream_gate".to_string(),
+                Arc::from(SPEAR_STREAM_GATE_MODULE),
+            ),
             (
                 "spear/user_stream_protocol".to_string(),
                 Arc::from(SPEAR_USER_STREAM_PROTOCOL_MODULE),
@@ -299,7 +333,9 @@ impl BuiltinModuleRegistry {
 
         let source = Source::from_bytes(src.as_bytes());
         let module = Module::parse(source, None, context)?;
-        self.modules.borrow_mut().insert(specifier.to_string(), module.clone());
+        self.modules
+            .borrow_mut()
+            .insert(specifier.to_string(), module.clone());
         Ok(module)
     }
 }
@@ -360,34 +396,51 @@ pub fn install_native_bindings(context: &mut Context) {
         Ok(JsValue::from(js_string!(out)))
     });
 
-
     let rtasr_create = NativeFunction::from_fn_ptr(|_this, _args, _ctx| {
         let fd = spear_wasm::rtasr_create()
             .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
         Ok(JsValue::from(fd.raw()))
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_create"), 0, rtasr_create);
+    let _ = context.register_global_builtin_callable(
+        js_string!("__spear_rtasr_create"),
+        0,
+        rtasr_create,
+    );
 
     let rtasr_close = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let fd = args
+            .get(0)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as i32;
         spear_wasm::rtasr_close(spear_wasm::Fd::from_raw(fd))
             .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
         Ok(JsValue::Undefined)
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_close"), 1, rtasr_close);
+    let _ =
+        context.register_global_builtin_callable(js_string!("__spear_rtasr_close"), 1, rtasr_close);
 
     let rtasr_write = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let fd = args
+            .get(0)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as i32;
         let data_arg = args.get(1).cloned().unwrap_or(JsValue::Undefined);
         let bytes = js_value_to_bytes(&data_arg, ctx)?;
         spear_wasm::rtasr_write(spear_wasm::Fd::from_raw(fd), &bytes)
             .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
         Ok(JsValue::Undefined)
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_write"), 2, rtasr_write);
+    let _ =
+        context.register_global_builtin_callable(js_string!("__spear_rtasr_write"), 2, rtasr_write);
 
     let rtasr_read = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let fd = args
+            .get(0)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as i32;
         let bytes = spear_wasm::rtasr_read_alloc(spear_wasm::Fd::from_raw(fd))
             .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
         let Some(bytes) = bytes else {
@@ -395,10 +448,15 @@ pub fn install_native_bindings(context: &mut Context) {
         };
         js_bytes_to_value(bytes, ctx)
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_read"), 1, rtasr_read);
+    let _ =
+        context.register_global_builtin_callable(js_string!("__spear_rtasr_read"), 1, rtasr_read);
 
     let rtasr_set_param_json = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let fd = args
+            .get(0)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as i32;
         let json = args
             .get(1)
             .cloned()
@@ -416,7 +474,11 @@ pub fn install_native_bindings(context: &mut Context) {
     );
 
     let rtasr_set_param_string = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let fd = args
+            .get(0)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as i32;
         let key = args
             .get(1)
             .cloned()
@@ -440,31 +502,53 @@ pub fn install_native_bindings(context: &mut Context) {
     );
 
     let rtasr_connect = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let fd = args
+            .get(0)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as i32;
         spear_wasm::rtasr_connect(spear_wasm::Fd::from_raw(fd))
             .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
         Ok(JsValue::Undefined)
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_connect"), 1, rtasr_connect);
+    let _ = context.register_global_builtin_callable(
+        js_string!("__spear_rtasr_connect"),
+        1,
+        rtasr_connect,
+    );
 
     let rtasr_flush = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let fd = args
+            .get(0)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as i32;
         spear_wasm::rtasr_flush(spear_wasm::Fd::from_raw(fd))
             .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
         Ok(JsValue::Undefined)
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_flush"), 1, rtasr_flush);
+    let _ =
+        context.register_global_builtin_callable(js_string!("__spear_rtasr_flush"), 1, rtasr_flush);
 
     let rtasr_clear = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let fd = args
+            .get(0)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as i32;
         spear_wasm::rtasr_clear(spear_wasm::Fd::from_raw(fd))
             .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
         Ok(JsValue::Undefined)
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_rtasr_clear"), 1, rtasr_clear);
+    let _ =
+        context.register_global_builtin_callable(js_string!("__spear_rtasr_clear"), 1, rtasr_clear);
 
     let rtasr_set_autoflush_json = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as i32;
+        let fd = args
+            .get(0)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as i32;
         let json = args
             .get(1)
             .cloned()
@@ -544,7 +628,8 @@ pub fn install_native_bindings(context: &mut Context) {
 
         Ok(obj.into())
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_tool_register"), 2, tool_reg);
+    let _ =
+        context.register_global_builtin_callable(js_string!("__spear_tool_register"), 2, tool_reg);
 
     let user_stream_open = NativeFunction::from_fn_ptr(|_this, args, _ctx| {
         let stream_id = args.get(0).cloned().unwrap_or(JsValue::Undefined);
@@ -562,7 +647,11 @@ pub fn install_native_bindings(context: &mut Context) {
         .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
         Ok(JsValue::from(fd.raw()))
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_user_stream_open"), 2, user_stream_open);
+    let _ = context.register_global_builtin_callable(
+        js_string!("__spear_user_stream_open"),
+        2,
+        user_stream_open,
+    );
 
     let user_stream_close = NativeFunction::from_fn_ptr(|_this, args, _ctx| {
         let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined);
@@ -571,7 +660,11 @@ pub fn install_native_bindings(context: &mut Context) {
             .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
         Ok(JsValue::Undefined)
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_user_stream_close"), 1, user_stream_close);
+    let _ = context.register_global_builtin_callable(
+        js_string!("__spear_user_stream_close"),
+        1,
+        user_stream_close,
+    );
 
     let user_stream_write = NativeFunction::from_fn_ptr(|_this, args, ctx| {
         let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined);
@@ -582,7 +675,11 @@ pub fn install_native_bindings(context: &mut Context) {
             .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
         Ok(JsValue::Undefined)
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_user_stream_write"), 2, user_stream_write);
+    let _ = context.register_global_builtin_callable(
+        js_string!("__spear_user_stream_write"),
+        2,
+        user_stream_write,
+    );
 
     let user_stream_read = NativeFunction::from_fn_ptr(|_this, args, ctx| {
         let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined);
@@ -594,14 +691,22 @@ pub fn install_native_bindings(context: &mut Context) {
         };
         js_bytes_to_value(bytes, ctx)
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_user_stream_read"), 1, user_stream_read);
+    let _ = context.register_global_builtin_callable(
+        js_string!("__spear_user_stream_read"),
+        1,
+        user_stream_read,
+    );
 
     let ctl_open = NativeFunction::from_fn_ptr(|_this, _args, _ctx| {
         let fd = spear_wasm::user_stream_ctl_open()
             .map_err(|e| JsNativeError::error().with_message(e.to_string()))?;
         Ok(JsValue::from(fd.raw()))
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_user_stream_ctl_open"), 0, ctl_open);
+    let _ = context.register_global_builtin_callable(
+        js_string!("__spear_user_stream_ctl_open"),
+        0,
+        ctl_open,
+    );
 
     let ctl_read = NativeFunction::from_fn_ptr(|_this, args, ctx| {
         let fd = args.get(0).cloned().unwrap_or(JsValue::Undefined);
@@ -612,18 +717,23 @@ pub fn install_native_bindings(context: &mut Context) {
             return Ok(JsValue::Null);
         };
         let obj = ObjectInitializer::new(ctx)
-            .property(js_string!("streamId"), evt.stream_id as i32, Attribute::all())
+            .property(
+                js_string!("streamId"),
+                evt.stream_id as i32,
+                Attribute::all(),
+            )
             .property(js_string!("kind"), evt.kind as i32, Attribute::all())
             .build();
         Ok(obj.into())
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_user_stream_ctl_read_event"), 1, ctl_read);
+    let _ = context.register_global_builtin_callable(
+        js_string!("__spear_user_stream_ctl_read_event"),
+        1,
+        ctl_read,
+    );
 
     let ssf_parse_v1 = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let bytes = js_value_to_bytes(
-            &args.get(0).cloned().unwrap_or(JsValue::Undefined),
-            ctx,
-        )?;
+        let bytes = js_value_to_bytes(&args.get(0).cloned().unwrap_or(JsValue::Undefined), ctx)?;
 
         let (hdr, meta, data) = match spear_ssf::split_v1(&bytes) {
             Ok(v) => v,
@@ -636,7 +746,11 @@ pub fn install_native_bindings(context: &mut Context) {
         let data_value = js_bytes_to_value(data.to_vec(), ctx)?;
 
         let obj = ObjectInitializer::new(ctx)
-            .property(js_string!("streamId"), hdr.stream_id as i32, Attribute::all())
+            .property(
+                js_string!("streamId"),
+                hdr.stream_id as i32,
+                Attribute::all(),
+            )
             .property(js_string!("msgType"), hdr.msg_type as i32, Attribute::all())
             .property(js_string!("flags"), hdr.flags as i32, Attribute::all())
             .property(js_string!("seqLo"), seq_lo as i32, Attribute::all())
@@ -646,14 +760,38 @@ pub fn install_native_bindings(context: &mut Context) {
             .build();
         Ok(obj.into())
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_ssf_parse_v1"), 1, ssf_parse_v1);
+    let _ = context.register_global_builtin_callable(
+        js_string!("__spear_ssf_parse_v1"),
+        1,
+        ssf_parse_v1,
+    );
 
     let ssf_build_v1 = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let stream_id = args.get(0).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as u32;
-        let msg_type = args.get(1).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as u16;
-        let flags = args.get(2).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as u16;
-        let seq_lo = args.get(3).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as u32;
-        let seq_hi = args.get(4).cloned().unwrap_or(JsValue::Undefined).to_number(ctx)? as u32;
+        let stream_id = args
+            .get(0)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as u32;
+        let msg_type = args
+            .get(1)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as u16;
+        let flags = args
+            .get(2)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as u16;
+        let seq_lo = args
+            .get(3)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as u32;
+        let seq_hi = args
+            .get(4)
+            .cloned()
+            .unwrap_or(JsValue::Undefined)
+            .to_number(ctx)? as u32;
         let seq = ((seq_hi as u64) << 32) | (seq_lo as u64);
 
         let meta = js_value_to_bytes(&args.get(5).cloned().unwrap_or(JsValue::Undefined), ctx)?;
@@ -662,7 +800,11 @@ pub fn install_native_bindings(context: &mut Context) {
         let frame = spear_ssf::build_v1_frame(stream_id, msg_type, flags, seq, &meta, &data);
         js_bytes_to_value(frame, ctx)
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_ssf_build_v1"), 7, ssf_build_v1);
+    let _ = context.register_global_builtin_callable(
+        js_string!("__spear_ssf_build_v1"),
+        7,
+        ssf_build_v1,
+    );
 
     let utf8_encode = NativeFunction::from_fn_ptr(|_this, args, ctx| {
         let s = args
@@ -675,22 +817,21 @@ pub fn install_native_bindings(context: &mut Context) {
 
         js_bytes_to_value(s.into_bytes(), ctx)
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_utf8_encode"), 1, utf8_encode);
+    let _ =
+        context.register_global_builtin_callable(js_string!("__spear_utf8_encode"), 1, utf8_encode);
 
     let utf8_decode = NativeFunction::from_fn_ptr(|_this, args, ctx| {
-        let bytes = js_value_to_bytes(
-            &args.get(0).cloned().unwrap_or(JsValue::Undefined),
-            ctx,
-        )?;
+        let bytes = js_value_to_bytes(&args.get(0).cloned().unwrap_or(JsValue::Undefined), ctx)?;
         let s = String::from_utf8_lossy(&bytes).to_string();
         Ok(JsValue::from(js_string!(s)))
     });
-    let _ = context.register_global_builtin_callable(js_string!("__spear_utf8_decode"), 1, utf8_decode);
+    let _ =
+        context.register_global_builtin_callable(js_string!("__spear_utf8_decode"), 1, utf8_decode);
 }
 
 fn cchat_completion_impl(options_json: &str) -> Result<String, String> {
-    let options: serde_json::Value = serde_json::from_str(options_json)
-        .map_err(|e| format!("invalid options json: {e}"))?;
+    let options: serde_json::Value =
+        serde_json::from_str(options_json).map_err(|e| format!("invalid options json: {e}"))?;
 
     let model = options
         .get("model")
@@ -718,15 +859,10 @@ fn cchat_completion_impl(options_json: &str) -> Result<String, String> {
     let mut sess = spear_wasm::ChatRequestContext::create().map_err(|e| e.to_string())?;
 
     for m in messages {
-        let role = m
-            .get("role")
-            .and_then(|v| v.as_str())
-            .unwrap_or("user");
-        let content = m
-            .get("content")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        sess.write_message(role, content).map_err(|e| e.to_string())?;
+        let role = m.get("role").and_then(|v| v.as_str()).unwrap_or("user");
+        let content = m.get("content").and_then(|v| v.as_str()).unwrap_or("");
+        sess.write_message(role, content)
+            .map_err(|e| e.to_string())?;
     }
 
     let model_param = serde_json::json!({"key":"model","value": model}).to_string();
@@ -744,8 +880,10 @@ fn cchat_completion_impl(options_json: &str) -> Result<String, String> {
     if let Some(tools) = tools {
         if !tools.is_empty() {
             let (arena_ptr, arena_len) = tool_arena_ptr_len();
-            let arena_ptr_param = serde_json::json!({"key":"tool_arena_ptr","value": arena_ptr}).to_string();
-            let arena_len_param = serde_json::json!({"key":"tool_arena_len","value": arena_len}).to_string();
+            let arena_ptr_param =
+                serde_json::json!({"key":"tool_arena_ptr","value": arena_ptr}).to_string();
+            let arena_len_param =
+                serde_json::json!({"key":"tool_arena_len","value": arena_len}).to_string();
             sess.set_param_json(&arena_ptr_param)
                 .map_err(|e| e.to_string())?;
             sess.set_param_json(&arena_len_param)
@@ -761,16 +899,22 @@ fn cchat_completion_impl(options_json: &str) -> Result<String, String> {
                 .and_then(|v| v.as_u64())
                 .unwrap_or(4)
                 .min(u64::from(u32::MAX)) as u32;
-            sess.set_param_json(&serde_json::json!({"key":"max_total_tool_calls","value": max_total_tool_calls}).to_string())
-                .map_err(|e| e.to_string())?;
-            sess.set_param_json(&serde_json::json!({"key":"max_iterations","value": max_iterations}).to_string())
-                .map_err(|e| e.to_string())?;
+            sess.set_param_json(
+                &serde_json::json!({"key":"max_total_tool_calls","value": max_total_tool_calls})
+                    .to_string(),
+            )
+            .map_err(|e| e.to_string())?;
+            sess.set_param_json(
+                &serde_json::json!({"key":"max_iterations","value": max_iterations}).to_string(),
+            )
+            .map_err(|e| e.to_string())?;
 
             for t in tools {
                 let fn_offset = t
                     .get("fnOffset")
                     .and_then(|v| v.as_i64())
-                    .ok_or_else(|| "tool missing fnOffset".to_string())? as i32;
+                    .ok_or_else(|| "tool missing fnOffset".to_string())?
+                    as i32;
                 let fn_json = t
                     .get("fnJson")
                     .and_then(|v| v.as_str())
@@ -788,9 +932,8 @@ fn cchat_completion_impl(options_json: &str) -> Result<String, String> {
     let resp_bytes = spear_wasm::cchat_recv_alloc(resp_fd).map_err(|e| e.to_string())?;
     // Ensure UTF-8; fallback to lossy.
     // 确保 UTF-8；否则使用 lossy。
-    let resp = String::from_utf8(resp_bytes.clone()).unwrap_or_else(|_| {
-        String::from_utf8_lossy(&resp_bytes).into_owned()
-    });
+    let resp = String::from_utf8(resp_bytes.clone())
+        .unwrap_or_else(|_| String::from_utf8_lossy(&resp_bytes).into_owned());
 
     let _ = spear_wasm::cchat_close(resp_fd);
     let _ = sess.close();
@@ -868,9 +1011,7 @@ mod tests {
 
     fn run_entry_to_string(code: &str) -> String {
         let (v, mut ctx) = run_entry(code);
-        v.to_string(&mut ctx)
-            .unwrap()
-            .to_std_string_escaped()
+        v.to_string(&mut ctx).unwrap().to_std_string_escaped()
     }
 
     #[test]

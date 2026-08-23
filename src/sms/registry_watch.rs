@@ -105,14 +105,8 @@ mod tests {
     #[tokio::test]
     async fn test_watch_since_too_old_requires_resync() {
         let hub = RegistryWatchHub::<TestEvent>::new(2, 16);
-        hub.push_event(TestEvent {
-            revision: 10,
-        })
-        .await;
-        hub.push_event(TestEvent {
-            revision: 11,
-        })
-        .await;
+        hub.push_event(TestEvent { revision: 10 }).await;
+        hub.push_event(TestEvent { revision: 11 }).await;
 
         let err = match hub.watch(9, |e| e.revision).await {
             Ok(_) => panic!("expected error"),
@@ -127,10 +121,7 @@ mod tests {
         let mut stream = hub.watch(0, |e| e.revision).await.unwrap();
 
         for i in 0..16u64 {
-            hub.push_event(TestEvent {
-                revision: 100 + i,
-            })
-            .await;
+            hub.push_event(TestEvent { revision: 100 + i }).await;
         }
 
         let first = stream.next().await.unwrap();

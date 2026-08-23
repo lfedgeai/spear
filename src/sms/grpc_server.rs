@@ -7,16 +7,16 @@ use tonic::transport::Server;
 use tracing::{error, info};
 
 use crate::proto::sms::{
-    ai_backend_control_plane_service_server::AiBackendControlPlaneServiceServer,
     admin_credential_service_server::AdminCredentialServiceServer,
+    ai_backend_control_plane_service_server::AiBackendControlPlaneServiceServer,
     backend_registry_service_server::BackendRegistryServiceServer,
     events_service_server::EventsServiceServer,
     execution_index_service_server::ExecutionIndexServiceServer,
     execution_log_ingest_service_server::ExecutionLogIngestServiceServer,
     execution_registry_service_server::ExecutionRegistryServiceServer,
     instance_registry_service_server::InstanceRegistryServiceServer,
-    mcp_registry_service_server::McpRegistryServiceServer,
-    node_service_server::NodeServiceServer, placement_service_server::PlacementServiceServer,
+    mcp_registry_service_server::McpRegistryServiceServer, node_service_server::NodeServiceServer,
+    placement_service_server::PlacementServiceServer,
     task_placement_assignment_service_server::TaskPlacementAssignmentServiceServer,
     task_service_server::TaskServiceServer,
 };
@@ -53,9 +53,7 @@ impl GrpcServer {
             ))
             .add_service(McpRegistryServiceServer::new(sms_service.clone()))
             .add_service(BackendRegistryServiceServer::new(sms_service.clone()))
-            .add_service(AiBackendControlPlaneServiceServer::new(
-                sms_service.clone(),
-            ))
+            .add_service(AiBackendControlPlaneServiceServer::new(sms_service.clone()))
             .add_service(AdminCredentialServiceServer::new(sms_service.clone()))
             .add_service(RouterFilterServiceServer::new(sms_service.clone()))
             .add_service(PlacementServiceServer::new(sms_service))
@@ -92,9 +90,7 @@ impl GrpcServer {
             ))
             .add_service(McpRegistryServiceServer::new(sms_service.clone()))
             .add_service(BackendRegistryServiceServer::new(sms_service.clone()))
-            .add_service(AiBackendControlPlaneServiceServer::new(
-                sms_service.clone(),
-            ))
+            .add_service(AiBackendControlPlaneServiceServer::new(sms_service.clone()))
             .add_service(AdminCredentialServiceServer::new(sms_service.clone()))
             .add_service(RouterFilterServiceServer::new(sms_service.clone()))
             .add_service(PlacementServiceServer::new(sms_service))

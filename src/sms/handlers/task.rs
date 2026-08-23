@@ -15,15 +15,13 @@ use tonic::Request;
 use tracing::{debug, error, info};
 
 use super::common::ErrorResponse;
-use crate::proto::sms::{
-    DeleteTaskRequest, ExecutableType, GetTaskRequest, ListTasksRequest, RegisterTaskRequest,
-    TaskExecutable, TaskPriority, TaskSchedulingStrategy,
-};
+use crate::proto::sms::{DeleteTaskRequest, GetTaskRequest, ListTasksRequest, TaskPriority};
 use crate::sms::gateway::GatewayState;
-use crate::sms::{
-    parse_task_priority_public_str, parse_task_status_public_str, task_priority_to_public_str,
-    task_status_to_public_str, FilterState,
+use crate::sms::task_api::{
+    build_register_task_request, task_to_public_response, PublicTaskResponse, RegisterTaskSpec,
+    TaskExecutableSpec,
 };
+use crate::sms::{parse_task_priority_public_str, parse_task_status_public_str, FilterState};
 
 // HTTP request/response types / HTTP请求/响应类型
 
@@ -67,29 +65,6 @@ pub struct DeleteTaskParams {
 }
 
 #[derive(Debug, Serialize)]
-pub struct TaskResponse {
-    pub task_id: String,
-    pub name: String,
-    pub description: String,
-    pub status: String,
-    pub priority: String,
-    pub desired_replicas: u32,
-    pub scheduling_strategy: String,
-    pub endpoint: String,
-    pub version: String,
-    pub capabilities: Vec<String>,
-    pub registered_at: i64,
-    pub last_heartbeat: i64,
-    pub metadata: HashMap<String, String>,
-    pub config: HashMap<String, String>,
-    pub result_uris: Vec<String>,
-    pub last_result_uri: String,
-    pub last_result_status: String,
-    pub last_completed_at: i64,
-    pub last_result_metadata: HashMap<String, String>,
-}
-
-#[derive(Debug, Serialize)]
 pub struct RegisterTaskResponse {
     pub success: bool,
     pub task_id: Option<String>,
@@ -98,7 +73,7 @@ pub struct RegisterTaskResponse {
 
 #[derive(Debug, Serialize)]
 pub struct ListTasksResponse {
-    pub tasks: Vec<TaskResponse>,
+    pub tasks: Vec<PublicTaskResponse>,
     pub total_count: i32,
 }
 
@@ -106,36 +81,6 @@ pub struct ListTasksResponse {
 pub struct TaskActionResponse {
     pub success: bool,
     pub message: String,
-}
-
-// Helper function to convert proto Task to TaskResponse / 转换proto Task为TaskResponse的辅助函数
-fn task_to_response(task: crate::proto::sms::Task) -> TaskResponse {
-    TaskResponse {
-        task_id: task.task_id,
-        name: task.name,
-        description: task.description,
-        status: task_status_to_public_str(task.status).to_string(),
-        priority: task_priority_to_public_str(task.priority).to_string(),
-        desired_replicas: task.desired_replicas,
-        scheduling_strategy: match TaskSchedulingStrategy::try_from(task.scheduling_strategy)
-            .unwrap_or(TaskSchedulingStrategy::Spread)
-        {
-            TaskSchedulingStrategy::Spread => "spread".to_string(),
-            TaskSchedulingStrategy::Unknown => "unknown".to_string(),
-        },
-        endpoint: task.endpoint,
-        version: task.version,
-        capabilities: task.capabilities,
-        registered_at: task.registered_at,
-        last_heartbeat: task.last_heartbeat,
-        metadata: task.metadata,
-        config: task.config,
-        result_uris: task.result_uris,
-        last_result_uri: task.last_result_uri,
-        last_result_status: task.last_result_status,
-        last_completed_at: task.last_completed_at,
-        last_result_metadata: task.last_result_metadata,
-    }
 }
 
 // HTTP Handlers / HTTP处理器
@@ -153,40 +98,28 @@ pub async fn register_task(
         .map(parse_task_priority_public_str)
         .unwrap_or(TaskPriority::Normal as i32);
 
-    let meta = params.metadata.clone().unwrap_or_default();
-    let scheduling_strategy = match params.scheduling_strategy.as_deref() {
-        Some("spread") | None => TaskSchedulingStrategy::Spread as i32,
-        _ => TaskSchedulingStrategy::Unknown as i32,
-    };
-    let request = Request::new(RegisterTaskRequest {
+    let request = Request::new(build_register_task_request(RegisterTaskSpec {
         name: params.name.clone(),
         description: params
             .description
             .unwrap_or_else(|| format!("Task: {}", params.name)),
         priority,
+        desired_replicas: params.desired_replicas.unwrap_or(1),
+        scheduling_strategy: params.scheduling_strategy,
         endpoint: params.endpoint,
         version: params.version,
         capabilities: params.capabilities.unwrap_or_default(),
-        metadata: meta.clone(),
+        metadata: params.metadata.unwrap_or_default(),
         config: params.config.unwrap_or_default(),
-        executable: params.executable.as_ref().map(|e| TaskExecutable {
-            r#type: match e.r#type.to_lowercase().as_str() {
-                "binary" => ExecutableType::Binary as i32,
-                "script" => ExecutableType::Script as i32,
-                "container" => ExecutableType::Container as i32,
-                "wasm" => ExecutableType::Wasm as i32,
-                "process" => ExecutableType::Process as i32,
-                _ => ExecutableType::Unknown as i32,
-            },
-            uri: e.uri.clone(),
-            name: e.name.clone().unwrap_or_default(),
-            checksum_sha256: e.checksum_sha256.clone().unwrap_or_default(),
-            args: e.args.clone().unwrap_or_default(),
-            env: e.env.clone().unwrap_or_default(),
+        executable: params.executable.map(|executable| TaskExecutableSpec {
+            executable_type: executable.r#type,
+            uri: executable.uri,
+            name: executable.name,
+            checksum_sha256: executable.checksum_sha256,
+            args: executable.args,
+            env: executable.env,
         }),
-        desired_replicas: params.desired_replicas.unwrap_or(1),
-        scheduling_strategy,
-    });
+    }));
 
     match gateway_state
         .task_client
@@ -249,7 +182,11 @@ pub async fn list_tasks(
     match gateway_state.task_client.clone().list_tasks(request).await {
         Ok(response) => {
             let resp = response.into_inner();
-            let tasks = resp.tasks.into_iter().map(task_to_response).collect();
+            let tasks = resp
+                .tasks
+                .into_iter()
+                .map(task_to_public_response)
+                .collect();
 
             Ok(Json(ListTasksResponse {
                 tasks,
@@ -273,7 +210,7 @@ pub async fn list_tasks(
 pub async fn get_task(
     State(gateway_state): State<GatewayState>,
     Path(task_id): Path<String>,
-) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<PublicTaskResponse>, (StatusCode, Json<ErrorResponse>)> {
     debug!("HTTP: Getting task: {}", task_id);
 
     let request = Request::new(GetTaskRequest { task_id });
@@ -282,7 +219,7 @@ pub async fn get_task(
         Ok(response) => {
             let resp = response.into_inner();
             if let Some(task) = resp.task {
-                Ok(Json(task_to_response(task)))
+                Ok(Json(task_to_public_response(task)))
             } else {
                 Err((
                     StatusCode::NOT_FOUND,

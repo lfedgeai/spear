@@ -2,12 +2,13 @@ use std::collections::{HashMap, HashSet};
 
 use crate::spearlet::config::SpearletConfig;
 
-pub mod dynamic_backend_registry;
-pub mod dynamic_credential_store;
-pub mod credential_sync;
-pub mod credential_resolver;
 pub mod backend_assembly;
 pub mod backend_assignment_controller;
+pub mod credential_resolver;
+pub mod credential_sync;
+pub mod dynamic_backend_registry;
+pub mod dynamic_credential_store;
+pub mod remote_preflight;
 
 pub fn collect_ai_global_environment(cfg: &SpearletConfig) -> HashMap<String, String> {
     let mut cred_env: HashMap<String, String> = HashMap::new();

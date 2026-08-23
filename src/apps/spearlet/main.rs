@@ -3,23 +3,23 @@
 
 use clap::Parser;
 use spear_next::config::init_tracing;
+use spear_next::spearlet::ai::backend_assignment_controller::BackendAssignmentController;
+use spear_next::spearlet::ai::credential_sync::CredentialSyncService;
 use spear_next::spearlet::backend_reporter::BackendReportTrigger;
 use spear_next::spearlet::backend_reporter::BackendReporterService;
 use spear_next::spearlet::config::CliArgs;
 use spear_next::spearlet::controller::ControllerGroup;
-use spear_next::spearlet::grpc_server::GrpcServer;
-use spear_next::spearlet::http_gateway::HttpGateway;
-use spear_next::spearlet::ai::credential_sync::CredentialSyncService;
-use spear_next::spearlet::ai::backend_assignment_controller::BackendAssignmentController;
-use spear_next::spearlet::mcp::registry_sync::global_mcp_registry_sync_with_channel;
-use spear_next::spearlet::ollama_discovery::maybe_import_ollama_serving_models;
-use spear_next::spearlet::registration::RegistrationService;
-use spear_next::spearlet::sms_connector::sms_channel_lazy;
 use spear_next::spearlet::execution::ai::engine_holder::{init_global, EngineHolder};
 use spear_next::spearlet::execution::ai::router::grpc_filter_stream::RouterFilterStreamHub;
 use spear_next::spearlet::execution::ai::router::Router;
 use spear_next::spearlet::execution::ai::AiEngine;
 use spear_next::spearlet::execution::runtime::{ResourcePoolConfig, RuntimeConfig, RuntimeType};
+use spear_next::spearlet::grpc_server::GrpcServer;
+use spear_next::spearlet::http_gateway::HttpGateway;
+use spear_next::spearlet::mcp::registry_sync::global_mcp_registry_sync_with_channel;
+use spear_next::spearlet::ollama_discovery::maybe_import_ollama_serving_models;
+use spear_next::spearlet::registration::RegistrationService;
+use spear_next::spearlet::sms_connector::sms_channel_lazy;
 use tonic::transport::Channel;
 
 use std::sync::Arc;
@@ -86,7 +86,6 @@ async fn run(
             .map(|v| !v.is_empty())
             .unwrap_or(false);
 
-
     global_mcp_registry_sync_with_channel(config.clone(), sms_channel.clone());
 
     let env = spear_next::spearlet::ai::collect_ai_global_environment(&config);
@@ -135,7 +134,6 @@ async fn run(
             backend_report_trigger.clone(),
         );
         controllers.register(backend_assignment_controller);
-
     }
 
     let grpc_server = GrpcServer::new(config.clone(), sms_channel.clone()).await?;
@@ -204,11 +202,12 @@ async fn run(
             execution_manager.clone(),
         );
         subscriber.start().await;
-        let assignment_subscriber = spear_next::spearlet::task_assignments::TaskAssignmentSubscriber::new(
-            config.clone(),
-            sms_channel.clone(),
-            execution_manager,
-        );
+        let assignment_subscriber =
+            spear_next::spearlet::task_assignments::TaskAssignmentSubscriber::new(
+                config.clone(),
+                sms_channel.clone(),
+                execution_manager,
+            );
         assignment_subscriber.start().await;
 
         let backend_reporter = BackendReporterService::new(

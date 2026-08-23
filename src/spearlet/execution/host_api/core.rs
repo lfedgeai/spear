@@ -1,8 +1,8 @@
-use crate::spearlet::execution::ai::router::Router;
-use crate::spearlet::execution::ai::AiEngine;
 #[cfg(not(test))]
 use crate::spearlet::execution::ai::engine_holder::global as global_engine_holder;
 use crate::spearlet::execution::ai::engine_holder::EngineHolder;
+use crate::spearlet::execution::ai::router::Router;
+use crate::spearlet::execution::ai::AiEngine;
 use crate::spearlet::execution::host_api::iface::{HttpCallResult, SpearHostApi};
 use crate::spearlet::execution::hostcall::fd_table::FdTable;
 use crate::spearlet::execution::ExecutionError;
@@ -216,7 +216,10 @@ impl DefaultHostApi {
     pub fn new(runtime_config: super::super::runtime::RuntimeConfig) -> Self {
         #[cfg(test)]
         let ai_engine_holder = {
-            let (registry, policy) = crate::spearlet::execution::ai::router::builder::build_registry_from_runtime_config(&runtime_config);
+            let (registry, policy) =
+                crate::spearlet::execution::ai::router::builder::build_registry_from_runtime_config(
+                    &runtime_config,
+                );
             let grpc_filter_stream = runtime_config
                 .spearlet_config
                 .as_ref()
@@ -345,6 +348,16 @@ impl DefaultHostApi {
                 message.to_string(),
             );
         }
+
+        crate::spearlet::debug_reporter::report_log(
+            "wasm_log_write",
+            "wasm",
+            level,
+            message,
+            task_id.as_deref(),
+            execution_id_for_entry.as_deref(),
+            instance_id_for_entry.as_deref(),
+        );
 
         match level {
             "trace" => tracing::trace!(
