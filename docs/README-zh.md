@@ -2,11 +2,25 @@
 
 本目录包含项目文档，记录了项目开发过程中的重要变更、解决方案和配置说明。
 
+## 从这里开始
+
+如果你是第一次接触 SPEAR，建议先看下面这些文档：
+
+- **[../README.zh.md](../README.zh.md)** - 仓库级概览、架构说明，以及 Docker Compose 的 HTTP / HTTPS 快速上手
+- **[project-architecture-overview-zh.md](./project-architecture-overview-zh.md)** - 更完整的架构说明
+- **[web-admin-overview-zh.md](./web-admin-overview-zh.md)** - Web Admin 可以做什么
+- **[spear-console-overview-zh.md](./spear-console-overview-zh.md)** - Console 的用途和使用方式
+- **[samples-build-guide-zh.md](./samples-build-guide-zh.md)** - 如何构建并体验 samples
+
 ## 文档列表
 
 ### 当前文档
 - **[ai-backend-unified-control-plane-design-zh.md](./ai-backend-unified-control-plane-design-zh.md)** - 统一 AI backend 控制面重构设计，覆盖 UUID 资源模型、placement、node status 与 AI Models 只读聚合视图
 - **[ai-backend-unified-control-plane-design-en.md](./ai-backend-unified-control-plane-design-en.md)** - Unified AI backend control-plane redesign 的英文版
+- **[remote-ai-backend-preflight-design-zh.md](./remote-ai-backend-preflight-design-zh.md)** - Remote AI backend 创建前预检设计，覆盖 credential 校验、model 可访问性检查与 `all_nodes` 验证策略
+- **[remote-ai-backend-preflight-design-en.md](./remote-ai-backend-preflight-design-en.md)** - Remote AI backend preflight design 的英文版
+- **[repo-type-model-refactor-roadmap-zh.md](./repo-type-model-refactor-roadmap-zh.md)** - 仓库级类型模型重构路线图，聚焦弱类型 bag、魔法字符串与多语义扁平 DTO 的收敛
+- **[repo-type-model-refactor-roadmap-en.md](./repo-type-model-refactor-roadmap-en.md)** - Repository type-model refactor roadmap 的英文版
 - **[web-admin-overview-zh.md](./web-admin-overview-zh.md)** - 当前 Web Admin 页面与 API 概览
 - **[web-admin-overview-en.md](./web-admin-overview-en.md)** - Web Admin overview (English)
 - **[web-admin-ui-guide-zh.md](./web-admin-ui-guide-zh.md)** - 当前 Web Admin 使用指南
@@ -43,3 +57,5 @@
 - 2026-07-05: 添加统一 AI backend 控制面设计文档
 - 2026-08-16: 更新 Web Admin / AI backend 相关文档并补充英文能力矩阵
 - 2026-08-16: 将 docs 索引拆分为“当前文档”和“历史 / 已替代文档”
+- 2026-08-21: 添加 remote AI backend 预检设计文档
+- 2026-08-21: 添加仓库级类型模型重构路线图文档

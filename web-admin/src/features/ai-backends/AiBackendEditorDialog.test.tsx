@@ -106,6 +106,9 @@ describe('AiBackendEditorDialog', () => {
 
     await waitFor(() => expect(screen.getByRole('option', { name: 'openai-prod' })).toBeTruthy())
     await waitFor(() => expect(screen.queryByText('Loading nodes…')).toBeNull())
+    fireEvent.change(getSelectForLabel('Credential ref'), {
+      target: { value: 'openai-prod' },
+    })
 
     const textareas = document.body.querySelectorAll('textarea')
     fireEvent.change(textareas[0], {
@@ -122,6 +125,13 @@ describe('AiBackendEditorDialog', () => {
         expect.objectContaining({
           provider: 'openai',
           model: 'gpt-4o',
+          credential_ref: undefined,
+          remote: {
+            provider_family: 'open_ai_compatible',
+            config: expect.objectContaining({
+              credential_ref: 'openai-prod',
+            }),
+          },
           labels: {
             env: 'prod',
             team: 'ml-platform',
@@ -224,8 +234,14 @@ describe('AiBackendEditorDialog', () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         spec: expect.objectContaining({
-          operations: ['chat_completions', 'embeddings'],
+          operations: [],
         }),
+        remote: {
+          provider_family: 'open_ai_compatible',
+          config: expect.objectContaining({
+            operations: ['chat_completions', 'embeddings'],
+          }),
+        },
       }),
       expect.anything(),
     )
@@ -250,8 +266,14 @@ describe('AiBackendEditorDialog', () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         spec: expect.objectContaining({
-          features: ['stream', 'supports_tools'],
+          features: [],
         }),
+        remote: {
+          provider_family: 'open_ai_compatible',
+          config: expect.objectContaining({
+            features: ['stream', 'supports_tools'],
+          }),
+        },
       }),
       expect.anything(),
     )
@@ -280,9 +302,12 @@ describe('AiBackendEditorDialog', () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         hosting: 'local',
-        metadata: expect.objectContaining({
-          model_url: 'https://models.example.com/llama3.1.gguf',
-        }),
+        local: {
+          provider_family: 'llama_cpp',
+          config: expect.objectContaining({
+            model_url: 'https://models.example.com/llama3.1.gguf',
+          }),
+        },
       }),
       expect.objectContaining({
         scope: 'single_node',
@@ -291,7 +316,7 @@ describe('AiBackendEditorDialog', () => {
     )
   })
 
-  it('shows model url field for local llamacpp and syncs it into metadata', async () => {
+  it('shows model url field for local llamacpp without back-writing it into metadata', async () => {
     const { onSubmit } = renderDialog({ initialHosting: 'local' })
 
     await waitFor(() => expect(screen.getByRole('option', { name: /spearlet-local/ })).toBeTruthy())
@@ -309,9 +334,13 @@ describe('AiBackendEditorDialog', () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: expect.objectContaining({
-          model_url: 'https://models.example.com/llama3.1.gguf',
-        }),
+        local: {
+          provider_family: 'llama_cpp',
+          config: expect.objectContaining({
+            model_url: 'https://models.example.com/llama3.1.gguf',
+          }),
+        },
+        metadata: {},
       }),
       expect.anything(),
     )
@@ -335,9 +364,51 @@ describe('AiBackendEditorDialog', () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: expect.objectContaining({
-          model_path: '/models/llama/llama3.1.gguf',
-        }),
+        local: {
+          provider_family: 'llama_cpp',
+          config: expect.objectContaining({
+            model_path: '/models/llama/llama3.1.gguf',
+          }),
+        },
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('does not let metadata textarea override typed local llamacpp fields', async () => {
+    const { onSubmit } = renderDialog({ initialHosting: 'local' })
+
+    await waitFor(() => expect(screen.getByRole('option', { name: /spearlet-local/ })).toBeTruthy())
+    fireEvent.change(screen.getByPlaceholderText('e.g. OpenAI Production'), {
+      target: { value: 'Local llama.cpp' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('e.g. gpt-4.1'), {
+      target: { value: 'llama3.1' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('e.g. https://host/path/model.gguf'), {
+      target: { value: 'https://models.example.com/typed.gguf' },
+    })
+
+    const textareas = document.body.querySelectorAll('textarea')
+    fireEvent.change(textareas[1], {
+      target: {
+        value: '{\n  "model_url": "https://models.example.com/legacy.gguf",\n  "region": "lab-a"\n}',
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        local: {
+          provider_family: 'llama_cpp',
+          config: expect.objectContaining({
+            model_url: 'https://models.example.com/typed.gguf',
+          }),
+        },
+        metadata: {
+          region: 'lab-a',
+        },
       }),
       expect.anything(),
     )

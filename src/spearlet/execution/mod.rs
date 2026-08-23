@@ -47,11 +47,11 @@ pub mod manager;
 pub mod pool;
 pub mod runtime;
 pub mod scheduler;
-mod sms_status_adapter;
 mod sms_reporter;
+mod sms_status_adapter;
 pub mod task;
-pub(crate) mod task_public_status;
 mod task_materializer;
+pub(crate) mod task_public_status;
 mod task_runtime_cleanup;
 
 /// Default entry function name placeholder.

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::StreamExt;
+use reqwest::header::RANGE;
 use reqwest::Client;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
@@ -26,6 +27,18 @@ pub struct LlamaCppSupervisor {
     local_models_dir: String,
 }
 
+/// Local model source preflight snapshot / 本地模型来源预检快照
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelSourcePreflight {
+    pub source_kind: String,
+    pub effective_model_path: String,
+    pub model_path_exists: bool,
+    pub final_url: Option<String>,
+    pub http_status: Option<u16>,
+    pub content_length: Option<u64>,
+    pub message: String,
+}
+
 struct Inner {
     procs: HashMap<String, ManagedProc>,
 }
@@ -34,6 +47,53 @@ struct ManagedProc {
     spec_key: String,
     child: Child,
     backend: BackendInfo,
+}
+
+/// llama.cpp readiness probe mode used during process startup.
+/// llama.cpp 进程启动阶段使用的就绪探测模式。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LlamaCppReadyProbe {
+    /// Probe the HTTP API until it becomes reachable.
+    /// 轮询 HTTP API，直到端点可访问。
+    Http,
+    /// Skip readiness probing entirely.
+    /// 完全跳过就绪探测。
+    None,
+}
+
+/// Typed llama.cpp launch mode derived from backend metadata.
+/// 从 backend metadata 派生的强类型 llama.cpp 启动模式。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LlamaCppLaunchMode {
+    /// Managed llama-server launch with structured runtime options.
+    /// 使用结构化运行参数启动托管 llama-server。
+    Managed {
+        threads: Option<String>,
+        ctx_size: Option<String>,
+    },
+    /// Raw process launch with fully provided command arguments.
+    /// 使用完整命令参数启动原始进程。
+    Raw { server_cmd_args: Vec<String> },
+}
+
+/// Typed llama.cpp launch options derived from backend metadata.
+/// 从 backend metadata 派生的强类型 llama.cpp 启动选项。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LlamaCppLaunchOptions {
+    server_cmd: String,
+    ready_probe: LlamaCppReadyProbe,
+    start_timeout_s: u64,
+    mode: LlamaCppLaunchMode,
+}
+
+/// Typed llama.cpp model-source configuration derived from backend metadata.
+/// 从 backend metadata 派生的强类型 llama.cpp 模型来源配置。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LlamaCppModelSource {
+    model_path: PathBuf,
+    model_url: Option<String>,
+    skip_download: bool,
+    download_timeout_s: Option<u64>,
 }
 
 impl LlamaCppSupervisor {
@@ -114,59 +174,34 @@ impl LlamaCppSupervisor {
 
         let port = allocate_local_port().await.map_err(|e| e.to_string())?;
         let base_url = format!("http://127.0.0.1:{}/v1", port);
+        let launch = parse_llamacpp_launch_options(params)?;
 
-        let ready_probe = params
-            .get("ready_probe")
-            .map(|s| s.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "http".to_string());
-
-        let server_mode = params
-            .get("server_mode")
-            .map(|s| s.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "llama".to_string());
-
-        let server_cmd = params
-            .get("server_cmd")
-            .cloned()
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| "llama-server".to_string());
-
-        let mut cmd = Command::new(server_cmd);
+        let mut cmd = Command::new(&launch.server_cmd);
         cmd.kill_on_drop(true);
         cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::null());
         cmd.stderr(Stdio::null());
 
-        if server_mode == "raw" {
-            let raw_args = params.get("server_cmd_args").cloned().unwrap_or_default();
-            let args = split_args(&raw_args);
-            if args.is_empty() {
-                return Err("server_mode=raw requires server_cmd_args".to_string());
+        match &launch.mode {
+            LlamaCppLaunchMode::Raw { server_cmd_args } => {
+                cmd.args(server_cmd_args);
             }
-            cmd.args(args);
-        } else {
-            let model_path = resolve_model_path(&self.local_models_dir, model, params)?;
-            if !model_path.exists() {
-                download_model(http, &model_path, params).await?;
-            }
+            LlamaCppLaunchMode::Managed { threads, ctx_size } => {
+                let model_source = resolve_model_source(&self.local_models_dir, model, params)?;
+                if !model_source.model_path.exists() {
+                    download_model(http, &model_source).await?;
+                }
 
-            cmd.arg("-m").arg(model_path);
-            cmd.arg("--host").arg("127.0.0.1");
-            cmd.arg("--port").arg(port.to_string());
+                cmd.arg("-m").arg(&model_source.model_path);
+                cmd.arg("--host").arg("127.0.0.1");
+                cmd.arg("--port").arg(port.to_string());
 
-            if let Some(n_threads) = params
-                .get("threads")
-                .cloned()
-                .filter(|v| !v.trim().is_empty())
-            {
-                cmd.arg("--threads").arg(n_threads);
-            }
-            if let Some(ctx) = params
-                .get("ctx_size")
-                .cloned()
-                .filter(|v| !v.trim().is_empty())
-            {
-                cmd.arg("--ctx-size").arg(ctx);
+                if let Some(n_threads) = threads {
+                    cmd.arg("--threads").arg(n_threads);
+                }
+                if let Some(ctx) = ctx_size {
+                    cmd.arg("--ctx-size").arg(ctx);
+                }
             }
         }
 
@@ -177,12 +212,8 @@ impl LlamaCppSupervisor {
             )
         })?;
 
-        if ready_probe != "none" {
-            let start_timeout_s = params
-                .get("start_timeout_s")
-                .and_then(|s| s.trim().parse::<u64>().ok())
-                .unwrap_or(120);
-            wait_ready(http, &base_url, Duration::from_secs(start_timeout_s)).await?;
+        if launch.ready_probe != LlamaCppReadyProbe::None {
+            wait_ready(http, &base_url, Duration::from_secs(launch.start_timeout_s)).await?;
         }
 
         let backend = BackendInfo {
@@ -237,6 +268,62 @@ fn split_args(s: &str) -> Vec<String> {
     s.split_whitespace().map(|x| x.to_string()).collect()
 }
 
+fn parse_llamacpp_launch_options(
+    params: &HashMap<String, String>,
+) -> Result<LlamaCppLaunchOptions, String> {
+    let ready_probe = match params
+        .get("ready_probe")
+        .map(|s| s.trim().to_ascii_lowercase())
+        .unwrap_or_else(|| "http".to_string())
+        .as_str()
+    {
+        "none" => LlamaCppReadyProbe::None,
+        _ => LlamaCppReadyProbe::Http,
+    };
+    let server_cmd = params
+        .get("server_cmd")
+        .cloned()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "llama-server".to_string());
+    let start_timeout_s = params
+        .get("start_timeout_s")
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(120);
+
+    let mode = match params
+        .get("server_mode")
+        .map(|s| s.trim().to_ascii_lowercase())
+        .unwrap_or_else(|| "llama".to_string())
+        .as_str()
+    {
+        "raw" => {
+            let raw_args = params.get("server_cmd_args").cloned().unwrap_or_default();
+            let server_cmd_args = split_args(&raw_args);
+            if server_cmd_args.is_empty() {
+                return Err("server_mode=raw requires server_cmd_args".to_string());
+            }
+            LlamaCppLaunchMode::Raw { server_cmd_args }
+        }
+        _ => LlamaCppLaunchMode::Managed {
+            threads: params
+                .get("threads")
+                .cloned()
+                .filter(|value| !value.trim().is_empty()),
+            ctx_size: params
+                .get("ctx_size")
+                .cloned()
+                .filter(|value| !value.trim().is_empty()),
+        },
+    };
+
+    Ok(LlamaCppLaunchOptions {
+        server_cmd,
+        ready_probe,
+        start_timeout_s,
+        mode,
+    })
+}
+
 fn resolve_model_path(
     local_models_dir: &str,
     model: &str,
@@ -263,34 +350,57 @@ fn resolve_model_path(
             e
         )
     })?;
-    let file = if let Some(model_url) = params
+    let file = match params
         .get("model_url")
         .cloned()
         .filter(|s| !s.trim().is_empty())
     {
-        let name = Url::parse(&model_url)
-            .ok()
-            .and_then(|u| {
-                u.path_segments()
-                    .and_then(|mut s| s.next_back().map(|x| x.to_string()))
-            })
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| sanitize_component(model));
-        let s = sanitize_component(&name);
-        if s.to_ascii_lowercase().ends_with(".gguf") {
-            s
-        } else {
-            format!("{}.gguf", s)
+        Some(model_url) => {
+            let name = Url::parse(&model_url)
+                .ok()
+                .and_then(|u| {
+                    u.path_segments()
+                        .and_then(|mut s| s.next_back().map(|x| x.to_string()))
+                })
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| sanitize_component(model));
+            let mut file = sanitize_component(&name);
+            if !file.to_ascii_lowercase().ends_with(".gguf") {
+                file.push_str(".gguf");
+            }
+            file
         }
-    } else {
-        format!("{}.gguf", sanitize_component(model))
+        None => format!("{}.gguf", sanitize_component(model)),
     };
     Ok(dir.join(file))
+}
+
+fn resolve_model_source(
+    local_models_dir: &str,
+    model: &str,
+    params: &HashMap<String, String>,
+) -> Result<LlamaCppModelSource, String> {
+    Ok(LlamaCppModelSource {
+        model_path: resolve_model_path(local_models_dir, model, params)?,
+        model_url: params
+            .get("model_url")
+            .cloned()
+            .filter(|value| !value.trim().is_empty()),
+        skip_download: params
+            .get("skip_download")
+            .map(|value| parse_truthy(value))
+            .unwrap_or(false),
+        download_timeout_s: params
+            .get("download_timeout_s")
+            .and_then(|value| value.trim().parse::<u64>().ok()),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{routing::get, Router};
+    use tokio::net::TcpListener;
 
     #[test]
     fn resolve_model_path_errors_when_data_dir_is_not_a_directory() {
@@ -306,6 +416,109 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("failed to create llamacpp model dir"));
+    }
+
+    #[tokio::test]
+    async fn preflight_model_source_accepts_existing_model_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let model_path = tmp.path().join("models").join("qwen.gguf");
+        std::fs::create_dir_all(model_path.parent().unwrap()).unwrap();
+        std::fs::write(&model_path, b"ok").unwrap();
+
+        let client = Client::builder().build().unwrap();
+        let mut params = HashMap::new();
+        params.insert(
+            "model_path".to_string(),
+            model_path.to_string_lossy().to_string(),
+        );
+
+        let report = preflight_model_source(
+            &client,
+            tmp.path().to_string_lossy().as_ref(),
+            "qwen",
+            &params,
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.source_kind, "model_path");
+        assert!(report.model_path_exists);
+        assert_eq!(report.final_url, None);
+    }
+
+    #[tokio::test]
+    async fn preflight_model_source_verifies_model_url() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = Router::new().route(
+            "/model.gguf",
+            get(|| async { ([("content-length", "16")], "0123456789abcdef") }),
+        );
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = Client::builder().build().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let mut params = HashMap::new();
+        params.insert(
+            "model_url".to_string(),
+            format!("http://{}/model.gguf", addr),
+        );
+
+        let report = preflight_model_source(
+            &client,
+            tmp.path().to_string_lossy().as_ref(),
+            "qwen",
+            &params,
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.source_kind, "model_url");
+        assert!(!report.model_path_exists);
+        assert_eq!(report.http_status, Some(200));
+        assert!(report.final_url.unwrap().contains("/model.gguf"));
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn preflight_model_source_rejects_missing_file_when_skip_download_is_enabled() {
+        let client = Client::builder().build().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let mut params = HashMap::new();
+        params.insert(
+            "model_path".to_string(),
+            "/tmp/does-not-exist.gguf".to_string(),
+        );
+        params.insert("skip_download".to_string(), "1".to_string());
+
+        let error = preflight_model_source(
+            &client,
+            tmp.path().to_string_lossy().as_ref(),
+            "qwen",
+            &params,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("skip_download=1"));
+    }
+
+    #[test]
+    fn parse_llamacpp_launch_options_requires_raw_args() {
+        let mut params = HashMap::new();
+        params.insert("server_mode".to_string(), "raw".to_string());
+
+        let error = parse_llamacpp_launch_options(&params).unwrap_err();
+        assert!(error.contains("server_mode=raw requires server_cmd_args"));
+    }
+
+    #[test]
+    fn resolve_model_source_parses_truthy_skip_download() {
+        let mut params = HashMap::new();
+        params.insert("skip_download".to_string(), "true".to_string());
+
+        let source = resolve_model_source("/tmp/models", "qwen", &params).expect("model source");
+        assert!(source.skip_download);
     }
 }
 
@@ -327,41 +540,144 @@ fn sanitize_component(s: &str) -> String {
     out.trim_matches('_').to_string()
 }
 
-async fn download_model(
+/// Preflight local model source resolution from the node-side runtime.
+/// 在节点侧运行时执行本地模型来源预检。
+pub async fn preflight_model_source(
     http: &Client,
-    model_path: &Path,
+    local_models_dir: &str,
+    model: &str,
     params: &HashMap<String, String>,
-) -> Result<(), String> {
-    if params
-        .get("skip_download")
-        .map(|v| v.trim() == "1")
-        .unwrap_or(false)
-    {
+) -> Result<ModelSourcePreflight, String> {
+    let source = resolve_model_source(local_models_dir, model, params)?;
+    if tokio::fs::metadata(&source.model_path).await.is_ok() {
+        return Ok(ModelSourcePreflight {
+            source_kind: "model_path".to_string(),
+            effective_model_path: source.model_path.display().to_string(),
+            model_path_exists: true,
+            final_url: None,
+            http_status: None,
+            content_length: None,
+            message: "model file already exists".to_string(),
+        });
+    }
+
+    if source.skip_download {
         return Err("model file missing and skip_download=1".to_string());
     }
 
-    let parent = model_path
+    let model_url = source.model_url.ok_or_else(|| {
+        "model file missing; set params.model_url (http/https .gguf) or params.model_path"
+            .to_string()
+    })?;
+    let timeout_s = source.download_timeout_s.unwrap_or(10).clamp(1, 30);
+    let (final_url, http_status, content_length) =
+        verify_model_url_access(http, &model_url, timeout_s).await?;
+
+    Ok(ModelSourcePreflight {
+        source_kind: "model_url".to_string(),
+        effective_model_path: source.model_path.display().to_string(),
+        model_path_exists: false,
+        final_url: Some(final_url),
+        http_status: Some(http_status),
+        content_length,
+        message: "model_url is reachable from the node".to_string(),
+    })
+}
+
+/// Verify model_url reachability without downloading the full artifact.
+/// 在不下载完整模型文件的情况下验证 model_url 可访问性。
+async fn verify_model_url_access(
+    http: &Client,
+    model_url: &str,
+    timeout_s: u64,
+) -> Result<(String, u16, Option<u64>), String> {
+    let url = Url::parse(model_url).map_err(|e| format!("invalid model_url: {}", e))?;
+    match url.scheme() {
+        "http" | "https" => {}
+        scheme => return Err(format!("unsupported model_url scheme: {}", scheme)),
+    }
+
+    let head_attempt = async {
+        let response = http
+            .head(model_url)
+            .send()
+            .await
+            .map_err(|e| format!("model_url preflight HEAD failed: {}", e))?;
+        if response.status().is_success() {
+            return Ok((
+                response.url().to_string(),
+                response.status().as_u16(),
+                response.content_length(),
+            ));
+        }
+        Err(format!(
+            "model_url preflight HEAD failed: http_status={} url={}",
+            response.status(),
+            model_url
+        ))
+    };
+
+    if let Ok(result) = timeout(Duration::from_secs(timeout_s), head_attempt).await {
+        if let Ok(success) = result {
+            return Ok(success);
+        }
+    }
+
+    let range_attempt = async {
+        let response = http
+            .get(model_url)
+            .header(RANGE, "bytes=0-0")
+            .send()
+            .await
+            .map_err(|e| format!("model_url preflight GET failed: {}", e))?;
+        if response.status().is_success() || response.status().as_u16() == 206 {
+            return Ok((
+                response.url().to_string(),
+                response.status().as_u16(),
+                response.content_length(),
+            ));
+        }
+        Err(format!(
+            "model_url preflight GET failed: http_status={} url={}",
+            response.status(),
+            model_url
+        ))
+    };
+
+    match timeout(Duration::from_secs(timeout_s), range_attempt).await {
+        Ok(result) => result,
+        Err(_) => Err("model_url preflight timeout".to_string()),
+    }
+}
+
+async fn download_model(http: &Client, source: &LlamaCppModelSource) -> Result<(), String> {
+    if source.skip_download {
+        return Err("model file missing and skip_download=1".to_string());
+    }
+
+    let parent = source
+        .model_path
         .parent()
         .ok_or_else(|| "invalid model_path".to_string())?;
     tokio::fs::create_dir_all(parent)
         .await
         .map_err(|e| e.to_string())?;
 
-    if let Some(model_url) = params
-        .get("model_url")
-        .cloned()
-        .filter(|s| !s.trim().is_empty())
-    {
-        let timeout_s = params
-            .get("download_timeout_s")
-            .and_then(|s| s.trim().parse::<u64>().ok())
-            .unwrap_or(3600);
-        return download_model_from_url(http, &model_url, model_path, timeout_s).await;
+    if let Some(model_url) = &source.model_url {
+        let timeout_s = source.download_timeout_s.unwrap_or(3600);
+        return download_model_from_url(http, model_url, &source.model_path, timeout_s).await;
     }
     Err(
         "model file missing; set params.model_url (http/https .gguf) or params.model_path"
             .to_string(),
     )
+}
+
+fn parse_truthy(value: &str) -> bool {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => true,
+        _ => false,
+    }
 }
 
 async fn download_model_from_url(

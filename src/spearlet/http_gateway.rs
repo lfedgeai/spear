@@ -1,7 +1,9 @@
 //! HTTP gateway implementation for spearlet
 //! spearlet的HTTP gateway实现
 
+mod backend_preflight_handlers;
 mod execution_handlers;
+mod local_model_handlers;
 mod monitoring_handlers;
 mod object_handlers;
 mod task_handlers;
@@ -79,11 +81,17 @@ pub(crate) fn build_router(state: AppState, swagger_enabled: bool) -> Router {
         .route("/objects/{key}", get(object_handlers::get_object))
         .route("/objects", get(object_handlers::list_objects))
         .route("/objects/{key}/refs", post(object_handlers::add_object_ref))
-        .route("/objects/{key}/refs", delete(object_handlers::remove_object_ref))
+        .route(
+            "/objects/{key}/refs",
+            delete(object_handlers::remove_object_ref),
+        )
         .route("/objects/{key}/pin", post(object_handlers::pin_object))
         .route("/objects/{key}/pin", delete(object_handlers::unpin_object))
         .route("/objects/{key}", delete(object_handlers::delete_object))
-        .route("/functions/execute", post(execution_handlers::execute_function))
+        .route(
+            "/functions/execute",
+            post(execution_handlers::execute_function),
+        )
         .route(
             "/functions/executions/{execution_id}",
             get(execution_handlers::get_execution_status),
@@ -94,13 +102,30 @@ pub(crate) fn build_router(state: AppState, swagger_enabled: bool) -> Router {
         )
         .route("/tasks", get(task_handlers::list_tasks))
         .route("/tasks/{task_id}", get(task_handlers::get_task))
-        .route("/tasks/{task_id}/executions", get(task_handlers::get_task_executions))
+        .route(
+            "/tasks/{task_id}/executions",
+            get(task_handlers::get_task_executions),
+        )
         .route("/monitoring/stats", get(monitoring_handlers::get_stats))
-        .route("/monitoring/health", get(monitoring_handlers::get_health_status))
-        .route("/monitoring/ai/backends", get(monitoring_handlers::get_ai_backends))
+        .route(
+            "/monitoring/health",
+            get(monitoring_handlers::get_health_status),
+        )
+        .route(
+            "/monitoring/ai/backends",
+            get(monitoring_handlers::get_ai_backends),
+        )
         .route(
             "/monitoring/ai/credentials",
             get(monitoring_handlers::get_ai_credentials),
+        )
+        .route(
+            "/internal/ai/local-models/preflight",
+            post(local_model_handlers::preflight_local_model),
+        )
+        .route(
+            "/internal/ai/backends/preflight",
+            post(backend_preflight_handlers::preflight_backend),
         )
         .route(
             "/api/v1/executions/{execution_id}/streams/ws",
@@ -298,11 +323,9 @@ async fn e2e_llm_router_filter(
 
     let mut kept: Vec<&crate::spearlet::execution::ai::router::registry::BackendInstance> =
         candidates;
-    let outcome =
-        crate::spearlet::execution::ai::router::filter_decision::apply_filter_response(
-            &resp,
-            &mut kept,
-        );
+    let outcome = crate::spearlet::execution::ai::router::filter_decision::apply_filter_response(
+        &resp, &mut kept,
+    );
 
     let kept_names: Vec<String> = kept.iter().map(|c| c.spec.name.clone()).collect();
     let dropped_names = outcome.dropped_names;
@@ -334,18 +357,21 @@ async fn e2e_llm_router_filter(
 
 impl HttpGateway {
     /// Create new HTTP gateway / 创建新的HTTP网关
-    pub fn new(
+    pub fn new<T>(
         config: Arc<SpearletConfig>,
         health_service: Arc<HealthService>,
-        function_service: Arc<FunctionServiceImpl>,
+        function_service: T,
         object_client: ObjectServiceClient<Channel>,
         invocation_client: InvocationServiceClient<Channel>,
         execution_client: ExecutionServiceClient<Channel>,
-    ) -> Self {
+    ) -> Self
+    where
+        T: Into<Arc<FunctionServiceImpl>>,
+    {
         Self {
             config,
             health_service,
-            function_service,
+            function_service: function_service.into(),
             object_client,
             invocation_client,
             execution_client,

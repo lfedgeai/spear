@@ -13,9 +13,8 @@ use crate::proto::sms::{
     execution_index_service_client::ExecutionIndexServiceClient,
     execution_registry_service_client::ExecutionRegistryServiceClient,
     instance_registry_service_client::InstanceRegistryServiceClient,
-    mcp_registry_service_client::McpRegistryServiceClient,
-    node_service_client::NodeServiceClient, placement_service_client::PlacementServiceClient,
-    task_service_client::TaskServiceClient,
+    mcp_registry_service_client::McpRegistryServiceClient, node_service_client::NodeServiceClient,
+    placement_service_client::PlacementServiceClient, task_service_client::TaskServiceClient,
 };
 use crate::sms::gateway::{create_gateway_router, GatewayState};
 use crate::sms::routes::create_routes;
@@ -52,6 +51,48 @@ fn create_mock_gateway_state() -> GatewayState {
         max_upload_bytes: 64 * 1024 * 1024,
         files_dir,
     }
+}
+
+/// Build a JSON route probe request and optionally force extractor-level
+/// failure for methods that only need route matching coverage.
+/// 构造 JSON 路由探测请求；对于只需要验证路由命中的方法，可选择故意让请求在
+/// extractor 层失败。
+fn build_json_route_probe_request(
+    method: Method,
+    uri: &str,
+    fast_fail_methods: &[Method],
+) -> Request<Body> {
+    let request_body = if fast_fail_methods.iter().any(|candidate| candidate == &method) {
+        Body::from("{")
+    } else {
+        Body::from("{}")
+    };
+
+    Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("content-type", "application/json")
+        .body(request_body)
+        .unwrap()
+}
+
+/// Assert that a route was matched, even when the request stops at the JSON
+/// extractor instead of reaching downstream handlers.
+/// 断言路由已命中；即使请求停在 JSON extractor 阶段、尚未进入下游 handler，
+/// 也视为路由存在。
+fn assert_route_matched_status(
+    method: &Method,
+    uri: &str,
+    status: StatusCode,
+    matched_statuses: &[StatusCode],
+) {
+    assert!(
+        matched_statuses.contains(&status),
+        "Route {} {} should be matched, got {}",
+        method,
+        uri,
+        status
+    );
 }
 
 #[tokio::test]
@@ -122,29 +163,25 @@ async fn test_node_routes_structure() {
     ];
 
     for (method, uri) in test_cases {
-        let request = Request::builder()
-            .method(method.clone())
-            .uri(uri)
-            .header("content-type", "application/json")
-            .body(Body::from("{}"))
-            .unwrap();
+        let request = build_json_route_probe_request(method.clone(), uri, &[Method::POST]);
 
         let response = app.clone().oneshot(request).await.unwrap();
 
         // For ID-specific endpoints, 404 indicates entity not found, not missing route
         // 对于带ID的端点，404表示实体不存在，而不是路由缺失
         if uri.starts_with("/api/v1/nodes/") && uri != "/api/v1/nodes" {
-            assert!(
-                [
+            assert_route_matched_status(
+                &method,
+                uri,
+                response.status(),
+                &[
                     StatusCode::OK,
                     StatusCode::NOT_FOUND,
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    StatusCode::CREATED
-                ]
-                .contains(&response.status()),
-                "Route {} {} should be matched",
-                method,
-                uri
+                    StatusCode::CREATED,
+                    StatusCode::BAD_REQUEST,
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                ],
             );
         } else {
             assert_ne!(
@@ -181,28 +218,24 @@ async fn test_resource_routes_structure() {
     ];
 
     for (method, uri) in test_cases {
-        let request = Request::builder()
-            .method(method.clone())
-            .uri(uri)
-            .header("content-type", "application/json")
-            .body(Body::from("{}"))
-            .unwrap();
+        let request = build_json_route_probe_request(method.clone(), uri, &[Method::PUT]);
 
         let response = app.clone().oneshot(request).await.unwrap();
 
         // ID-specific endpoints may legitimately return 404 if data is absent
         // 带ID的端点在数据缺失时返回404是合理的
         if uri.contains("/api/v1/nodes/") && !uri.ends_with("/resources") {
-            assert!(
-                [
+            assert_route_matched_status(
+                &method,
+                uri,
+                response.status(),
+                &[
                     StatusCode::OK,
                     StatusCode::NOT_FOUND,
-                    StatusCode::INTERNAL_SERVER_ERROR
-                ]
-                .contains(&response.status()),
-                "Route {} {} should be matched",
-                method,
-                uri
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    StatusCode::BAD_REQUEST,
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                ],
             );
         } else {
             assert_ne!(
@@ -229,29 +262,24 @@ async fn test_stream_routes_structure() {
     ];
 
     for (method, uri) in test_cases {
-        let request = Request::builder()
-            .method(method.clone())
-            .uri(uri)
-            .header("content-type", "application/json")
-            .body(Body::from("{}"))
-            .unwrap();
+        let request = build_json_route_probe_request(method.clone(), uri, &[Method::POST]);
 
         let response = app.clone().oneshot(request).await.unwrap();
         if uri.starts_with("/api/v1/executions/") {
-            assert!(
-                [
+            assert_route_matched_status(
+                &method,
+                uri,
+                response.status(),
+                &[
                     StatusCode::OK,
                     StatusCode::BAD_REQUEST,
                     StatusCode::UNAUTHORIZED,
                     StatusCode::FORBIDDEN,
                     StatusCode::NOT_FOUND,
                     StatusCode::BAD_GATEWAY,
-                    StatusCode::INTERNAL_SERVER_ERROR
-                ]
-                .contains(&response.status()),
-                "Route {} {} should be matched",
-                method,
-                uri
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                ],
             );
         } else {
             assert_ne!(
@@ -281,28 +309,24 @@ async fn test_task_routes_structure() {
     ];
 
     for (method, uri) in test_cases {
-        let request = Request::builder()
-            .method(method.clone())
-            .uri(uri)
-            .header("content-type", "application/json")
-            .body(Body::from("{}"))
-            .unwrap();
+        let request = build_json_route_probe_request(method.clone(), uri, &[Method::POST]);
 
         let response = app.clone().oneshot(request).await.unwrap();
 
         // ID-specific endpoints might return 404 when task doesn't exist
         // 带ID的端点在任务不存在时可能返回404
         if uri.starts_with("/api/v1/tasks/") && uri != "/api/v1/tasks" {
-            assert!(
-                [
+            assert_route_matched_status(
+                &method,
+                uri,
+                response.status(),
+                &[
                     StatusCode::OK,
                     StatusCode::NOT_FOUND,
-                    StatusCode::INTERNAL_SERVER_ERROR
-                ]
-                .contains(&response.status()),
-                "Route {} {} should be matched",
-                method,
-                uri
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    StatusCode::BAD_REQUEST,
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                ],
             );
         } else {
             assert_ne!(
@@ -442,18 +466,27 @@ async fn test_content_type_handling() {
     let state = create_mock_gateway_state();
     let app = create_routes(state);
 
+    // Use malformed JSON so the request is rejected by the JSON extractor before
+    // the handler reaches the lazy gRPC client. This keeps the test focused on
+    // content-type behavior instead of connection timeout behavior.
+    // 使用非法 JSON，让请求在 JSON extractor 阶段就被拒绝，避免 handler 继续走到
+    // lazy gRPC client。这样测试只验证 content-type 行为，而不是被连接超时拖慢。
     // Test with correct content type / 测试正确的内容类型
     let request = Request::builder()
         .method(Method::POST)
         .uri("/api/v1/nodes")
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"ip_address": "127.0.0.1", "port": 8080}"#))
+        .body(Body::from(r#"{"ip_address":"127.0.0.1","port":}"#))
         .unwrap();
 
     let response = app.clone().oneshot(request).await.unwrap();
 
-    // Should not return 415 Unsupported Media Type / 不应返回415不支持的媒体类型
+    // Should fail JSON parsing instead of media-type validation / 应因 JSON 解析失败，而不是媒体类型失败
     assert_ne!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 
     // Test with incorrect content type / 测试错误的内容类型
     let request = Request::builder()
@@ -465,12 +498,12 @@ async fn test_content_type_handling() {
 
     let response = app.oneshot(request).await.unwrap();
 
-    // May return 400 Bad Request or 415 Unsupported Media Type / 可能返回400错误请求或415不支持的媒体类型
+    // Should be rejected before any handler-side gRPC work / 应在 handler 侧 gRPC 工作之前被拒绝
     assert!(
         response.status() == StatusCode::BAD_REQUEST
             || response.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
-    ); // Due to gRPC connection / 由于gRPC连接
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -479,6 +512,10 @@ async fn test_large_request_handling() {
     let state = create_mock_gateway_state();
     let app = create_routes(state);
 
+    // Create a large malformed JSON payload so the request is rejected by the
+    // JSON extractor instead of reaching the lazy gRPC client.
+    // 创建一个很大的非法 JSON 负载，让请求在 JSON extractor 阶段被拒绝，而不是继续
+    // 走到 lazy gRPC client。
     // Create a large JSON payload / 创建大JSON负载
     let large_metadata = (0..1000)
         .map(|i| format!(r#""key{}": "value{}""#, i, i))
@@ -488,7 +525,7 @@ async fn test_large_request_handling() {
     let large_json = format!(
         r#"{{
         "ip_address": "127.0.0.1",
-        "port": 8080,
+        "port": ,
         "metadata": {{{}}}
     }}"#,
         large_metadata
@@ -503,8 +540,12 @@ async fn test_large_request_handling() {
 
     let response = app.oneshot(request).await.unwrap();
 
-    // Should handle large requests (not return 413 Payload Too Large) / 应处理大请求（不返回413负载过大）
+    // Should handle large requests without tripping payload limits / 应处理大请求而不触发负载限制
     assert_ne!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 // Integration tests for route behavior / 路由行为的集成测试

@@ -142,7 +142,8 @@ impl InstanceExecutionIndex {
 
         let key = format!("{}{}", INSTANCE_KEY_PREFIX, instance_id);
         let _ = self.kv.delete(&key).await;
-        self.store_instance_tombstone(instance_id, deleted_at_ms).await?;
+        self.store_instance_tombstone(instance_id, deleted_at_ms)
+            .await?;
         self.remove_from_task_active_instances(task_id, instance_id)
             .await?;
         Ok((true, deleted_at_ms))
@@ -178,7 +179,11 @@ impl InstanceExecutionIndex {
         Ok((true, rec.updated_at_ms))
     }
 
-    pub async fn project_instance_views(&self, inst: &Instance, now_ms: i64) -> Result<(), SmsError> {
+    pub async fn project_instance_views(
+        &self,
+        inst: &Instance,
+        now_ms: i64,
+    ) -> Result<(), SmsError> {
         self.project_task_active_instances_view(inst, now_ms).await
     }
 
@@ -380,12 +385,13 @@ impl InstanceExecutionIndex {
                 &inst.task_id,
                 inst.updated_at_ms.max(now_ms),
             )
-                .await?;
+            .await?;
             return Ok(());
         }
         let (accepted, _) = self.upsert_instance_record(inst.clone()).await?;
         if accepted {
-            self.project_task_active_instances_view(&inst, now_ms).await?;
+            self.project_task_active_instances_view(&inst, now_ms)
+                .await?;
         }
         Ok(())
     }
@@ -419,7 +425,8 @@ impl InstanceExecutionIndex {
             };
             let (accepted, _) = self.upsert_instance_record(inst.clone()).await?;
             if accepted {
-                self.project_task_active_instances_view(&inst, now_ms).await?;
+                self.project_task_active_instances_view(&inst, now_ms)
+                    .await?;
             }
         }
         Ok(())
@@ -624,7 +631,10 @@ impl InstanceExecutionIndex {
             .await?;
         let _ = self
             .kv
-            .delete(&execution_history_index_key(Some(rec.task_id.as_str()), rec))
+            .delete(&execution_history_index_key(
+                Some(rec.task_id.as_str()),
+                rec,
+            ))
             .await?;
         Ok(())
     }
@@ -944,14 +954,20 @@ mod tests {
 
         let (page1, token1) = idx.list_executions(None, None, 2, "").await.unwrap();
         assert_eq!(
-            page1.iter().map(|e| e.execution_id.as_str()).collect::<Vec<_>>(),
+            page1
+                .iter()
+                .map(|e| e.execution_id.as_str())
+                .collect::<Vec<_>>(),
             vec!["exe-2", "exe-3"]
         );
         assert!(!token1.is_empty());
 
         let (page2, token2) = idx.list_executions(None, None, 2, &token1).await.unwrap();
         assert_eq!(
-            page2.iter().map(|e| e.execution_id.as_str()).collect::<Vec<_>>(),
+            page2
+                .iter()
+                .map(|e| e.execution_id.as_str())
+                .collect::<Vec<_>>(),
             vec!["exe-1"]
         );
         assert!(token2.is_empty());

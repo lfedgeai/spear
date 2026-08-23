@@ -36,9 +36,10 @@ fn resolve_backend(op: &str, transport: &str, kinds: &[&str]) -> Option<Resolved
     })?;
 
     let cred_name = backend.credential_ref.as_ref()?;
-    let cred = cfg.ai.credentials.iter().find(|c| {
-        c.name == *cred_name && c.kind == "env" && !c.api_key_env.trim().is_empty()
-    })?;
+    let cred =
+        cfg.ai.credentials.iter().find(|c| {
+            c.name == *cred_name && c.kind == "env" && !c.api_key_env.trim().is_empty()
+        })?;
 
     let env_name = cred.api_key_env.trim().to_string();
     let api_key = std::env::var(&env_name).ok()?.trim().to_string();

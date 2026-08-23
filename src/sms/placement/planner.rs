@@ -40,11 +40,21 @@ impl SmsServiceImpl {
 
         let mut candidates = Vec::new();
         for node in nodes {
-            if !is_candidate_node(&node, now_secs, heartbeat_timeout_secs, &self.placement_state) {
+            if !is_candidate_node(
+                &node,
+                now_secs,
+                heartbeat_timeout_secs,
+                &self.placement_state,
+            ) {
                 continue;
             }
             let resource = match uuid::Uuid::parse_str(&node.uuid) {
-                Ok(uuid) => self.resource_service.get_resource(&uuid).await.ok().flatten(),
+                Ok(uuid) => self
+                    .resource_service
+                    .get_resource(&uuid)
+                    .await
+                    .ok()
+                    .flatten(),
                 Err(_) => None,
             };
             let score = score_node(
@@ -99,7 +109,9 @@ impl SmsServiceImpl {
                 break;
             };
             *assignments.entry(chosen.node_uuid.clone()).or_insert(0) += 1;
-            *synthetic_counts.entry(chosen.node_uuid.clone()).or_insert(0) += 1;
+            *synthetic_counts
+                .entry(chosen.node_uuid.clone())
+                .or_insert(0) += 1;
         }
         Ok(assignments)
     }

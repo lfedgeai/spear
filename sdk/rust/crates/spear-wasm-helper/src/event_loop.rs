@@ -1,7 +1,9 @@
 //! Lightweight epoll driver for Rust-first guest apps.
 //! Rust-first guest app 的轻量 epoll driver。
 
-use spear_wasm::{constants, epoll_close, epoll_create, epoll_ctl, epoll_wait, EpollFd, SpearError};
+use spear_wasm::{
+    constants, epoll_close, epoll_create, epoll_ctl, epoll_wait, EpollFd, SpearError,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReadyEvent {
@@ -39,7 +41,11 @@ impl EpollDriver {
         let _ = epoll_ctl(self.raw_fd(), constants::SPEAR_EPOLL_CTL_DEL, fd, 0);
     }
 
-    pub fn wait(&self, timeout_ms: i32, initial_capacity: usize) -> Result<Vec<ReadyEvent>, SpearError> {
+    pub fn wait(
+        &self,
+        timeout_ms: i32,
+        initial_capacity: usize,
+    ) -> Result<Vec<ReadyEvent>, SpearError> {
         Ok(epoll_wait(self.raw_fd(), timeout_ms, initial_capacity)?
             .into_iter()
             .map(|event| ReadyEvent {

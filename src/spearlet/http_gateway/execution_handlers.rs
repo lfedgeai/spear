@@ -7,9 +7,7 @@ use base64::{engine::general_purpose, Engine as _};
 use serde::Deserialize;
 use tracing::{debug, error};
 
-use crate::proto::spearlet::{
-    GetExecutionRequest, InvokeRequest, TerminateExecutionRequest,
-};
+use crate::proto::spearlet::{GetExecutionRequest, InvokeRequest, TerminateExecutionRequest};
 use crate::spearlet::execution::execution_status::ExecutionPublicStatus;
 
 use super::AppState;

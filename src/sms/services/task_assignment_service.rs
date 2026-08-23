@@ -106,6 +106,7 @@ impl TaskAssignmentService {
         task_id: &str,
         _updated_at_ms: i64,
     ) -> AssignmentReplaceResult {
-        self.replace_task_assignments(task_id, HashMap::new(), 0).await
+        self.replace_task_assignments(task_id, HashMap::new(), 0)
+            .await
     }
 }

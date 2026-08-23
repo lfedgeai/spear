@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc, time::{Duration, Instant}};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use sha2::Digest;
 use tokio::time::timeout;
@@ -17,27 +21,32 @@ use super::{
 /// Build a stable artifact id and spec from an SMS task definition.
 /// 从 SMS task 定义构建稳定的 artifact id 和 spec。
 fn artifact_spec_from_sms_task(sms_task: &SmsTask) -> (String, ArtifactSpec) {
-    let (runtime_type, location_opt, checksum_opt, env) = if let Some(executable) = &sms_task.executable
-    {
-        let runtime_type = match executable.r#type {
-            3 => RuntimeType::Kubernetes,
-            4 => RuntimeType::Wasm,
-            _ => RuntimeType::Process,
-        };
-        let location_opt = if executable.uri.is_empty() {
-            None
+    let (runtime_type, location_opt, checksum_opt, env) =
+        if let Some(executable) = &sms_task.executable {
+            let runtime_type = match executable.r#type {
+                3 => RuntimeType::Kubernetes,
+                4 => RuntimeType::Wasm,
+                _ => RuntimeType::Process,
+            };
+            let location_opt = if executable.uri.is_empty() {
+                None
+            } else {
+                Some(executable.uri.clone())
+            };
+            let checksum_opt = if executable.checksum_sha256.is_empty() {
+                None
+            } else {
+                Some(executable.checksum_sha256.clone())
+            };
+            (
+                runtime_type,
+                location_opt,
+                checksum_opt,
+                executable.env.clone(),
+            )
         } else {
-            Some(executable.uri.clone())
+            (RuntimeType::Process, None, None, HashMap::new())
         };
-        let checksum_opt = if executable.checksum_sha256.is_empty() {
-            None
-        } else {
-            Some(executable.checksum_sha256.clone())
-        };
-        (runtime_type, location_opt, checksum_opt, executable.env.clone())
-    } else {
-        (RuntimeType::Process, None, None, HashMap::new())
-    };
 
     let artifact_id = if let Some(checksum) = &checksum_opt {
         checksum.clone()
@@ -149,8 +158,11 @@ pub(super) async fn fetch_sms_task(
                 message: last_error.unwrap_or_else(|| "connect sms timeout".to_string()),
             });
         }
-        let per_attempt = remaining.min(Duration::from_secs(5)).max(Duration::from_millis(1));
-        let mut client = crate::proto::sms::task_service_client::TaskServiceClient::new(channel.clone());
+        let per_attempt = remaining
+            .min(Duration::from_secs(5))
+            .max(Duration::from_millis(1));
+        let mut client =
+            crate::proto::sms::task_service_client::TaskServiceClient::new(channel.clone());
         let request = client.get_task(crate::proto::sms::GetTaskRequest {
             task_id: task_id.to_string(),
         });

@@ -35,7 +35,7 @@ async fn test_grpc_server_creation() {
 
     // Verify server has object service / 验证服务器有对象服务
     let object_service = server.get_object_service();
-    assert!(Arc::strong_count(&object_service) > 0);
+    assert_eq!(object_service.get_stats().await.object_count, 0);
 }
 
 #[tokio::test]
@@ -50,7 +50,7 @@ async fn test_grpc_server_config() {
     let object_service = server.get_object_service();
 
     // Verify object service is created / 验证对象服务已创建
-    assert!(Arc::strong_count(&object_service) > 0);
+    assert_eq!(object_service.get_stats().await.object_count, 0);
 }
 
 #[tokio::test]
@@ -126,8 +126,20 @@ async fn test_multiple_grpc_servers() {
     let service1 = server1.get_object_service();
     let service2 = server2.get_object_service();
 
-    // Services should be different instances / 服务应该是不同的实例
-    assert!(!Arc::ptr_eq(&service1, &service2));
+    // Different servers should keep isolated object stores / 不同服务器应保持各自独立的对象存储
+    use crate::proto::spearlet::{object_service_server::ObjectService, PutObjectRequest};
+    use tonic::Request;
+
+    let put_request = Request::new(PutObjectRequest {
+        key: "server-1-only".to_string(),
+        value: b"value".to_vec(),
+        metadata: std::collections::HashMap::new(),
+        overwrite: false,
+    });
+    service1.put_object(put_request).await.unwrap();
+
+    assert_eq!(service1.get_stats().await.object_count, 1);
+    assert_eq!(service2.get_stats().await.object_count, 0);
 }
 
 #[tokio::test]
@@ -142,7 +154,7 @@ async fn test_grpc_server_tls_config() {
     let object_service = server.get_object_service();
 
     // Verify object service is created even with TLS config / 验证即使有TLS配置也能创建对象服务
-    assert!(Arc::strong_count(&object_service) > 0);
+    assert_eq!(object_service.get_stats().await.object_count, 0);
 }
 
 #[tokio::test]
@@ -160,8 +172,20 @@ async fn test_grpc_server_different_ports() {
     let service1 = server1.get_object_service();
     let service2 = server2.get_object_service();
 
-    // Services should be different instances / 服务应该是不同的实例
-    assert!(!Arc::ptr_eq(&service1, &service2));
+    // Different ports should still keep isolated stores / 不同端口的服务仍应保持独立存储
+    use crate::proto::spearlet::{object_service_server::ObjectService, PutObjectRequest};
+    use tonic::Request;
+
+    let put_request = Request::new(PutObjectRequest {
+        key: "port-1-only".to_string(),
+        value: b"value".to_vec(),
+        metadata: std::collections::HashMap::new(),
+        overwrite: false,
+    });
+    service1.put_object(put_request).await.unwrap();
+
+    assert_eq!(service1.get_stats().await.object_count, 1);
+    assert_eq!(service2.get_stats().await.object_count, 0);
 }
 
 #[tokio::test]
@@ -207,7 +231,7 @@ async fn test_grpc_server_edge_cases() {
 
     let server = GrpcServer::new(Arc::new(config), None).await.unwrap();
     let object_service = server.get_object_service();
-    assert!(Arc::strong_count(&object_service) > 0);
+    assert_eq!(object_service.get_stats().await.object_count, 0);
 
     // Test with very high port number / 测试非常高的端口号
     let mut config2 = create_test_config();
@@ -215,7 +239,7 @@ async fn test_grpc_server_edge_cases() {
 
     let server2 = GrpcServer::new(Arc::new(config2), None).await.unwrap();
     let object_service2 = server2.get_object_service();
-    assert!(Arc::strong_count(&object_service2) > 0);
+    assert_eq!(object_service2.get_stats().await.object_count, 0);
 }
 
 #[tokio::test]
@@ -254,7 +278,7 @@ async fn test_grpc_server_concurrent_creation() {
         join_set.spawn(async move {
             let server = GrpcServer::new(Arc::new(config), None).await.unwrap();
             let object_service = server.get_object_service();
-            Arc::strong_count(&object_service) > 0
+            object_service.get_stats().await.object_count == 0
         });
     }
 
@@ -302,7 +326,7 @@ mod integration_tests {
         for _ in 0..100 {
             let server = GrpcServer::new(config.clone(), None).await.unwrap();
             let object_service = server.get_object_service();
-            assert!(Arc::strong_count(&object_service) > 0);
+            assert_eq!(object_service.get_stats().await.object_count, 0);
             // Server goes out of scope and is dropped / 服务器超出作用域并被丢弃
         }
     }

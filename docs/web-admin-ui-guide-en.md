@@ -79,6 +79,10 @@ This document explains how to use the current `spear-next` Web Admin, covering n
   - `Features`
   - `Transports`
   - `Placement`
+- For supported remote providers such as `openai`, `openai_compatible`, and `ollama`, Web Admin now runs node-side preflight before creation.
+- The preflight is executed from the selected target SPEARlet node instead of from the browser or SMS process.
+- For multi-node placement, the default policy is sampled strict verification before create, followed by full node-side verification during post-create placement reconciliation.
+- If endpoint reachability, credential validation, or model access fails on the sampled node set, creation stops immediately with the node-side error.
 
 ### Create Local Backend
 
@@ -92,6 +96,9 @@ This document explains how to use the current `spear-next` Web Admin, covering n
   - `Threads`
   - `Context Size`
 - These fields are persisted back into backend metadata for the current runtime implementation.
+- When `Model URL` is used, Web Admin now runs a node-side preflight before creation.
+- The preflight is executed from the selected target node, not from the browser or SMS process.
+- If the target node cannot access the URL, creation fails immediately and returns the node-side error.
 
 ### Placement
 
@@ -100,6 +107,7 @@ This document explains how to use the current `spear-next` Web Admin, covering n
   - `All Nodes`
   - `Single Node`
   - `Selected Nodes`
+- `All Nodes` creation does not block on synchronous validation of every node by default. Instead it samples up to three nodes before create and lets the assignment controller complete full verification asynchronously on each node afterward.
 - Per-placement overrides:
   - `Weight override`
   - `Priority override`

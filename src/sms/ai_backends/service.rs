@@ -119,7 +119,10 @@ impl AiBackendService {
     }
 
     /// Fetch one backend / 读取单个 backend
-    pub async fn get_backend(&self, backend_id: &str) -> Result<Option<AiBackendRecordModel>, SmsError> {
+    pub async fn get_backend(
+        &self,
+        backend_id: &str,
+    ) -> Result<Option<AiBackendRecordModel>, SmsError> {
         self.repository.get_backend(backend_id).await
     }
 
@@ -132,12 +135,20 @@ impl AiBackendService {
 
     /// Delete a backend and its derived state / 删除 backend 及其派生状态
     pub async fn delete_backend(&self, backend_id: &str) -> Result<bool, SmsError> {
-        let placements = self.repository.list_placements_by_backend(backend_id).await?;
+        let placements = self
+            .repository
+            .list_placements_by_backend(backend_id)
+            .await?;
         for placement in placements {
-            self.repository.delete_placement(&placement.placement_id).await?;
+            self.repository
+                .delete_placement(&placement.placement_id)
+                .await?;
         }
 
-        let statuses = self.repository.list_node_statuses_by_backend(backend_id).await?;
+        let statuses = self
+            .repository
+            .list_node_statuses_by_backend(backend_id)
+            .await?;
         for status in statuses {
             self.repository
                 .delete_node_status(&status.backend_id, &status.node_uuid)

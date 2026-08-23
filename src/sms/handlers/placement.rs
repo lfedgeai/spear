@@ -2,9 +2,7 @@ use axum::{extract::State, http::StatusCode, response::Json};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::proto::sms::{
-    PlaceInvocationRequest, ReportInvocationOutcomeRequest,
-};
+use crate::proto::sms::{PlaceInvocationRequest, ReportInvocationOutcomeRequest};
 use crate::sms::gateway::GatewayState;
 use crate::sms::placement::outcome::parse_http_outcome_class;
 

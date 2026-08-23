@@ -67,7 +67,6 @@ RUN apt-get update -o Acquire::Retries=3 \
 COPY Cargo.toml Cargo.lock ./
 COPY build.rs ./
 COPY benches/ benches/
-COPY static/ static/
 COPY proto/ proto/
 COPY assets/ assets/
 COPY src/ src/

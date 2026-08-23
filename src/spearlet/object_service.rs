@@ -17,6 +17,14 @@ use crate::proto::spearlet::{
     RemoveObjectRefResponse, UnpinObjectRequest, UnpinObjectResponse,
 };
 
+/// Get the current unix timestamp in seconds / 获取当前 Unix 秒级时间戳
+fn current_unix_timestamp() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
 /// Object key generation helpers / 对象键生成辅助函数
 mod object_keys {
     /// Generate object key / 生成对象键
@@ -52,10 +60,7 @@ struct StoredObject {
 
 impl StoredObject {
     fn new(key: String, value: Vec<u8>, metadata: HashMap<String, String>) -> Self {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+        let now = current_unix_timestamp();
 
         Self {
             key,
@@ -96,76 +101,30 @@ impl StoredObject {
     fn update_value(&mut self, value: Vec<u8>, metadata: HashMap<String, String>) {
         self.value = value;
         self.metadata = metadata;
-        self.updated_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+        self.touch();
+    }
+
+    fn touch(&mut self) {
+        self.updated_at = current_unix_timestamp();
     }
 }
 
-// Implement ObjectService for Arc<ObjectServiceImpl> to support gRPC server
-// 为Arc<ObjectServiceImpl>实现ObjectService trait以支持gRPC服务器
-#[tonic::async_trait]
-impl ObjectService for Arc<ObjectServiceImpl> {
-    async fn put_object(
-        &self,
-        request: Request<PutObjectRequest>,
-    ) -> Result<Response<PutObjectResponse>, Status> {
-        self.as_ref().put_object(request).await
-    }
+/// Aggregated scan result for object storage / 对象存储扫描后的聚合结果
+#[derive(Debug, Default)]
+struct ObjectScanStats {
+    object_count: usize,
+    total_size: u64,
+    pinned_count: usize,
+}
 
-    async fn get_object(
-        &self,
-        request: Request<GetObjectRequest>,
-    ) -> Result<Response<GetObjectResponse>, Status> {
-        self.as_ref().get_object(request).await
-    }
-
-    async fn list_objects(
-        &self,
-        request: Request<ListObjectsRequest>,
-    ) -> Result<Response<ListObjectsResponse>, Status> {
-        self.as_ref().list_objects(request).await
-    }
-
-    async fn add_object_ref(
-        &self,
-        request: Request<AddObjectRefRequest>,
-    ) -> Result<Response<AddObjectRefResponse>, Status> {
-        self.as_ref().add_object_ref(request).await
-    }
-
-    async fn remove_object_ref(
-        &self,
-        request: Request<RemoveObjectRefRequest>,
-    ) -> Result<Response<RemoveObjectRefResponse>, Status> {
-        self.as_ref().remove_object_ref(request).await
-    }
-
-    async fn pin_object(
-        &self,
-        request: Request<PinObjectRequest>,
-    ) -> Result<Response<PinObjectResponse>, Status> {
-        self.as_ref().pin_object(request).await
-    }
-
-    async fn unpin_object(
-        &self,
-        request: Request<UnpinObjectRequest>,
-    ) -> Result<Response<UnpinObjectResponse>, Status> {
-        self.as_ref().unpin_object(request).await
-    }
-
-    async fn delete_object(
-        &self,
-        request: Request<DeleteObjectRequest>,
-    ) -> Result<Response<DeleteObjectResponse>, Status> {
-        self.as_ref().delete_object(request).await
-    }
+/// Persistence action after mutating an object / 对象变更后的持久化动作
+enum ObjectPersistenceAction {
+    Save(StoredObject),
+    Delete,
 }
 
 /// Object service implementation / 对象服务实现
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ObjectServiceImpl {
     /// KV store for object storage / 对象存储的KV存储
     kv_store: Arc<dyn KvStore>,
@@ -191,60 +150,146 @@ impl ObjectServiceImpl {
         }
     }
 
-    /// Get object count / 获取对象数量
-    pub async fn object_count(&self) -> usize {
+    /// Load a stored object from KV storage by internal key.
+    /// 按内部键从 KV 存储加载对象。
+    async fn load_stored_object(&self, kv_key: &String) -> Result<Option<StoredObject>, String> {
+        let Some(data) = self
+            .kv_store
+            .get(kv_key)
+            .await
+            .map_err(|err| format!("Failed to get object: {err}"))?
+        else {
+            return Ok(None);
+        };
+
+        serialization::deserialize::<StoredObject>(&data)
+            .map(Some)
+            .map_err(|err| format!("Failed to deserialize object: {err}"))
+    }
+
+    /// Store a serialized object back into KV storage by internal key.
+    /// 按内部键将序列化后的对象写回 KV 存储。
+    async fn store_stored_object(
+        &self,
+        kv_key: &String,
+        object: &StoredObject,
+    ) -> Result<(), String> {
+        let serialized = serialization::serialize(object)
+            .map_err(|err| format!("Failed to serialize object: {err}"))?;
+        self.kv_store
+            .put(kv_key, &serialized)
+            .await
+            .map_err(|err| format!("Failed to store object: {err}"))
+    }
+
+    /// Delete a stored object by internal key.
+    /// 按内部键删除对象。
+    async fn delete_stored_object(&self, kv_key: &String) -> Result<(), String> {
+        self.kv_store
+            .delete(kv_key)
+            .await
+            .map(|_| ())
+            .map_err(|err| format!("Failed to delete object: {err}"))
+    }
+
+    /// Persist the mutation result chosen by an object update closure.
+    /// 持久化对象更新闭包选择的变更结果。
+    async fn persist_object_action(
+        &self,
+        request_key: &str,
+        kv_key: &String,
+        action: ObjectPersistenceAction,
+    ) -> Result<(), Status> {
+        match action {
+            ObjectPersistenceAction::Save(object) => self
+                .store_stored_object(kv_key, &object)
+                .await
+                .map_err(|message| {
+                    error!("Failed to save updated object {}: {}", request_key, message);
+                    Status::internal(message)
+                }),
+            ObjectPersistenceAction::Delete => {
+                self.delete_stored_object(kv_key).await.map_err(|message| {
+                    error!("Failed to delete object {}: {}", request_key, message);
+                    Status::internal(message)
+                })
+            }
+        }
+    }
+
+    /// Load an existing object, apply a mutation, and persist the chosen action.
+    /// 加载已有对象，执行一次变更，并持久化对应动作。
+    async fn update_existing_object<R, F>(
+        &self,
+        request_key: &str,
+        kv_key: &String,
+        not_found_response: R,
+        mutate: F,
+    ) -> Result<R, Status>
+    where
+        F: FnOnce(&mut StoredObject) -> Result<(ObjectPersistenceAction, R), R>,
+    {
+        let Some(mut object) = self.load_stored_object(kv_key).await.map_err(|message| {
+            error!("Failed to get object {}: {}", request_key, message);
+            Status::internal(message)
+        })?
+        else {
+            return Ok(not_found_response);
+        };
+
+        let (action, response) = match mutate(&mut object) {
+            Ok(result) => result,
+            Err(response) => return Ok(response),
+        };
+
+        self.persist_object_action(request_key, kv_key, action)
+            .await?;
+        Ok(response)
+    }
+
+    /// Scan stored objects once and aggregate lightweight statistics.
+    /// 单次扫描对象存储并聚合轻量级统计信息。
+    async fn scan_object_stats(&self) -> ObjectScanStats {
         match self
             .kv_store
             .scan_prefix(object_keys::object_prefix())
             .await
         {
-            Ok(pairs) => pairs.len(),
-            Err(_) => 0,
+            Ok(pairs) => {
+                let mut stats = ObjectScanStats {
+                    object_count: pairs.len(),
+                    ..ObjectScanStats::default()
+                };
+
+                for pair in pairs {
+                    if let Ok(stored_obj) = serialization::deserialize::<StoredObject>(&pair.value)
+                    {
+                        stats.total_size += stored_obj.value.len() as u64;
+                        if stored_obj.pinned {
+                            stats.pinned_count += 1;
+                        }
+                    }
+                }
+
+                stats
+            }
+            Err(_) => ObjectScanStats::default(),
         }
+    }
+
+    /// Get object count / 获取对象数量
+    pub async fn object_count(&self) -> usize {
+        self.scan_object_stats().await.object_count
     }
 
     /// Get total object size / 获取对象总大小
     pub async fn total_object_size(&self) -> u64 {
-        match self
-            .kv_store
-            .scan_prefix(object_keys::object_prefix())
-            .await
-        {
-            Ok(pairs) => {
-                let mut total_size = 0u64;
-                for pair in pairs {
-                    if let Ok(stored_obj) = serialization::deserialize::<StoredObject>(&pair.value)
-                    {
-                        total_size += stored_obj.value.len() as u64;
-                    }
-                }
-                total_size
-            }
-            Err(_) => 0,
-        }
+        self.scan_object_stats().await.total_size
     }
 
     /// Get pinned object count / 获取固定对象数量
     pub async fn pinned_object_count(&self) -> usize {
-        match self
-            .kv_store
-            .scan_prefix(object_keys::object_prefix())
-            .await
-        {
-            Ok(pairs) => {
-                let mut pinned_count = 0;
-                for pair in pairs {
-                    if let Ok(stored_obj) = serialization::deserialize::<StoredObject>(&pair.value)
-                    {
-                        if stored_obj.pinned {
-                            pinned_count += 1;
-                        }
-                    }
-                }
-                pinned_count
-            }
-            Err(_) => 0,
-        }
+        self.scan_object_stats().await.pinned_count
     }
 
     /// Cleanup objects with zero references / 清理零引用对象
@@ -278,11 +323,61 @@ impl ObjectServiceImpl {
 
     /// Get service statistics / 获取服务统计信息
     pub async fn get_stats(&self) -> ObjectServiceStats {
+        let stats = self.scan_object_stats().await;
         ObjectServiceStats {
-            object_count: self.object_count().await,
-            total_size: self.total_object_size().await,
-            pinned_count: self.pinned_object_count().await,
+            object_count: stats.object_count,
+            total_size: stats.total_size,
+            pinned_count: stats.pinned_count,
         }
+    }
+
+    fn validate_put_request(&self, req: &PutObjectRequest) -> Result<(), PutObjectResponse> {
+        if req.key.is_empty() {
+            return Err(PutObjectResponse {
+                success: false,
+                message: "Object key cannot be empty".to_string(),
+                object_meta: None,
+            });
+        }
+
+        if req.value.len() as u64 > self.max_object_size {
+            return Err(PutObjectResponse {
+                success: false,
+                message: format!(
+                    "Object size {} exceeds maximum size {}",
+                    req.value.len(),
+                    self.max_object_size
+                ),
+                object_meta: None,
+            });
+        }
+
+        Ok(())
+    }
+
+    fn build_object_for_put(
+        &self,
+        req: PutObjectRequest,
+        existing_object: Option<StoredObject>,
+    ) -> Result<StoredObject, PutObjectResponse> {
+        match existing_object {
+            Some(existing_obj) if !req.overwrite => Err(PutObjectResponse {
+                success: false,
+                message: "Object already exists and overwrite is false".to_string(),
+                object_meta: Some(existing_obj.to_object_meta()),
+            }),
+            Some(mut existing_obj) => {
+                existing_obj.update_value(req.value, req.metadata);
+                Ok(existing_obj)
+            }
+            None => Ok(StoredObject::new(req.key, req.value, req.metadata)),
+        }
+    }
+}
+
+impl From<Arc<ObjectServiceImpl>> for ObjectServiceImpl {
+    fn from(value: Arc<ObjectServiceImpl>) -> Self {
+        value.as_ref().clone()
     }
 }
 
@@ -297,80 +392,38 @@ impl ObjectService for ObjectServiceImpl {
 
         debug!("PutObject request for key: {}", req.key);
 
-        // Validate key / 验证键
-        if req.key.is_empty() {
-            return Ok(Response::new(PutObjectResponse {
-                success: false,
-                message: "Object key cannot be empty".to_string(),
-                object_meta: None,
-            }));
-        }
-
-        // Validate object size / 验证对象大小
-        if req.value.len() as u64 > self.max_object_size {
-            return Ok(Response::new(PutObjectResponse {
-                success: false,
-                message: format!(
-                    "Object size {} exceeds maximum size {}",
-                    req.value.len(),
-                    self.max_object_size
-                ),
-                object_meta: None,
-            }));
+        if let Err(response) = self.validate_put_request(&req) {
+            return Ok(Response::new(response));
         }
 
         let kv_key = object_keys::object_key(&req.key);
 
-        // Check if object exists and overwrite flag / 检查对象是否存在和覆盖标志
-        if let Ok(Some(existing_data)) = self.kv_store.get(&kv_key).await {
-            if !req.overwrite {
-                if let Ok(existing_obj) = serialization::deserialize::<StoredObject>(&existing_data)
-                {
-                    return Ok(Response::new(PutObjectResponse {
-                        success: false,
-                        message: "Object already exists and overwrite is false".to_string(),
-                        object_meta: Some(existing_obj.to_object_meta()),
-                    }));
-                }
-            }
-        }
-
-        // Create or update object / 创建或更新对象
-        let stored_obj = if let Ok(Some(existing_data)) = self.kv_store.get(&kv_key).await {
-            if let Ok(mut existing_obj) = serialization::deserialize::<StoredObject>(&existing_data)
-            {
-                existing_obj.update_value(req.value, req.metadata);
-                existing_obj
-            } else {
-                StoredObject::new(req.key.clone(), req.value, req.metadata)
-            }
-        } else {
-            StoredObject::new(req.key.clone(), req.value, req.metadata)
-        };
-
-        // Store object in KV store / 在KV存储中存储对象
-        match serialization::serialize(&stored_obj) {
-            Ok(serialized_data) => {
-                if let Err(e) = self.kv_store.put(&kv_key, &serialized_data).await {
-                    error!("Failed to store object {}: {:?}", req.key, e);
-                    return Ok(Response::new(PutObjectResponse {
-                        success: false,
-                        message: format!("Failed to store object: {:?}", e),
-                        object_meta: None,
-                    }));
-                }
-            }
-            Err(e) => {
-                error!("Failed to serialize object {}: {:?}", req.key, e);
+        let existing_object = match self.load_stored_object(&kv_key).await {
+            Ok(object) => object,
+            Err(message) => {
+                error!("Failed to load object {}: {}", req.key, message);
                 return Ok(Response::new(PutObjectResponse {
                     success: false,
-                    message: format!("Failed to serialize object: {:?}", e),
+                    message,
                     object_meta: None,
                 }));
             }
+        };
+        let stored_obj = match self.build_object_for_put(req, existing_object) {
+            Ok(object) => object,
+            Err(response) => return Ok(Response::new(response)),
+        };
+
+        if let Err(message) = self.store_stored_object(&kv_key, &stored_obj).await {
+            error!("Failed to store object {}: {}", stored_obj.key, message);
+            return Ok(Response::new(PutObjectResponse {
+                success: false,
+                message,
+                object_meta: None,
+            }));
         }
 
-        info!("Successfully put object: {}", req.key);
+        info!("Successfully put object: {}", stored_obj.key);
 
         Ok(Response::new(PutObjectResponse {
             success: true,
@@ -390,24 +443,15 @@ impl ObjectService for ObjectServiceImpl {
 
         let key = object_keys::object_key(&req.key);
 
-        match self.kv_store.get(&key).await {
-            Ok(Some(data)) => match serialization::deserialize::<StoredObject>(&data) {
-                Ok(obj) => {
-                    info!("Successfully retrieved object: {}", req.key);
-                    Ok(Response::new(GetObjectResponse {
-                        found: true,
-                        message: "Object retrieved successfully".to_string(),
-                        object: Some(obj.to_object()),
-                    }))
-                }
-                Err(e) => {
-                    error!("Failed to deserialize object {}: {}", req.key, e);
-                    Err(Status::internal(format!(
-                        "Failed to deserialize object: {}",
-                        e
-                    )))
-                }
-            },
+        match self.load_stored_object(&key).await {
+            Ok(Some(obj)) => {
+                info!("Successfully retrieved object: {}", req.key);
+                Ok(Response::new(GetObjectResponse {
+                    found: true,
+                    message: "Object retrieved successfully".to_string(),
+                    object: Some(obj.to_object()),
+                }))
+            }
             Ok(None) => {
                 warn!("Object not found: {}", req.key);
                 Ok(Response::new(GetObjectResponse {
@@ -416,9 +460,9 @@ impl ObjectService for ObjectServiceImpl {
                     object: None,
                 }))
             }
-            Err(e) => {
-                error!("Failed to get object {}: {}", req.key, e);
-                Err(Status::internal(format!("Failed to get object: {}", e)))
+            Err(message) => {
+                error!("Failed to get object {}: {}", req.key, message);
+                Err(Status::internal(message))
             }
         }
     }
@@ -516,70 +560,40 @@ impl ObjectService for ObjectServiceImpl {
         );
 
         let key = object_keys::object_key(&req.key);
-
-        match self.kv_store.get(&key).await {
-            Ok(Some(data)) => {
-                match serialization::deserialize::<StoredObject>(&data) {
-                    Ok(mut obj) => {
-                        obj.ref_count += count;
-                        let new_ref_count = obj.ref_count;
-
-                        // Save updated object back to KV store / 将更新后的对象保存回 KV 存储
-                        match serialization::serialize(&obj) {
-                            Ok(serialized_data) => {
-                                match self.kv_store.put(&key, &serialized_data).await {
-                                    Ok(_) => {
-                                        info!(
-                                            "Added {} references to object: {}, new count: {}",
-                                            count, req.key, new_ref_count
-                                        );
-                                        Ok(Response::new(AddObjectRefResponse {
-                                            success: true,
-                                            message: "Reference count added successfully"
-                                                .to_string(),
-                                            new_ref_count,
-                                        }))
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to save updated object {}: {}", req.key, e);
-                                        Err(Status::internal(format!(
-                                            "Failed to save updated object: {}",
-                                            e
-                                        )))
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to serialize updated object {}: {}", req.key, e);
-                                Err(Status::internal(format!(
-                                    "Failed to serialize updated object: {}",
-                                    e
-                                )))
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to deserialize object {}: {}", req.key, e);
-                        Err(Status::internal(format!(
-                            "Failed to deserialize object: {}",
-                            e
-                        )))
-                    }
-                }
-            }
-            Ok(None) => {
-                warn!("Cannot add reference to non-existent object: {}", req.key);
-                Ok(Response::new(AddObjectRefResponse {
+        let response = self
+            .update_existing_object(
+                &req.key,
+                &key,
+                AddObjectRefResponse {
                     success: false,
                     message: "Object not found".to_string(),
                     new_ref_count: 0,
-                }))
-            }
-            Err(e) => {
-                error!("Failed to get object {}: {}", req.key, e);
-                Err(Status::internal(format!("Failed to get object: {}", e)))
-            }
+                },
+                |object| {
+                    object.ref_count += count;
+                    let new_ref_count = object.ref_count;
+                    Ok((
+                        ObjectPersistenceAction::Save(object.clone()),
+                        AddObjectRefResponse {
+                            success: true,
+                            message: "Reference count added successfully".to_string(),
+                            new_ref_count,
+                        },
+                    ))
+                },
+            )
+            .await?;
+
+        if !response.success {
+            warn!("Cannot add reference to non-existent object: {}", req.key);
+        } else {
+            info!(
+                "Added {} references to object: {}, new count: {}",
+                count, req.key, response.new_ref_count
+            );
         }
+
+        Ok(Response::new(response))
     }
 
     /// Remove reference count for lifecycle management / 减少引用计数，用于生命周期管理
@@ -596,96 +610,57 @@ impl ObjectService for ObjectServiceImpl {
         );
 
         let key = object_keys::object_key(&req.key);
-
-        match self.kv_store.get(&key).await {
-            Ok(Some(data)) => {
-                match serialization::deserialize::<StoredObject>(&data) {
-                    Ok(mut obj) => {
-                        obj.ref_count = std::cmp::max(0, obj.ref_count - count);
-                        let new_ref_count = obj.ref_count;
-                        let object_deleted = new_ref_count == 0 && !obj.pinned;
-
-                        if object_deleted {
-                            // Delete object from KV store / 从 KV 存储中删除对象
-                            match self.kv_store.delete(&key).await {
-                                Ok(_) => {
-                                    info!("Removed object {} due to zero references", req.key);
-                                    Ok(Response::new(RemoveObjectRefResponse {
-                                        success: true,
-                                        message: "Object deleted due to zero references"
-                                            .to_string(),
-                                        new_ref_count,
-                                        deleted: object_deleted,
-                                    }))
-                                }
-                                Err(e) => {
-                                    error!("Failed to delete object {}: {}", req.key, e);
-                                    Err(Status::internal(format!("Failed to delete object: {}", e)))
-                                }
-                            }
-                        } else {
-                            // Save updated object back to KV store / 将更新后的对象保存回 KV 存储
-                            match serialization::serialize(&obj) {
-                                Ok(serialized_data) => {
-                                    match self.kv_store.put(&key, &serialized_data).await {
-                                        Ok(_) => {
-                                            info!("Removed {} references from object: {}, new count: {}", count, req.key, new_ref_count);
-                                            Ok(Response::new(RemoveObjectRefResponse {
-                                                success: true,
-                                                message: "Reference count removed successfully"
-                                                    .to_string(),
-                                                new_ref_count,
-                                                deleted: object_deleted,
-                                            }))
-                                        }
-                                        Err(e) => {
-                                            error!(
-                                                "Failed to save updated object {}: {}",
-                                                req.key, e
-                                            );
-                                            Err(Status::internal(format!(
-                                                "Failed to save updated object: {}",
-                                                e
-                                            )))
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    error!("Failed to serialize updated object {}: {}", req.key, e);
-                                    Err(Status::internal(format!(
-                                        "Failed to serialize updated object: {}",
-                                        e
-                                    )))
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to deserialize object {}: {}", req.key, e);
-                        Err(Status::internal(format!(
-                            "Failed to deserialize object: {}",
-                            e
-                        )))
-                    }
-                }
-            }
-            Ok(None) => {
-                warn!(
-                    "Cannot remove reference from non-existent object: {}",
-                    req.key
-                );
-                Ok(Response::new(RemoveObjectRefResponse {
+        let response = self
+            .update_existing_object(
+                &req.key,
+                &key,
+                RemoveObjectRefResponse {
                     success: false,
                     message: "Object not found".to_string(),
                     new_ref_count: 0,
                     deleted: false,
-                }))
-            }
-            Err(e) => {
-                error!("Failed to get object {}: {}", req.key, e);
-                Err(Status::internal(format!("Failed to get object: {}", e)))
-            }
+                },
+                |object| {
+                    object.ref_count = std::cmp::max(0, object.ref_count - count);
+                    let new_ref_count = object.ref_count;
+                    let deleted = new_ref_count == 0 && !object.pinned;
+                    let action = if deleted {
+                        ObjectPersistenceAction::Delete
+                    } else {
+                        ObjectPersistenceAction::Save(object.clone())
+                    };
+                    Ok((
+                        action,
+                        RemoveObjectRefResponse {
+                            success: true,
+                            message: if deleted {
+                                "Object deleted due to zero references".to_string()
+                            } else {
+                                "Reference count removed successfully".to_string()
+                            },
+                            new_ref_count,
+                            deleted,
+                        },
+                    ))
+                },
+            )
+            .await?;
+
+        if !response.success {
+            warn!(
+                "Cannot remove reference from non-existent object: {}",
+                req.key
+            );
+        } else if response.deleted {
+            info!("Removed object {} due to zero references", req.key);
+        } else {
+            info!(
+                "Removed {} references from object: {}, new count: {}",
+                count, req.key, response.new_ref_count
+            );
         }
+
+        Ok(Response::new(response))
     }
 
     /// Pin object to disable automatic garbage collection / 将对象标记为常驻，禁用自动回收机制
@@ -698,68 +673,48 @@ impl ObjectService for ObjectServiceImpl {
         debug!("PinObject request for key: {}", req.key);
 
         let key = object_keys::object_key(&req.key);
-
-        match self.kv_store.get(&key).await {
-            Ok(Some(data)) => match serialization::deserialize::<StoredObject>(&data) {
-                Ok(mut obj) => {
-                    let was_already_pinned = obj.pinned;
-                    obj.pinned = true;
-
-                    match serialization::serialize(&obj) {
-                        Ok(serialized_data) => {
-                            match self.kv_store.put(&key, &serialized_data).await {
-                                Ok(_) => {
-                                    info!(
-                                        "Pinned object: {}, was already pinned: {}",
-                                        req.key, was_already_pinned
-                                    );
-
-                                    Ok(Response::new(PinObjectResponse {
-                                        success: true,
-                                        message: "Object pinned successfully".to_string(),
-                                    }))
-                                }
-                                Err(e) => {
-                                    error!("Failed to store pinned object {}: {:?}", req.key, e);
-                                    Ok(Response::new(PinObjectResponse {
-                                        success: false,
-                                        message: format!("Failed to store pinned object: {:?}", e),
-                                    }))
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!("Failed to serialize object {}: {:?}", req.key, e);
-                            Ok(Response::new(PinObjectResponse {
-                                success: false,
-                                message: format!("Failed to serialize object: {:?}", e),
-                            }))
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to deserialize object {}: {:?}", req.key, e);
-                    Ok(Response::new(PinObjectResponse {
-                        success: false,
-                        message: format!("Failed to deserialize object: {:?}", e),
-                    }))
-                }
-            },
-            Ok(None) => {
-                warn!("Cannot pin non-existent object: {}", req.key);
-                Ok(Response::new(PinObjectResponse {
+        let mut was_already_pinned = false;
+        let response = match self
+            .update_existing_object(
+                &req.key,
+                &key,
+                PinObjectResponse {
                     success: false,
                     message: "Object not found".to_string(),
-                }))
-            }
-            Err(e) => {
-                error!("Failed to get object {} from KV store: {:?}", req.key, e);
-                Ok(Response::new(PinObjectResponse {
+                },
+                |object| {
+                    was_already_pinned = object.pinned;
+                    object.pinned = true;
+                    Ok((
+                        ObjectPersistenceAction::Save(object.clone()),
+                        PinObjectResponse {
+                            success: true,
+                            message: "Object pinned successfully".to_string(),
+                        },
+                    ))
+                },
+            )
+            .await
+        {
+            Ok(response) => response,
+            Err(status) => {
+                return Ok(Response::new(PinObjectResponse {
                     success: false,
-                    message: format!("Failed to get object from KV store: {:?}", e),
+                    message: status.message().to_string(),
                 }))
             }
+        };
+
+        if !response.success {
+            warn!("Cannot pin non-existent object: {}", req.key);
+        } else {
+            info!(
+                "Pinned object: {}, was already pinned: {}",
+                req.key, was_already_pinned
+            );
         }
+
+        Ok(Response::new(response))
     }
 
     /// Unpin object to restore normal garbage collection / 取消常驻标记，恢复为正常回收状态
@@ -772,79 +727,51 @@ impl ObjectService for ObjectServiceImpl {
         debug!("UnpinObject request for key: {}", req.key);
 
         let key = object_keys::object_key(&req.key);
-
-        match self.kv_store.get(&key).await {
-            Ok(Some(data)) => match serialization::deserialize::<StoredObject>(&data) {
-                Ok(mut obj) => {
-                    if !obj.pinned {
-                        warn!("Object {} is not pinned", req.key);
-                        Ok(Response::new(UnpinObjectResponse {
-                            success: false,
-                            message: "Object is not pinned".to_string(),
-                        }))
-                    } else {
-                        obj.pinned = false;
-                        obj.updated_at = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs() as i64;
-
-                        match serialization::serialize(&obj) {
-                            Ok(serialized) => match self.kv_store.put(&key, &serialized).await {
-                                Ok(_) => {
-                                    info!("Unpinned object: {}", req.key);
-                                    Ok(Response::new(UnpinObjectResponse {
-                                        success: true,
-                                        message: "Object unpinned successfully".to_string(),
-                                    }))
-                                }
-                                Err(e) => {
-                                    error!(
-                                        "Failed to update object {} in KV store: {:?}",
-                                        req.key, e
-                                    );
-                                    Ok(Response::new(UnpinObjectResponse {
-                                        success: false,
-                                        message: format!(
-                                            "Failed to update object in KV store: {:?}",
-                                            e
-                                        ),
-                                    }))
-                                }
-                            },
-                            Err(e) => {
-                                error!("Failed to serialize object {}: {:?}", req.key, e);
-                                Ok(Response::new(UnpinObjectResponse {
-                                    success: false,
-                                    message: format!("Failed to serialize object: {:?}", e),
-                                }))
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to deserialize object {}: {:?}", req.key, e);
-                    Ok(Response::new(UnpinObjectResponse {
-                        success: false,
-                        message: format!("Failed to deserialize object: {:?}", e),
-                    }))
-                }
-            },
-            Ok(None) => {
-                warn!("Cannot unpin non-existent object: {}", req.key);
-                Ok(Response::new(UnpinObjectResponse {
+        let response = match self
+            .update_existing_object(
+                &req.key,
+                &key,
+                UnpinObjectResponse {
                     success: false,
                     message: "Object not found".to_string(),
-                }))
-            }
-            Err(e) => {
-                error!("Failed to get object {} from KV store: {:?}", req.key, e);
-                Ok(Response::new(UnpinObjectResponse {
+                },
+                |object| {
+                    if !object.pinned {
+                        return Err(UnpinObjectResponse {
+                            success: false,
+                            message: "Object is not pinned".to_string(),
+                        });
+                    }
+
+                    object.pinned = false;
+                    object.touch();
+                    Ok((
+                        ObjectPersistenceAction::Save(object.clone()),
+                        UnpinObjectResponse {
+                            success: true,
+                            message: "Object unpinned successfully".to_string(),
+                        },
+                    ))
+                },
+            )
+            .await
+        {
+            Ok(response) => response,
+            Err(status) => {
+                return Ok(Response::new(UnpinObjectResponse {
                     success: false,
-                    message: format!("Failed to get object from KV store: {:?}", e),
+                    message: status.message().to_string(),
                 }))
             }
+        };
+
+        match response.message.as_str() {
+            "Object not found" => warn!("Cannot unpin non-existent object: {}", req.key),
+            "Object is not pinned" => warn!("Object {} is not pinned", req.key),
+            _ => info!("Unpinned object: {}", req.key),
         }
+
+        Ok(Response::new(response))
     }
 
     /// Delete object (for debugging and manual cleanup) / 删除对象（用于调试和手动清理）
@@ -860,75 +787,57 @@ impl ObjectService for ObjectServiceImpl {
         );
 
         let key = object_keys::object_key(&req.key);
-
-        match self.kv_store.get(&key).await {
-            Ok(Some(data)) => match serialization::deserialize::<StoredObject>(&data) {
-                Ok(obj) => {
-                    let was_pinned = obj.pinned;
-
-                    if was_pinned && !req.force {
-                        warn!(
-                            "Cannot delete pinned object without force flag: {}",
-                            req.key
-                        );
-                        Ok(Response::new(DeleteObjectResponse {
-                            success: false,
-                            message: "Cannot delete pinned object without force flag".to_string(),
-                            deleted: false,
-                        }))
-                    } else {
-                        match self.kv_store.delete(&key).await {
-                            Ok(_) => {
-                                info!("Deleted object: {}, was pinned: {}", req.key, was_pinned);
-
-                                Ok(Response::new(DeleteObjectResponse {
-                                    success: true,
-                                    message: "Object deleted successfully".to_string(),
-                                    deleted: true,
-                                }))
-                            }
-                            Err(e) => {
-                                error!(
-                                    "Failed to delete object {} from KV store: {:?}",
-                                    req.key, e
-                                );
-                                Ok(Response::new(DeleteObjectResponse {
-                                    success: false,
-                                    message: format!(
-                                        "Failed to delete object from KV store: {:?}",
-                                        e
-                                    ),
-                                    deleted: false,
-                                }))
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to deserialize object {}: {:?}", req.key, e);
-                    Ok(Response::new(DeleteObjectResponse {
-                        success: false,
-                        message: format!("Failed to deserialize object: {:?}", e),
-                        deleted: false,
-                    }))
-                }
-            },
-            Ok(None) => {
-                warn!("Cannot delete non-existent object: {}", req.key);
-                Ok(Response::new(DeleteObjectResponse {
+        let mut was_pinned = false;
+        let response = match self
+            .update_existing_object(
+                &req.key,
+                &key,
+                DeleteObjectResponse {
                     success: false,
                     message: "Object not found".to_string(),
                     deleted: false,
-                }))
-            }
-            Err(e) => {
-                error!("Failed to get object {} from KV store: {:?}", req.key, e);
-                Ok(Response::new(DeleteObjectResponse {
+                },
+                |object| {
+                    was_pinned = object.pinned;
+                    if was_pinned && !req.force {
+                        return Err(DeleteObjectResponse {
+                            success: false,
+                            message: "Cannot delete pinned object without force flag".to_string(),
+                            deleted: false,
+                        });
+                    }
+
+                    Ok((
+                        ObjectPersistenceAction::Delete,
+                        DeleteObjectResponse {
+                            success: true,
+                            message: "Object deleted successfully".to_string(),
+                            deleted: true,
+                        },
+                    ))
+                },
+            )
+            .await
+        {
+            Ok(response) => response,
+            Err(status) => {
+                return Ok(Response::new(DeleteObjectResponse {
                     success: false,
-                    message: format!("Failed to get object from KV store: {:?}", e),
+                    message: status.message().to_string(),
                     deleted: false,
                 }))
             }
+        };
+
+        match response.message.as_str() {
+            "Object not found" => warn!("Cannot delete non-existent object: {}", req.key),
+            "Cannot delete pinned object without force flag" => warn!(
+                "Cannot delete pinned object without force flag: {}",
+                req.key
+            ),
+            _ => info!("Deleted object: {}, was pinned: {}", req.key, was_pinned),
         }
+
+        Ok(Response::new(response))
     }
 }

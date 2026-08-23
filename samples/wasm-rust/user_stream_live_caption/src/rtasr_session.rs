@@ -19,52 +19,44 @@ fn debug_guest(message: impl std::fmt::Display) {
 
 #[derive(Debug, Default)]
 struct PendingAudioBuffer {
-    pending_chunks: Vec<Vec<u8>>,
-    pending_bytes: usize,
-    audio_bytes_since_flush: usize,
+    // Keep a single contiguous buffer so the session logic does not need to
+    // manage per-chunk bookkeeping before each write.
+    // 使用单一连续缓冲区，避免在每次写入前维护按 chunk 拆分的额外状态。
+    pending_audio: Vec<u8>,
+    bytes_since_flush: usize,
 }
 
 impl PendingAudioBuffer {
-    fn reset(&mut self) {
-        self.pending_chunks.clear();
-        self.pending_bytes = 0;
-        self.audio_bytes_since_flush = 0;
+    fn clear(&mut self) {
+        self.pending_audio.clear();
+        self.bytes_since_flush = 0;
     }
 
     fn append(&mut self, audio: &[u8]) {
-        if audio.is_empty() {
-            return;
-        }
-        self.pending_bytes += audio.len();
-        self.pending_chunks.push(audio.to_vec());
+        self.pending_audio.extend_from_slice(audio);
     }
 
     fn should_write_pending(&self) -> bool {
-        self.pending_bytes >= AGGREGATE_WRITE_BYTES
+        self.pending_audio.len() >= AGGREGATE_WRITE_BYTES
     }
 
     fn can_flush_commit(&self) -> bool {
-        self.audio_bytes_since_flush + self.pending_bytes >= MIN_COMMIT_AUDIO_BYTES
+        self.bytes_since_flush + self.pending_audio.len() >= MIN_COMMIT_AUDIO_BYTES
     }
 
-    fn take_merged(&mut self) -> Option<Vec<u8>> {
-        if self.pending_bytes == 0 {
+    fn take_pending_audio(&mut self) -> Option<Vec<u8>> {
+        if self.pending_audio.is_empty() {
             return None;
         }
-        let mut merged = Vec::with_capacity(self.pending_bytes);
-        for chunk in self.pending_chunks.drain(..) {
-            merged.extend_from_slice(&chunk);
-        }
-        self.pending_bytes = 0;
-        Some(merged)
+        Some(std::mem::take(&mut self.pending_audio))
     }
 
     fn record_write(&mut self, bytes: usize) {
-        self.audio_bytes_since_flush += bytes;
+        self.bytes_since_flush += bytes;
     }
 
     fn reset_flush_counter(&mut self) {
-        self.audio_bytes_since_flush = 0;
+        self.bytes_since_flush = 0;
     }
 }
 
@@ -95,7 +87,7 @@ impl LiveCaptionRtasr {
         debug_guest("rtasr clear start");
         self.base.clear()?;
         debug_guest("rtasr clear ok");
-        self.pending_audio.reset();
+        self.pending_audio.clear();
         Ok(())
     }
 
@@ -130,7 +122,7 @@ impl LiveCaptionRtasr {
     }
 
     fn write_pending_audio(&mut self) -> Result<(), SpearError> {
-        let Some(audio) = self.pending_audio.take_merged() else {
+        let Some(audio) = self.pending_audio.take_pending_audio() else {
             return Ok(());
         };
         let written = audio.len();
@@ -162,5 +154,26 @@ mod tests {
         assert!(!buffer.can_flush_commit());
         buffer.append(&[0u8]);
         assert!(buffer.can_flush_commit());
+    }
+
+    #[test]
+    fn pending_audio_take_preserves_append_order() {
+        let mut buffer = PendingAudioBuffer::default();
+        buffer.append(&[1, 2]);
+        buffer.append(&[3, 4]);
+
+        assert_eq!(buffer.take_pending_audio(), Some(vec![1, 2, 3, 4]));
+        assert_eq!(buffer.take_pending_audio(), None);
+    }
+
+    #[test]
+    fn pending_audio_clear_resets_flush_guard_state() {
+        let mut buffer = PendingAudioBuffer::default();
+        buffer.record_write(MIN_COMMIT_AUDIO_BYTES);
+        assert!(buffer.can_flush_commit());
+
+        buffer.clear();
+
+        assert!(!buffer.can_flush_commit());
     }
 }

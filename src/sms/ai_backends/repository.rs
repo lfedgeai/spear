@@ -17,7 +17,8 @@ pub trait AiBackendRepository: Send + Sync {
     ) -> Result<AiBackendRecordModel, SmsError>;
 
     /// Fetch one backend by identity / 按身份读取单个 backend
-    async fn get_backend(&self, backend_id: &str) -> Result<Option<AiBackendRecordModel>, SmsError>;
+    async fn get_backend(&self, backend_id: &str)
+        -> Result<Option<AiBackendRecordModel>, SmsError>;
 
     /// List all backends / 列出所有 backend
     async fn list_backends(&self) -> Result<Vec<AiBackendRecordModel>, SmsError>;
@@ -78,5 +79,6 @@ pub trait AiBackendRepository: Send + Sync {
     ) -> Result<Vec<AiBackendNodeStatusRecordModel>, SmsError>;
 
     /// Delete one node status / 删除单条节点状态
-    async fn delete_node_status(&self, backend_id: &str, node_uuid: &str) -> Result<bool, SmsError>;
+    async fn delete_node_status(&self, backend_id: &str, node_uuid: &str)
+        -> Result<bool, SmsError>;
 }

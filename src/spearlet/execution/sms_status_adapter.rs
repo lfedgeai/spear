@@ -4,8 +4,8 @@ use crate::proto::sms::{
 };
 
 use super::{
-    instance::InstanceStatus as LocalInstanceStatus, runtime::ExecutionStatus as RuntimeExecutionStatus,
-    task::TaskStatus as LocalTaskStatus,
+    instance::InstanceStatus as LocalInstanceStatus,
+    runtime::ExecutionStatus as RuntimeExecutionStatus, task::TaskStatus as LocalTaskStatus,
 };
 
 /// Map runtime execution status into the SMS execution status model.
@@ -62,9 +62,7 @@ pub(super) fn local_task_status_to_sms(
 
 /// Map local instance lifecycle into the SMS instance status model.
 /// 将本地 instance 生命周期映射到 SMS instance 状态模型。
-pub(super) fn local_instance_status_to_sms(
-    status: &LocalInstanceStatus,
-) -> SmsInstanceStatus {
+pub(super) fn local_instance_status_to_sms(status: &LocalInstanceStatus) -> SmsInstanceStatus {
     match status {
         LocalInstanceStatus::Creating | LocalInstanceStatus::Starting => SmsInstanceStatus::Unknown,
         LocalInstanceStatus::Ready => SmsInstanceStatus::Idle,

@@ -11,9 +11,8 @@ use super::super::util::{
 };
 use super::segmentation::maybe_enqueue_autoflush_locked;
 
-type WsStream = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type WsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 type WsWrite = futures::stream::SplitSink<WsStream, tokio_tungstenite::tungstenite::Message>;
 type WsRead = futures::stream::SplitStream<WsStream>;
 
@@ -116,28 +115,27 @@ async fn prepare_vars(
                     let hv = expand_template(v, &vars, global_env);
                     req = req.header(k, hv);
                 }
-                let resp = tokio::time::timeout(std::time::Duration::from_secs(20), req.json(&body).send())
-                    .await
-                    .map_err(|_| "prepare http request timed out".to_string())?
-                    .map_err(|e| format!("prepare http request failed: {e}"))?;
+                let resp = tokio::time::timeout(
+                    std::time::Duration::from_secs(20),
+                    req.json(&body).send(),
+                )
+                .await
+                .map_err(|_| "prepare http request timed out".to_string())?
+                .map_err(|e| format!("prepare http request failed: {e}"))?;
                 let status = resp.status();
                 let bytes = resp
                     .bytes()
                     .await
                     .map_err(|e| format!("prepare http read failed: {e}"))?;
-                let json_v: serde_json::Value =
-                    serde_json::from_slice(&bytes).map_err(|e| format!("prepare http invalid json: {e}"))?;
+                let json_v: serde_json::Value = serde_json::from_slice(&bytes)
+                    .map_err(|e| format!("prepare http invalid json: {e}"))?;
                 if !status.is_success() {
                     let msg = json_v
                         .get("error")
                         .and_then(|x| x.get("message"))
                         .and_then(|x| x.as_str())
                         .unwrap_or("upstream error");
-                    return Err(format!(
-                        "prepare http failed: {}: {}",
-                        status.as_u16(),
-                        msg
-                    ));
+                    return Err(format!("prepare http failed: {}: {}", status.as_u16(), msg));
                 }
                 let extracted = extract_json_path(&json_v, &p.extract_json_path)
                     .ok_or_else(|| format!("prepare extract failed: {}", p.extract_json_path))?;
@@ -179,7 +177,8 @@ async fn send_client_events(
 ) -> Result<(), String> {
     use futures::SinkExt;
     for ev in client_events.iter() {
-        let txt = serde_json::to_string(ev).map_err(|e| format!("websocket event encode failed: {e}"))?;
+        let txt =
+            serde_json::to_string(ev).map_err(|e| format!("websocket event encode failed: {e}"))?;
         ws_write
             .send(tokio_tungstenite::tungstenite::Message::Text(txt))
             .await
@@ -188,7 +187,10 @@ async fn send_client_events(
     Ok(())
 }
 
-async fn pop_send_item_and_update_mask(table: &FdTable, fd: i32) -> Result<Option<RtAsrSendItem>, String> {
+async fn pop_send_item_and_update_mask(
+    table: &FdTable,
+    fd: i32,
+) -> Result<Option<RtAsrSendItem>, String> {
     let Some(entry) = table.get(fd) else {
         return Ok(None);
     };

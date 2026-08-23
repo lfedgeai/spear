@@ -31,7 +31,10 @@ impl CredentialResolution {
                 format!("credential_ref '{}' is available", credential_ref)
             }
             CredentialResolution::Disabled => {
-                format!("credential_ref '{}' is disabled on this node", credential_ref)
+                format!(
+                    "credential_ref '{}' is disabled on this node",
+                    credential_ref
+                )
             }
             CredentialResolution::NotSynced => format!(
                 "credential_ref '{}' has not been synced to this node yet",
@@ -149,9 +152,10 @@ mod tests {
 
     #[test]
     fn resolve_api_key_state_reports_disabled_dynamic_credential() {
-        let _guard = crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
-            .lock()
-            .expect("lock");
+        let _guard =
+            crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
+                .lock()
+                .expect("lock");
         let store = global_dynamic_credentials();
         store.clear();
         store.set_credentials(vec![CredentialMaterial {
@@ -173,9 +177,10 @@ mod tests {
 
     #[test]
     fn resolve_api_key_state_reports_env_missing_for_config_credential() {
-        let _guard = crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
-            .lock()
-            .expect("lock");
+        let _guard =
+            crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
+                .lock()
+                .expect("lock");
         let store = global_dynamic_credentials();
         store.clear();
         let mut cfg = SpearletConfig::default();

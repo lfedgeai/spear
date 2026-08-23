@@ -16,8 +16,8 @@ impl TaskEventCursorStore {
     /// 根据 spearlet 配置创建游标存储。
     pub(crate) fn new(config: &SpearletConfig) -> Self {
         let node_uuid = config.compute_node_uuid();
-        let path =
-            PathBuf::from(&config.storage.data_dir).join(format!("task_events_cursor_{}.json", node_uuid));
+        let path = PathBuf::from(&config.storage.data_dir)
+            .join(format!("task_events_cursor_{}.json", node_uuid));
         Self { path }
     }
 
@@ -43,7 +43,11 @@ impl TaskEventCursorStore {
         }
         match fs::File::create(&self.path) {
             Ok(mut file) => {
-                if let Err(error) = file.write_all(serde_json::to_string(&value).unwrap_or_else(|_| "0".to_string()).as_bytes()) {
+                if let Err(error) = file.write_all(
+                    serde_json::to_string(&value)
+                        .unwrap_or_else(|_| "0".to_string())
+                        .as_bytes(),
+                ) {
                     warn!(error = %error, path = %self.path.display(), "Failed to write task cursor");
                 }
             }

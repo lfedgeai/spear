@@ -4,11 +4,15 @@ use std::collections::BTreeMap;
 
 use prost_types::{value::Kind as ProstValueKind, Struct as ProstStruct, Value as ProstValue};
 
+use crate::ai_backend_types::{
+    CanonicalBackendDesiredState, CanonicalBackendHosting, CanonicalBackendManagementMode,
+};
 use crate::proto::sms::{
     AiBackendDesiredState, AiBackendHosting, AiBackendManagementMode,
-    AiBackendNodeStatus as ProtoAiBackendNodeStatus, AiBackendNodeStatusRecord as ProtoAiBackendNodeStatusRecord,
-    AiBackendPlacementRecord as ProtoAiBackendPlacementRecord, AiBackendRecord as ProtoAiBackendRecord,
-    BackendSpec,
+    AiBackendNodeStatus as ProtoAiBackendNodeStatus,
+    AiBackendNodeStatusRecord as ProtoAiBackendNodeStatusRecord,
+    AiBackendPlacementRecord as ProtoAiBackendPlacementRecord,
+    AiBackendRecord as ProtoAiBackendRecord, BackendSpec,
 };
 use crate::sms::ai_backends::model::{
     AiBackendDesiredStateModel, AiBackendHostingModel, AiBackendManagementModeModel,
@@ -39,7 +43,9 @@ pub fn proto_backend_from_domain(record: &AiBackendRecordModel) -> ProtoAiBacken
 }
 
 /// Convert a proto backend record into a domain record / 把 proto backend 记录转换为领域记录
-pub fn domain_backend_from_proto(record: &ProtoAiBackendRecord) -> Result<AiBackendRecordModel, SmsError> {
+pub fn domain_backend_from_proto(
+    record: &ProtoAiBackendRecord,
+) -> Result<AiBackendRecordModel, SmsError> {
     Ok(AiBackendRecordModel {
         backend_id: record.backend_id.clone(),
         display_name: record.display_name.clone(),
@@ -56,7 +62,11 @@ pub fn domain_backend_from_proto(record: &ProtoAiBackendRecord) -> Result<AiBack
                 .as_ref()
                 .ok_or_else(|| SmsError::InvalidRequest("missing backend spec".to_string()))?,
         ),
-        labels: record.labels.clone().into_iter().collect::<BTreeMap<_, _>>(),
+        labels: record
+            .labels
+            .clone()
+            .into_iter()
+            .collect::<BTreeMap<_, _>>(),
         metadata: json_from_proto_struct(record.metadata.as_ref()),
         generation: record.generation,
         created_at_ms: record.created_at_ms,
@@ -208,7 +218,9 @@ fn proto_value_from_json(value: &serde_json::Value) -> ProstValue {
     let kind = match value {
         serde_json::Value::Null => ProstValueKind::NullValue(0),
         serde_json::Value::Bool(inner) => ProstValueKind::BoolValue(*inner),
-        serde_json::Value::Number(inner) => ProstValueKind::NumberValue(inner.as_f64().unwrap_or_default()),
+        serde_json::Value::Number(inner) => {
+            ProstValueKind::NumberValue(inner.as_f64().unwrap_or_default())
+        }
         serde_json::Value::String(inner) => ProstValueKind::StringValue(inner.clone()),
         serde_json::Value::Array(inner) => ProstValueKind::ListValue(prost_types::ListValue {
             values: inner.iter().map(proto_value_from_json).collect(),
@@ -256,10 +268,10 @@ fn proto_hosting_from_domain(value: AiBackendHostingModel) -> AiBackendHosting {
 
 /// Convert a proto hosting enum into domain / 把 proto hosting 枚举转换为领域
 fn domain_hosting_from_proto(value: i32) -> Result<AiBackendHostingModel, SmsError> {
-    match AiBackendHosting::try_from(value).unwrap_or(AiBackendHosting::Unspecified) {
-        AiBackendHosting::Remote => Ok(AiBackendHostingModel::Remote),
-        AiBackendHosting::Local => Ok(AiBackendHostingModel::Local),
-        AiBackendHosting::Unspecified => Err(SmsError::InvalidRequest(
+    match CanonicalBackendHosting::from_proto_i32(value) {
+        CanonicalBackendHosting::Remote => Ok(AiBackendHostingModel::Remote),
+        CanonicalBackendHosting::Local => Ok(AiBackendHostingModel::Local),
+        CanonicalBackendHosting::Unknown(_) => Err(SmsError::InvalidRequest(
             "invalid ai backend hosting".to_string(),
         )),
     }
@@ -275,10 +287,10 @@ fn proto_desired_state_from_domain(value: AiBackendDesiredStateModel) -> AiBacke
 
 /// Convert a proto desired-state enum into domain / 把 proto 期望状态枚举转换为领域
 pub fn domain_desired_state_from_proto(value: i32) -> Result<AiBackendDesiredStateModel, SmsError> {
-    match AiBackendDesiredState::try_from(value).unwrap_or(AiBackendDesiredState::Unspecified) {
-        AiBackendDesiredState::Enabled => Ok(AiBackendDesiredStateModel::Enabled),
-        AiBackendDesiredState::Disabled => Ok(AiBackendDesiredStateModel::Disabled),
-        AiBackendDesiredState::Unspecified => Err(SmsError::InvalidRequest(
+    match CanonicalBackendDesiredState::from_proto_i32(value) {
+        CanonicalBackendDesiredState::Enabled => Ok(AiBackendDesiredStateModel::Enabled),
+        CanonicalBackendDesiredState::Disabled => Ok(AiBackendDesiredStateModel::Disabled),
+        CanonicalBackendDesiredState::Unknown(_) => Err(SmsError::InvalidRequest(
             "invalid ai backend desired state".to_string(),
         )),
     }
@@ -295,15 +307,11 @@ fn proto_management_mode_from_domain(
 }
 
 /// Convert a proto management-mode enum into domain / 把 proto 管理模式枚举转换为领域
-fn domain_management_mode_from_proto(
-    value: i32,
-) -> Result<AiBackendManagementModeModel, SmsError> {
-    match AiBackendManagementMode::try_from(value)
-        .unwrap_or(AiBackendManagementMode::Unspecified)
-    {
-        AiBackendManagementMode::SmsRemote => Ok(AiBackendManagementModeModel::SmsRemote),
-        AiBackendManagementMode::SmsLocal => Ok(AiBackendManagementModeModel::SmsLocal),
-        AiBackendManagementMode::Unspecified => Err(SmsError::InvalidRequest(
+fn domain_management_mode_from_proto(value: i32) -> Result<AiBackendManagementModeModel, SmsError> {
+    match CanonicalBackendManagementMode::from_proto_i32(value) {
+        CanonicalBackendManagementMode::SmsRemote => Ok(AiBackendManagementModeModel::SmsRemote),
+        CanonicalBackendManagementMode::SmsLocal => Ok(AiBackendManagementModeModel::SmsLocal),
+        CanonicalBackendManagementMode::Unknown(_) => Err(SmsError::InvalidRequest(
             "invalid ai backend management mode".to_string(),
         )),
     }
@@ -324,11 +332,8 @@ fn proto_node_status_from_domain(
 }
 
 /// Convert a proto node status enum into domain / 把 proto 节点状态枚举转换为领域
-fn domain_node_status_from_proto(
-    value: i32,
-) -> Result<AiBackendNodeRuntimeStatusModel, SmsError> {
-    match ProtoAiBackendNodeStatus::try_from(value)
-        .unwrap_or(ProtoAiBackendNodeStatus::Unspecified)
+fn domain_node_status_from_proto(value: i32) -> Result<AiBackendNodeRuntimeStatusModel, SmsError> {
+    match ProtoAiBackendNodeStatus::try_from(value).unwrap_or(ProtoAiBackendNodeStatus::Unspecified)
     {
         ProtoAiBackendNodeStatus::Pending => Ok(AiBackendNodeRuntimeStatusModel::Pending),
         ProtoAiBackendNodeStatus::Reconciling => Ok(AiBackendNodeRuntimeStatusModel::Reconciling),
@@ -389,5 +394,22 @@ mod tests {
         assert_eq!(roundtrip.metadata, domain.metadata);
         assert_eq!(roundtrip.labels, domain.labels);
         assert_eq!(roundtrip.backend_id, domain.backend_id);
+    }
+
+    #[test]
+    fn domain_conversions_reject_unspecified_proto_enums() {
+        let hosting_err = domain_hosting_from_proto(AiBackendHosting::Unspecified as i32)
+            .expect_err("unspecified hosting should fail");
+        assert!(matches!(hosting_err, SmsError::InvalidRequest(_)));
+
+        let desired_err =
+            domain_desired_state_from_proto(AiBackendDesiredState::Unspecified as i32)
+                .expect_err("unspecified desired_state should fail");
+        assert!(matches!(desired_err, SmsError::InvalidRequest(_)));
+
+        let management_err =
+            domain_management_mode_from_proto(AiBackendManagementMode::Unspecified as i32)
+                .expect_err("unspecified management_mode should fail");
+        assert!(matches!(management_err, SmsError::InvalidRequest(_)));
     }
 }

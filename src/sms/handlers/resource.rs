@@ -10,7 +10,6 @@ use axum::{
     response::Json,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::HashMap;
 use tracing::{info, warn};
 
@@ -19,6 +18,10 @@ use crate::proto::sms::{
     UpdateNodeResourceRequest,
 };
 use crate::sms::gateway::GatewayState;
+use crate::sms::node_api::{
+    node_resource_to_response, node_with_resource_to_response, NodeResourceResponse,
+    PublicNodeActionResponse, PublicNodeResourceListResponse, PublicNodeWithResourceResponse,
+};
 
 /// Node resource update request for HTTP API / HTTP API的节点资源更新请求
 #[derive(Debug, Serialize, Deserialize)]
@@ -50,7 +53,7 @@ pub async fn update_node_resource(
     State(state): State<GatewayState>,
     Path(uuid): Path<String>,
     Json(req): Json<HttpUpdateNodeResourceRequest>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<PublicNodeActionResponse>, StatusCode> {
     let mut client = state.node_client.clone();
 
     // Convert HTTP request to gRPC request / 将HTTP请求转换为gRPC请求
@@ -80,10 +83,10 @@ pub async fn update_node_resource(
     match client.update_node_resource(grpc_req).await {
         Ok(response) => {
             let resp = response.into_inner();
-            Ok(Json(json!({
-                "success": resp.success,
-                "message": resp.message
-            })))
+            Ok(Json(PublicNodeActionResponse {
+                success: resp.success,
+                message: resp.message,
+            }))
         }
         Err(e) => {
             warn!("Failed to update node resource: {}", e);
@@ -96,7 +99,7 @@ pub async fn update_node_resource(
 pub async fn get_node_resource(
     State(state): State<GatewayState>,
     Path(uuid): Path<String>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<NodeResourceResponse>, StatusCode> {
     let mut client = state.node_client.clone();
 
     let grpc_req = GetNodeResourceRequest { node_uuid: uuid };
@@ -105,24 +108,7 @@ pub async fn get_node_resource(
         Ok(response) => {
             let resp = response.into_inner();
             if let Some(resource) = resp.resource {
-                Ok(Json(json!({
-                    "node_uuid": resource.node_uuid,
-                    "cpu_usage_percent": resource.cpu_usage_percent,
-                    "memory_usage_percent": resource.memory_usage_percent,
-                    "total_memory_bytes": resource.total_memory_bytes,
-                    "used_memory_bytes": resource.used_memory_bytes,
-                    "available_memory_bytes": resource.available_memory_bytes,
-                    "disk_usage_percent": resource.disk_usage_percent,
-                    "total_disk_bytes": resource.total_disk_bytes,
-                    "used_disk_bytes": resource.used_disk_bytes,
-                    "network_rx_bytes_per_sec": resource.network_rx_bytes_per_sec,
-                    "network_tx_bytes_per_sec": resource.network_tx_bytes_per_sec,
-                    "load_average_1m": resource.load_average_1m,
-                    "load_average_5m": resource.load_average_5m,
-                    "load_average_15m": resource.load_average_15m,
-                    "resource_metadata": resource.resource_metadata,
-                    "updated_at": resource.updated_at
-                })))
+                Ok(Json(node_resource_to_response(resource)))
             } else {
                 Err(StatusCode::NOT_FOUND)
             }
@@ -138,7 +124,7 @@ pub async fn get_node_resource(
 pub async fn list_node_resources(
     State(state): State<GatewayState>,
     Query(query): Query<ListNodeResourcesQuery>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<PublicNodeResourceListResponse>, StatusCode> {
     let mut client = state.node_client.clone();
 
     let node_uuids = if let Some(uuids_str) = &query.node_uuids {
@@ -146,10 +132,13 @@ pub async fn list_node_resources(
             "HTTP list_node_resources called with node_uuids: '{}'",
             uuids_str
         );
-        uuids_str.split(',').map(|s| s.trim().to_string()).collect()
+        uuids_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect::<Vec<_>>()
     } else {
         info!("HTTP list_node_resources called with no node_uuids filter");
-        vec![]
+        Vec::<String>::new()
     };
 
     let grpc_req = ListNodeResourcesRequest { node_uuids };
@@ -157,34 +146,13 @@ pub async fn list_node_resources(
     match client.list_node_resources(grpc_req).await {
         Ok(response) => {
             let resp = response.into_inner();
-            let resources: Vec<serde_json::Value> = resp
+            let resources = resp
                 .resources
                 .into_iter()
-                .map(|resource| {
-                    json!({
-                        "node_uuid": resource.node_uuid,
-                        "cpu_usage_percent": resource.cpu_usage_percent,
-                        "memory_usage_percent": resource.memory_usage_percent,
-                        "total_memory_bytes": resource.total_memory_bytes,
-                        "used_memory_bytes": resource.used_memory_bytes,
-                        "available_memory_bytes": resource.available_memory_bytes,
-                        "disk_usage_percent": resource.disk_usage_percent,
-                        "total_disk_bytes": resource.total_disk_bytes,
-                        "used_disk_bytes": resource.used_disk_bytes,
-                        "network_rx_bytes_per_sec": resource.network_rx_bytes_per_sec,
-                        "network_tx_bytes_per_sec": resource.network_tx_bytes_per_sec,
-                        "load_average_1m": resource.load_average_1m,
-                        "load_average_5m": resource.load_average_5m,
-                        "load_average_15m": resource.load_average_15m,
-                        "resource_metadata": resource.resource_metadata,
-                        "updated_at": resource.updated_at
-                    })
-                })
+                .map(node_resource_to_response)
                 .collect();
 
-            Ok(Json(json!({
-                "resources": resources
-            })))
+            Ok(Json(PublicNodeResourceListResponse { resources }))
         }
         Err(e) => {
             warn!("Failed to list node resources: {}", e);
@@ -197,7 +165,7 @@ pub async fn list_node_resources(
 pub async fn get_node_with_resource(
     State(state): State<GatewayState>,
     Path(uuid): Path<String>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<PublicNodeWithResourceResponse>, StatusCode> {
     let mut client = state.node_client.clone();
 
     let grpc_req = GetNodeWithResourceRequest { uuid };
@@ -206,37 +174,7 @@ pub async fn get_node_with_resource(
         Ok(response) => {
             let resp = response.into_inner();
             if let Some(node) = resp.node {
-                let mut result = json!({
-                    "uuid": node.uuid,
-                    "ip_address": node.ip_address,
-                    "port": node.port,
-                    "status": node.status,
-                    "metadata": node.metadata,
-                    "registered_at": node.registered_at,
-                    "last_heartbeat": node.last_heartbeat
-                });
-
-                if let Some(resource) = resp.resource {
-                    result["resource"] = json!({
-                        "cpu_usage_percent": resource.cpu_usage_percent,
-                        "memory_usage_percent": resource.memory_usage_percent,
-                        "total_memory_bytes": resource.total_memory_bytes,
-                        "used_memory_bytes": resource.used_memory_bytes,
-                        "available_memory_bytes": resource.available_memory_bytes,
-                        "disk_usage_percent": resource.disk_usage_percent,
-                        "total_disk_bytes": resource.total_disk_bytes,
-                        "used_disk_bytes": resource.used_disk_bytes,
-                        "network_rx_bytes_per_sec": resource.network_rx_bytes_per_sec,
-                        "network_tx_bytes_per_sec": resource.network_tx_bytes_per_sec,
-                        "load_average_1m": resource.load_average_1m,
-                        "load_average_5m": resource.load_average_5m,
-                        "load_average_15m": resource.load_average_15m,
-                        "resource_metadata": resource.resource_metadata,
-                        "updated_at": resource.updated_at
-                    });
-                }
-
-                Ok(Json(result))
+                Ok(Json(node_with_resource_to_response(node, resp.resource)))
             } else {
                 Err(StatusCode::NOT_FOUND)
             }

@@ -3,6 +3,11 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
+use crate::ai_backend_types::{
+    AllowedHosting, CanonicalBackendHosting, CanonicalBackendKind, CanonicalBackendOrigin,
+    CanonicalBackendProvider,
+};
+
 use crate::config::base::{LogConfig, ServerConfig};
 
 /// SPEARlet command line arguments / SPEARlet命令行参数
@@ -272,8 +277,7 @@ impl AppConfig {
             || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_CANDIDATES_SENT").is_ok()
             || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_DEBUG_KV").is_ok()
             || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_MAX_INFLIGHT_TOTAL").is_ok()
-            || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_PER_AGENT_MAX_INFLIGHT")
-                .is_ok()
+            || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_PER_AGENT_MAX_INFLIGHT").is_ok()
             || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_ENABLED").is_ok()
             || std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_MAX_BYTES")
                 .is_ok()
@@ -333,21 +337,25 @@ impl AppConfig {
                 }
             }
         }
-        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_PER_AGENT_MAX_INFLIGHT") {
+        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_PER_AGENT_MAX_INFLIGHT")
+        {
             if let Ok(n) = v.parse::<usize>() {
                 if let Some(cfg) = config.spearlet.ai.router_grpc_filter_stream.as_mut() {
                     cfg.per_agent_max_inflight = n;
                 }
             }
         }
-        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_ENABLED") {
+        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_ENABLED")
+        {
             if let Ok(b) = v.parse::<bool>() {
                 if let Some(cfg) = config.spearlet.ai.router_grpc_filter_stream.as_mut() {
                     cfg.content_fetch_enabled = b;
                 }
             }
         }
-        if let Ok(v) = std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_MAX_BYTES") {
+        if let Ok(v) =
+            std::env::var("SPEARLET_AI_ROUTER_GRPC_FILTER_STREAM_CONTENT_FETCH_MAX_BYTES")
+        {
             if let Ok(n) = v.parse::<usize>() {
                 if let Some(cfg) = config.spearlet.ai.router_grpc_filter_stream.as_mut() {
                     cfg.content_fetch_max_bytes = n;
@@ -361,7 +369,11 @@ impl AppConfig {
         }
         if let Ok(v) = std::env::var("SPEARLET_AI_BACKEND_CONTROL_PLANE_POLL_INTERVAL_MS") {
             if let Ok(n) = v.parse::<u64>() {
-                config.spearlet.ai.backend_control_plane_sync.poll_interval_ms = n;
+                config
+                    .spearlet
+                    .ai
+                    .backend_control_plane_sync
+                    .poll_interval_ms = n;
             }
         }
         if let Ok(v) = std::env::var("SPEARLET_AI_BACKEND_REPORT_INTERVAL_MS") {
@@ -486,25 +498,12 @@ fn validate_spearlet_config(
     cfg: &SpearletConfig,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     for b in cfg.ai.backends.iter() {
-        let hosting = b.hosting.as_deref().map(|s| s.trim()).unwrap_or("");
-        if hosting.is_empty() {
-            return Err(std::io::Error::new(
+        b.typed_view().map_err(|message| {
+            std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                format!("ai backend hosting is required: {}", b.name),
+                format!("{message}: {}", b.name),
             )
-            .into());
-        }
-        let hosting = hosting.to_ascii_lowercase();
-        if hosting != "local" && hosting != "remote" {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "invalid ai backend hosting (expected local|remote): {}",
-                    b.name
-                ),
-            )
-            .into());
-        }
+        })?;
     }
     Ok(())
 }
@@ -608,12 +607,235 @@ impl Default for BackendControlPlaneSyncConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::AiConfig;
+    use super::{
+        validate_spearlet_config, AiBackendConfig, AiBackendProviderView, AiBackendTypedView,
+        AiConfig, LocalBackendProviderView, RemoteBackendProviderView, SpearletConfig,
+    };
 
     #[test]
     fn ai_config_uses_expected_backend_report_interval_by_default() {
         let config = AiConfig::default();
         assert_eq!(config.backend_report_interval_ms, 60_000);
+    }
+
+    #[test]
+    fn ai_backend_config_typed_view_normalizes_aliases() {
+        let config = AiBackendConfig {
+            name: "local-llama".to_string(),
+            kind: "llama.cpp".to_string(),
+            base_url: String::new(),
+            hosting: Some("local".to_string()),
+            model: Some("qwen".to_string()),
+            credential_ref: None,
+            provider: Some("llama_cpp".to_string()),
+            origin: Some("local_controller".to_string()),
+            deployment_id: None,
+            weight: 100,
+            priority: 0,
+            ops: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+        };
+
+        let typed = config.typed_view().expect("typed view should be built");
+        let local = match typed {
+            AiBackendTypedView::Local(local) => local,
+            AiBackendTypedView::Remote(_) => panic!("local config should produce local typed view"),
+        };
+        assert_eq!(local.common.kind.as_str(), "llamacpp");
+        assert_eq!(local.common.provider.as_str(), "llamacpp");
+        assert_eq!(local.common.origin.as_str(), "local_controller");
+    }
+
+    #[test]
+    fn validate_spearlet_config_allows_local_ollama_chat_backend() {
+        let mut config = SpearletConfig::default();
+        config.ai.backends.push(AiBackendConfig {
+            name: "ollama-local".to_string(),
+            kind: "ollama_chat".to_string(),
+            base_url: "http://127.0.0.1:11434".to_string(),
+            hosting: Some("local".to_string()),
+            model: Some("llama3.1:8b".to_string()),
+            credential_ref: None,
+            provider: Some("ollama".to_string()),
+            origin: Some("local_controller".to_string()),
+            deployment_id: None,
+            weight: 100,
+            priority: 0,
+            ops: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+        });
+
+        validate_spearlet_config(&config).expect("local ollama_chat should be accepted");
+    }
+
+    #[test]
+    fn ai_backend_config_typed_view_builds_remote_variant() {
+        let config = AiBackendConfig {
+            name: "remote-openai".to_string(),
+            kind: "openai_chat_completion".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            hosting: Some("remote".to_string()),
+            model: Some("gpt-4o-mini".to_string()),
+            credential_ref: Some("openai-key".to_string()),
+            provider: None,
+            origin: Some("sms".to_string()),
+            deployment_id: Some("deploy-1".to_string()),
+            weight: 100,
+            priority: 0,
+            ops: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+        };
+
+        let typed = config.typed_view().expect("typed view should be built");
+        let remote = match typed {
+            AiBackendTypedView::Remote(remote) => remote,
+            AiBackendTypedView::Local(_) => {
+                panic!("remote config should produce remote typed view")
+            }
+        };
+        assert_eq!(remote.common.kind.as_str(), "openai_chat_completion");
+        assert_eq!(remote.common.provider.as_str(), "openai");
+        assert_eq!(remote.base_url, "https://api.openai.com/v1");
+        assert_eq!(remote.credential_ref.as_deref(), Some("openai-key"));
+    }
+
+    #[test]
+    fn ai_backend_config_typed_view_rejects_remote_backend_without_base_url() {
+        let config = AiBackendConfig {
+            name: "remote-openai".to_string(),
+            kind: "openai_chat_completion".to_string(),
+            base_url: String::new(),
+            hosting: Some("remote".to_string()),
+            model: Some("gpt-4o-mini".to_string()),
+            credential_ref: None,
+            provider: None,
+            origin: Some("sms".to_string()),
+            deployment_id: None,
+            weight: 100,
+            priority: 0,
+            ops: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+        };
+
+        let err = config
+            .typed_view()
+            .expect_err("remote backend without base_url should fail");
+        assert!(err.contains("requires base_url"));
+    }
+
+    #[test]
+    fn ai_backend_config_typed_view_allows_local_llamacpp_without_base_url() {
+        let config = AiBackendConfig {
+            name: "local-llama".to_string(),
+            kind: "llamacpp".to_string(),
+            base_url: String::new(),
+            hosting: Some("local".to_string()),
+            model: Some("qwen".to_string()),
+            credential_ref: None,
+            provider: Some("llamacpp".to_string()),
+            origin: Some("local_controller".to_string()),
+            deployment_id: None,
+            weight: 100,
+            priority: 0,
+            ops: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+        };
+
+        let typed = config
+            .typed_view()
+            .expect("local llamacpp should not require base_url");
+        match typed {
+            AiBackendTypedView::Local(local) => {
+                assert!(local.base_url.is_empty());
+            }
+            AiBackendTypedView::Remote(_) => panic!("llamacpp should stay local"),
+        }
+    }
+
+    #[test]
+    fn ai_backend_config_typed_view_exposes_provider_specific_local_view() {
+        let config = AiBackendConfig {
+            name: "ollama-local".to_string(),
+            kind: "ollama_chat".to_string(),
+            base_url: "http://127.0.0.1:11434".to_string(),
+            hosting: Some("local".to_string()),
+            model: Some("llama3.1:8b".to_string()),
+            credential_ref: None,
+            provider: Some("ollama".to_string()),
+            origin: Some("local_controller".to_string()),
+            deployment_id: None,
+            weight: 100,
+            priority: 0,
+            ops: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+        };
+
+        let typed = config.typed_view().expect("typed view should be built");
+        match typed.provider_view() {
+            AiBackendProviderView::Local(LocalBackendProviderView::Ollama(local)) => {
+                assert_eq!(local.common.provider.as_str(), "ollama");
+            }
+            other => panic!("expected local ollama provider view, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ai_backend_config_typed_view_exposes_provider_specific_remote_view() {
+        let config = AiBackendConfig {
+            name: "remote-openai".to_string(),
+            kind: "openai_chat_completion".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            hosting: Some("remote".to_string()),
+            model: Some("gpt-4o-mini".to_string()),
+            credential_ref: Some("openai-key".to_string()),
+            provider: Some("openai".to_string()),
+            origin: Some("sms".to_string()),
+            deployment_id: Some("deploy-1".to_string()),
+            weight: 100,
+            priority: 0,
+            ops: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+        };
+
+        let typed = config.typed_view().expect("typed view should be built");
+        match typed.provider_view() {
+            AiBackendProviderView::Remote(RemoteBackendProviderView::OpenAi(remote)) => {
+                assert_eq!(remote.common.provider.as_str(), "openai");
+            }
+            other => panic!("expected remote openai provider view, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ai_backend_config_typed_view_rejects_provider_kind_mismatch() {
+        let config = AiBackendConfig {
+            name: "bad-remote".to_string(),
+            kind: "ollama_chat".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            hosting: Some("remote".to_string()),
+            model: Some("llama3.1:8b".to_string()),
+            credential_ref: None,
+            provider: Some("openai".to_string()),
+            origin: Some("sms".to_string()),
+            deployment_id: None,
+            weight: 100,
+            priority: 0,
+            ops: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+        };
+
+        let err = config
+            .typed_view()
+            .expect_err("provider/kind mismatch should be rejected");
+        assert!(err.contains("does not match kind"));
     }
 }
 
@@ -676,7 +898,6 @@ impl Default for AiDiscoveryConfig {
     }
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OllamaDiscoveryConfig {
@@ -737,7 +958,6 @@ impl Default for AiCredentialConfig {
     }
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AiBackendConfig {
@@ -755,6 +975,220 @@ pub struct AiBackendConfig {
     pub ops: Vec<String>,
     pub features: Vec<String>,
     pub transports: Vec<String>,
+}
+
+/// Shared typed fields reused by local/remote backend config variants.
+/// local/remote backend 配置变体复用的共享强类型字段。
+#[derive(Debug, Clone)]
+pub struct AiBackendCommonView {
+    pub name: String,
+    pub kind: CanonicalBackendKind,
+    pub provider: CanonicalBackendProvider,
+    pub origin: CanonicalBackendOrigin,
+    pub deployment_id: Option<String>,
+    pub weight: u32,
+    pub priority: i32,
+    pub ops: Vec<String>,
+    pub features: Vec<String>,
+    pub transports: Vec<String>,
+}
+
+/// Typed local backend config view.
+/// 强类型 local backend 配置视图。
+#[derive(Debug, Clone)]
+pub struct LocalBackendConfigView {
+    pub common: AiBackendCommonView,
+    pub model: Option<String>,
+    pub credential_ref: Option<String>,
+    pub base_url: String,
+}
+
+/// Typed remote backend config view.
+/// 强类型 remote backend 配置视图。
+#[derive(Debug, Clone)]
+pub struct RemoteBackendConfigView {
+    pub common: AiBackendCommonView,
+    pub model: Option<String>,
+    pub credential_ref: Option<String>,
+    pub base_url: String,
+}
+
+/// Typed internal view derived from the sparse config bag.
+/// 从稀疏配置包派生出的内部强类型视图。
+#[derive(Debug, Clone)]
+pub enum AiBackendTypedView {
+    /// Local backend variant / local backend 变体
+    Local(LocalBackendConfigView),
+    /// Remote backend variant / remote backend 变体
+    Remote(RemoteBackendConfigView),
+}
+
+/// Provider-specific typed view layered on top of local/remote variants.
+/// 构建在 local/remote 变体之上的 provider-specific 强类型视图。
+#[derive(Debug, Clone, Copy)]
+pub enum AiBackendProviderView<'a> {
+    /// Local provider-specific variant / local provider-specific 变体
+    Local(LocalBackendProviderView<'a>),
+    /// Remote provider-specific variant / remote provider-specific 变体
+    Remote(RemoteBackendProviderView<'a>),
+}
+
+/// Provider-specific local backend config view.
+/// provider-specific 的 local backend 配置视图。
+#[derive(Debug, Clone, Copy)]
+pub enum LocalBackendProviderView<'a> {
+    /// Local Ollama-compatible endpoint / 本地 Ollama-compatible endpoint
+    Ollama(&'a LocalBackendConfigView),
+    /// Node-local llama.cpp managed runtime / 节点本地 llama.cpp 托管运行时
+    LlamaCpp(&'a LocalBackendConfigView),
+    /// Local vLLM family / 本地 vLLM 家族
+    Vllm(&'a LocalBackendConfigView),
+    /// Internal testing provider / 内部测试 provider
+    Internal(&'a LocalBackendConfigView),
+    /// Unsupported or still-weakly-typed local provider / 未支持或仍为弱类型的 local provider
+    Unknown(&'a LocalBackendConfigView),
+}
+
+/// Provider-specific remote backend config view.
+/// provider-specific 的 remote backend 配置视图。
+#[derive(Debug, Clone, Copy)]
+pub enum RemoteBackendProviderView<'a> {
+    /// OpenAI or OpenAI-compatible remote provider / OpenAI 或 OpenAI-compatible 远端 provider
+    OpenAi(&'a RemoteBackendConfigView),
+    /// Remote Ollama-compatible endpoint / 远端 Ollama-compatible endpoint
+    Ollama(&'a RemoteBackendConfigView),
+    /// Internal testing provider / 内部测试 provider
+    Internal(&'a RemoteBackendConfigView),
+    /// Unsupported or still-weakly-typed remote provider / 未支持或仍为弱类型的 remote provider
+    Unknown(&'a RemoteBackendConfigView),
+}
+
+impl AiBackendTypedView {
+    /// Validate variant-specific minimal config requirements.
+    /// 校验变体级别的最小配置要求。
+    fn validate(self) -> Result<Self, String> {
+        match &self {
+            Self::Local(local) => local.validate()?,
+            Self::Remote(remote) => remote.validate()?,
+        }
+        Ok(self)
+    }
+
+    /// Project the local/remote typed view into a provider-specific subview.
+    /// 将 local/remote 强类型视图投影为 provider-specific 子视图。
+    pub fn provider_view(&self) -> AiBackendProviderView<'_> {
+        match self {
+            Self::Local(local) => AiBackendProviderView::Local(local.provider_view()),
+            Self::Remote(remote) => AiBackendProviderView::Remote(remote.provider_view()),
+        }
+    }
+}
+
+impl<'a> LocalBackendProviderView<'a> {
+    /// Return the underlying local config view regardless of provider family.
+    /// 无论 provider 家族如何，都返回底层 local 配置视图。
+    pub fn config(self) -> &'a LocalBackendConfigView {
+        match self {
+            Self::Ollama(config)
+            | Self::LlamaCpp(config)
+            | Self::Vllm(config)
+            | Self::Internal(config)
+            | Self::Unknown(config) => config,
+        }
+    }
+}
+
+impl<'a> RemoteBackendProviderView<'a> {
+    /// Return the underlying remote config view regardless of provider family.
+    /// 无论 provider 家族如何，都返回底层 remote 配置视图。
+    pub fn config(self) -> &'a RemoteBackendConfigView {
+        match self {
+            Self::OpenAi(config)
+            | Self::Ollama(config)
+            | Self::Internal(config)
+            | Self::Unknown(config) => config,
+        }
+    }
+}
+
+impl LocalBackendConfigView {
+    /// Validate local backend minimal constraints.
+    /// 校验 local backend 的最小约束。
+    fn validate(&self) -> Result<(), String> {
+        match self.common.kind.allowed_hosting() {
+            AllowedHosting::RemoteOnly => {
+                return Err(format!(
+                    "backend kind {} does not support local hosting",
+                    self.common.kind.as_str()
+                ));
+            }
+            AllowedHosting::LocalOnly | AllowedHosting::Any => {}
+        }
+        match self.provider_view() {
+            LocalBackendProviderView::Ollama(local) | LocalBackendProviderView::Vllm(local) => {
+                if local.base_url.trim().is_empty() {
+                    return Err(format!(
+                        "local backend kind {} requires base_url",
+                        local.common.kind.as_str()
+                    ));
+                }
+            }
+            LocalBackendProviderView::LlamaCpp(_)
+            | LocalBackendProviderView::Internal(_)
+            | LocalBackendProviderView::Unknown(_) => {}
+        }
+        Ok(())
+    }
+
+    /// Project the local variant into a provider-specific subview.
+    /// 将 local 变体投影为 provider-specific 子视图。
+    pub fn provider_view(&self) -> LocalBackendProviderView<'_> {
+        match self.common.provider {
+            CanonicalBackendProvider::Ollama => LocalBackendProviderView::Ollama(self),
+            CanonicalBackendProvider::LlamaCpp => LocalBackendProviderView::LlamaCpp(self),
+            CanonicalBackendProvider::Vllm => LocalBackendProviderView::Vllm(self),
+            CanonicalBackendProvider::Internal => LocalBackendProviderView::Internal(self),
+            CanonicalBackendProvider::OpenAi | CanonicalBackendProvider::Unknown(_) => {
+                LocalBackendProviderView::Unknown(self)
+            }
+        }
+    }
+}
+
+impl RemoteBackendConfigView {
+    /// Validate remote backend minimal constraints.
+    /// 校验 remote backend 的最小约束。
+    fn validate(&self) -> Result<(), String> {
+        match self.common.kind.allowed_hosting() {
+            AllowedHosting::LocalOnly => {
+                return Err(format!(
+                    "backend kind {} does not support remote hosting",
+                    self.common.kind.as_str()
+                ));
+            }
+            AllowedHosting::RemoteOnly | AllowedHosting::Any => {}
+        }
+        if self.base_url.trim().is_empty() {
+            return Err(format!(
+                "remote backend kind {} requires base_url",
+                self.common.kind.as_str()
+            ));
+        }
+        Ok(())
+    }
+
+    /// Project the remote variant into a provider-specific subview.
+    /// 将 remote 变体投影为 provider-specific 子视图。
+    pub fn provider_view(&self) -> RemoteBackendProviderView<'_> {
+        match self.common.provider {
+            CanonicalBackendProvider::OpenAi => RemoteBackendProviderView::OpenAi(self),
+            CanonicalBackendProvider::Ollama => RemoteBackendProviderView::Ollama(self),
+            CanonicalBackendProvider::Internal => RemoteBackendProviderView::Internal(self),
+            CanonicalBackendProvider::LlamaCpp
+            | CanonicalBackendProvider::Vllm
+            | CanonicalBackendProvider::Unknown(_) => RemoteBackendProviderView::Unknown(self),
+        }
+    }
 }
 
 impl Default for AiBackendConfig {
@@ -778,6 +1212,89 @@ impl Default for AiBackendConfig {
     }
 }
 
+impl AiBackendConfig {
+    /// Build a typed view from the weak config bag without changing external config shape.
+    /// 在不改变外部配置结构的前提下，从弱类型配置包构建强类型视图。
+    pub fn typed_view(&self) -> Result<AiBackendTypedView, String> {
+        if self.name.trim().is_empty() {
+            return Err("ai backend name is required".to_string());
+        }
+        let hosting = match self.hosting.as_deref() {
+            Some(value) if !value.trim().is_empty() => CanonicalBackendHosting::parse(value),
+            _ => return Err("ai backend hosting is required".to_string()),
+        };
+        let kind = CanonicalBackendKind::parse(&self.kind);
+        let provider = canonical_provider_for_kind(&kind, self.provider.as_deref())?;
+        let common = AiBackendCommonView {
+            name: self.name.trim().to_string(),
+            kind,
+            provider,
+            origin: CanonicalBackendOrigin::parse_optional(self.origin.as_deref()),
+            deployment_id: self.deployment_id.as_deref().and_then(trimmed_option),
+            weight: self.weight,
+            priority: self.priority,
+            ops: self.ops.clone(),
+            features: self.features.clone(),
+            transports: self.transports.clone(),
+        };
+        let model = self.model.as_deref().and_then(trimmed_option);
+        let credential_ref = self.credential_ref.as_deref().and_then(trimmed_option);
+        let base_url = self.base_url.trim().to_string();
+
+        match hosting {
+            CanonicalBackendHosting::Local => AiBackendTypedView::Local(LocalBackendConfigView {
+                common,
+                model,
+                credential_ref,
+                base_url,
+            })
+            .validate(),
+            CanonicalBackendHosting::Remote => {
+                AiBackendTypedView::Remote(RemoteBackendConfigView {
+                    common,
+                    model,
+                    credential_ref,
+                    base_url,
+                })
+                .validate()
+            }
+            CanonicalBackendHosting::Unknown(_) => {
+                Err("invalid ai backend hosting (expected local|remote)".to_string())
+            }
+        }
+    }
+}
+
+fn trimmed_option(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn canonical_provider_for_kind(
+    kind: &CanonicalBackendKind,
+    raw_provider: Option<&str>,
+) -> Result<CanonicalBackendProvider, String> {
+    let inferred = kind.inferred_provider();
+    let Some(provider) = raw_provider.and_then(trimmed_option) else {
+        return Ok(inferred);
+    };
+    let parsed = CanonicalBackendProvider::parse(&provider);
+    if matches!(parsed, CanonicalBackendProvider::Unknown(_)) {
+        return Err(format!("invalid ai backend provider {provider}"));
+    }
+    if matches!(inferred, CanonicalBackendProvider::Unknown(_)) || parsed == inferred {
+        return Ok(parsed);
+    }
+    Err(format!(
+        "backend provider {} does not match kind {}",
+        parsed.as_str(),
+        kind.as_str()
+    ))
+}
 
 // gRPC server configuration / gRPC服务器配置
 // gRPC uses base ServerConfig / gRPC使用基础ServerConfig

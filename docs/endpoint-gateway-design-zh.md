@@ -126,6 +126,7 @@ WS 建连成功后（WebSocket Close 或协议内 error frame）：
 
 - 负载均衡粒度应为“逻辑流”（SSF `stream_id`），而不是 endpoint 级别固定绑定单个 execution。
 - 为了允许多个客户端共享同一个 execution，SMS 必须做 `stream_id` 的命名空间隔离（重写/映射），否则不同客户端使用相同 `stream_id` 会在 execution 内冲突。
+- 当前实现优先保留原始 `client_stream_id`（例如常见的 `1/2` 文本/语音流）只要 execution 内尚未被占用；只有发生冲突时才分配新的 `upstream_stream_id`。这样单客户端 user-stream workload 仍能保持稳定流语义，多客户端场景仍保留隔离能力。
 
 #### 4.4.1 分配策略（per-stream routing）
 

@@ -1,60 +1,62 @@
 # SPEAR Next
 
-SPEAR Next 是 SPEAR 核心服务的 Rust/async 实现：
-
-- **SMS**：元数据/控制面服务。
-- **SPEARlet**：节点侧代理与运行时。
+SPEAR Next 是 SPEAR 核心平台的 Rust/async 实现。
+它提供控制面、节点运行时、浏览器 Console，以及 Web Admin，用于运行和管理 task / execution 类工作负载。
 
 English README: [README.md](./README.md)
 
-## 目录结构
+## SPEAR 是什么
 
-- `src/apps/sms`：SMS 二进制入口
-- `src/apps/spearlet`：SPEARlet 二进制入口
-- `web-admin/`：Web Admin 前端源码
-- `assets/admin/`：构建后的 Web Admin 静态资源（由 SMS 内嵌/托管）
-- `samples/wasm-c/`：基于 C 的 WASM 示例（WASI）
-- `docs/`：设计与使用文档
+SPEAR 适合下面这类场景：
 
-## 架构示意图
+- 在中心控制面注册和管理任务
+- 在节点侧运行 workload
+- 通过浏览器访问 endpoint、会话和流式结果
+- 通过 Web UI 运维文件、执行记录和 AI backend
+
+这个仓库里的两个核心服务是：
+
+- **SMS**：控制面、元数据服务、HTTP/gRPC 网关、Console 托管服务、Web Admin 托管服务
+- **SPEARlet**：节点侧 agent 与执行运行时，连接到 SMS 并实际运行 workload
+
+## 架构
 
 ![SPEAR 架构](docs/diagrams/spear-architecture.png)
 
-## 快速开始
+一个典型请求链路是：
+
+1. 用户从 Console、API 或 endpoint gateway 发起请求
+2. SMS 负责元数据、任务、路由和会话状态
+3. SPEARlet 在节点上执行 workload
+4. 结果、流式数据、日志和状态再回到 SMS
+
+## 首次上手
 
 ### 前置依赖
 
-- Rust toolchain（建议使用最新 stable）
-- Docker（macOS/Windows 使用 Docker Desktop，Linux 使用 Docker Engine）
-- Docker Compose v2（`docker compose`）
+- Docker
+- Docker Compose v2，也就是 `docker compose`
 
-说明：本项目使用 `protoc-bin-vendored`，通常无需手动安装 `protoc`。
+对于第一次接触 SPEAR 的使用者，最推荐的方式就是直接用 Docker Compose 启动。
 
-### 使用 Docker Compose 本地运行（SMS + SPEARlet）
+## 用 Docker Compose 运行
 
-这是推荐的跨平台本地部署方式（无需 Kubernetes）。会启动：
+### HTTP 部署
 
-- SMS（gRPC + HTTP 网关 + 可选 Web Admin）
-- SPEARlet（节点 Agent/Runtime），通过 Compose 网络连接 SMS
-
-使用仓库自带 Compose 文件：
-
-- `deploy/docker/compose.local.yaml`
-- 本地 Compose 栈会用 `rocksdb` feature 构建 SMS，并把 admin metadata 与 event KV 一起持久化到 `sms-data` volume。
-
-启动：
+启动默认本地栈：
 
 ```bash
 docker compose -f deploy/docker/compose.local.yaml up -d --build
 ```
 
-常用地址（默认宿主机端口）：
+默认访问地址：
 
-- SMS health：`http://127.0.0.1:18080/health`
+- Console：`http://127.0.0.1:18080/console`
+- SMS API / health：`http://127.0.0.1:18080/health`
 - SMS Swagger：`http://127.0.0.1:18080/swagger-ui/`
-- SPEAR Console（由 SMS 托管）：`http://127.0.0.1:18080/console`
-- SMS Web Admin：`http://127.0.0.1:18082/`
+- Web Admin：`http://127.0.0.1:18082/`
 - SPEARlet health：`http://127.0.0.1:18081/health`
+- Debug Server：`http://127.0.0.1:17777/`
 
 停止：
 
@@ -62,191 +64,78 @@ docker compose -f deploy/docker/compose.local.yaml up -d --build
 docker compose -f deploy/docker/compose.local.yaml down
 ```
 
-清理本地数据（volumes）：
+清理本地数据：
 
 ```bash
 docker compose -f deploy/docker/compose.local.yaml down -v
 ```
 
-常见构建/网络问题：
+### HTTPS 部署
 
-- 如果 Docker Hub 无法访问，可通过环境变量覆盖基础镜像（示例使用镜像站）：
+SPEAR 支持通过本地 HTTPS overlay 暴露浏览器页面。
+当前仓库推荐的本地模式是：内部服务仍走 HTTP，由 Caddy 做 TLS 终止。这也是这里的最佳实践实现方式。
 
-```bash
-export NODE_IMAGE=docker.m.daocloud.io/library/node:20-bookworm-slim
-export RUST_IMAGE=docker.m.daocloud.io/library/rust:1.91-bookworm
-export DEBIAN_IMAGE=docker.m.daocloud.io/library/debian:trixie-slim
-docker compose -f deploy/docker/compose.local.yaml up -d --build
-```
-
-- 如果你要使用 Local AI Models（llama.cpp），SPEARlet 需要包含 `llama-server`。Compose 默认会使用包含 `llama-server` 的构建 target，也可以显式覆盖：
+同时启动 HTTP 基础栈和 HTTPS overlay：
 
 ```bash
-SPEARLET_BUILD_TARGET=runtime_with_node_and_llama docker compose -f deploy/docker/compose.local.yaml up -d --build spearlet
+docker compose \
+  -f deploy/docker/compose.local.yaml \
+  -f deploy/docker/compose.https.yaml \
+  up -d --build
 ```
 
-### 构建
+默认 HTTPS 地址：
 
-```bash
-make build
+- Web Admin：`https://127.0.0.1:18443/admin`
+- Console：`https://127.0.0.1:18444/console`
+- Debug Server：`https://127.0.0.1:18445/`
 
-# release
-make build-release
+HTTPS 详细说明：
 
-# 指定 Rust features（例如 sled / rocksdb）
-make FEATURES=sled build
+- [deploy/docker/README-https.md](./deploy/docker/README-https.md)
 
-# 启用本机麦克风采集实现（可选）
-make FEATURES=mic-device build
+### Compose 会启动哪些服务
 
-# macOS 便捷入口（等价于 FEATURES+=mic-device）
-make mac-build
-```
+- `sms`：控制面和浏览器入口
+- `spearlet`：节点运行时
+- `debug-server`：运行时调试日志查看服务
+- `https-proxy`：当叠加 `compose.https.yaml` 时启用的 Caddy TLS 入口
 
-### 运行 SMS
+## 启动后先看什么
 
-```bash
-./target/debug/sms
+服务启动后，建议先访问：
 
-# 启用 Web Admin
-./target/debug/sms --enable-web-admin --web-admin-addr 127.0.0.1:8081
-```
+- **Console**：确认浏览器入口和 endpoint/session 是否可连接
+- **Web Admin**：查看 nodes、tasks、files、executions、AI backends
 
-常用地址：
+第一次使用 SPEAR 的推荐顺序是：
 
-- HTTP 网关：`http://127.0.0.1:8080`
-- Swagger UI：`http://127.0.0.1:8080/swagger-ui/`
-- OpenAPI：`http://127.0.0.1:8080/api/openapi.json`
-- gRPC：`127.0.0.1:50051`
-- Web Admin（启用后）：`http://127.0.0.1:8081/admin`
+1. 启动 Compose 栈
+2. 打开 Web Admin
+3. 上传文件或注册任务
+4. 打开 Console，连接 endpoint 或 execution
 
-### 运行 SPEARlet
+## 仓库里最值得先看的目录
 
-当提供 `--sms-grpc-addr` 后，SPEARlet 会连接 SMS 并默认自动注册。
+- `src/apps/sms`：SMS 二进制入口
+- `src/apps/spearlet`：SPEARlet 二进制入口
+- `src/debug_server`：Rust 版 debug server
+- `web-admin/`：管理端前端源码
+- `web-console/`：控制台前端源码
+- `deploy/docker/`：本地 Docker Compose 部署文件
+- `docs/`：架构、使用和设计文档
+- `samples/`：WASM 与流式示例
 
-```bash
-./target/debug/spearlet --sms-grpc-addr 127.0.0.1:50051
-```
+## 关键文档
 
-## 配置
-
-### 配置文件路径
-
-- SMS：`~/.sms/config.toml`（或 `--config <path>`）
-- SPEARlet：`~/.spear/config.toml`（或 `--config <path>`）
-
-仓库内示例：
-
-- SMS：`config/sms/config.toml`
-- SPEARlet：`config/spearlet/config.toml`
-
-### 配置优先级
-
-1. CLI `--config`
-2. 家目录配置（`~/.sms/config.toml` 或 `~/.spear/config.toml`）
-3. 环境变量（`SMS_*`、`SPEARLET_*`）
-4. 代码默认值
-
-### 密钥/凭证
-
-不要把密钥写入配置文件。使用 `spearlet.ai.credentials[].api_key_env` 引用环境变量，并在 backend 上通过 `credential_ref` 进行绑定。
-
-AI backend 注意事项：
-
-- `[[spearlet.ai.backends]] hosting` 为必填，只允许 `local` 或 `remote`。
-- `credential_ref` 为可选：配置后要求对应 env 存在（否则 backend 会被过滤）；不配置则视为“无需鉴权”（适用于自建代理等场景）。
-
-### Ollama 模型导入
-
-SPEARlet 支持在启动时从本机 Ollama 导入模型并生成对应的 AI backend。
-
-- 文档：`docs/ollama-discovery-zh.md`
-
-## 路由与排障
-
-- **按模型路由**：当某些 backend 配置了 `model = "..."` 时，guest 只设置 `model` 也能完成路由（无需显式指定 `backend`）。
-- **如何确认最终路由到哪个 backend**：
-  - `cchat_recv` 返回 JSON 顶层包含 `_spear.backend` / `_spear.model`
-  - Router 在选中 backend 后会输出 `router selected backend` 的 debug 日志
-
-## Web Admin
-
-Web Admin 提供 Nodes、Tasks、Files、AI Backends、AI Models、Credentials、MCP 和 Execution History 等页面。
-
-- AI Backends 是 backend 定义、placement 与 credentials 的控制面写入口
-- AI Models 提供跨节点只读聚合视图，并区分 Local / Remote
-- AI Backends 页面现在提供两条创建入口：
-  - `Create Remote Backend`
-  - `Create Local Backend`
-- backend 创建时会一并配置 placement：
-  - remote 默认 `All Nodes`
-  - local 默认 `Single Node`
-- backend 详情页可查看：
-  - placements
-  - 按节点的 runtime status
-  - read model views
-
-本地模型拉起（`llamacpp`）：
-
-- `model` 是路由 / 展示用 key；节点侧运行时使用 metadata 中的本地运行参数。
-- Web Admin 的 local 创建对话框已经把最常用的 `llamacpp` 字段提成显式输入，并在保存时自动写回 backend metadata。
-- 常用字段：
-  - `model_url`：指向 `.gguf` 的 http/https URL。
-  - `model_path`：绝对路径，或相对于 `spearlet.local_models_dir` 的相对路径。
-  - `skip_download=1`：模型文件不存在时直接失败，不执行下载。
-  - `download_timeout_s`：总下载超时预算（秒，默认 3600）。
-  - `threads`：映射到 `llama-server --threads`。
-  - `ctx_size`：映射到 `llama-server --ctx-size`。
-- 运行时仍支持的高级 metadata 字段：
-  - `server_mode`
-  - `server_cmd`
-  - `server_cmd_args`
-  - `ready_probe`
-  - `start_timeout_s`
-
-本地 `vllm` 当前仍以脚手架 / external endpoint 场景为主，并非完整托管的本地进程模式。
-
-文档：
-
-- `docs/web-admin-overview-zh.md`
-- `docs/web-admin-ui-guide-zh.md`
-
-## WASM 示例
-
-```bash
-make samples
-```
-
-产物输出到 `samples/build/`（WASM-C）、`samples/build/js/`（WASM-JS）以及 `samples/build/rust/`（WASM-Rust）。
-
-文档：
-
-- `docs/samples-build-guide-zh.md`
-- `samples/README-zh.md`
-- `samples/wasm-js/README-zh.md`
-- `samples/wasm-rust/README-zh.md`
-- `sdk/rust/crates/spear-boa/README.zh.md`
-- `sdk/rust/crates/spear-wasm-helper/README.zh.md`
-- `docs/spear-console-voice-input-design-zh.md`
-
-## 开发
-
-```bash
-make help
-make dev
-make ci
-```
-
-UI 测试（Playwright）：
-
-```bash
-make test-ui
-```
-
-## 文档索引
-
-- `docs/INDEX.md`
+- 架构总览：[docs/project-architecture-overview-zh.md](./docs/project-architecture-overview-zh.md)
+- 文档索引：[docs/INDEX.md](./docs/INDEX.md)
+- Web Admin 概览：[docs/web-admin-overview-zh.md](./docs/web-admin-overview-zh.md)
+- Web Admin 使用指南：[docs/web-admin-ui-guide-zh.md](./docs/web-admin-ui-guide-zh.md)
+- Console 概览：[docs/spear-console-overview-zh.md](./docs/spear-console-overview-zh.md)
+- Samples 构建指南：[docs/samples-build-guide-zh.md](./docs/samples-build-guide-zh.md)
+- HTTPS 部署说明：[deploy/docker/README-https.md](./deploy/docker/README-https.md)
 
 ## License
 
-Apache-2.0，见 `LICENSE`。
+Apache-2.0，见 [LICENSE](./LICENSE)。

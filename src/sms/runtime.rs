@@ -5,8 +5,8 @@ use tokio::sync::RwLock;
 use tracing::warn;
 
 use crate::proto::sms::EventOp;
-use crate::sms::ai_backends::KvAiBackendRepository;
 use crate::sms::admin_credentials::AdminCredentialsState;
+use crate::sms::ai_backends::KvAiBackendRepository;
 use crate::sms::config::SmsConfig;
 use crate::sms::instance_execution_index::InstanceExecutionIndex;
 use crate::sms::service::SmsServiceImpl;
@@ -72,8 +72,12 @@ pub(crate) async fn build_runtime_stores(config: Arc<SmsConfig>) -> SmsRuntimeSt
     .await;
     let unified_events = Arc::new(UnifiedEventBus::new(event_kv.clone()));
     let stale_after_ms = (config.heartbeat_timeout as i64).saturating_mul(2_000);
-    let instance_execution_index =
-        Arc::new(InstanceExecutionIndex::new(event_kv, 256, 1000, stale_after_ms));
+    let instance_execution_index = Arc::new(InstanceExecutionIndex::new(
+        event_kv,
+        256,
+        1000,
+        stale_after_ms,
+    ));
 
     let admin_kv_cfg = select_admin_kv_config(&config);
     let admin_kv_box = match create_kv_store_from_config(&admin_kv_cfg).await {

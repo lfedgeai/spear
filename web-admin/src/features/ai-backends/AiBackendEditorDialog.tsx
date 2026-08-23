@@ -23,12 +23,9 @@ import {
   FEATURE_OPTIONS,
   formFromBackend,
   type AiBackendEditorFormState as FormState,
-  metadataBooleanField,
-  metadataStringField,
   OPERATION_OPTIONS,
   type PlacementPolicyInput,
   providerOptionsForHosting,
-  setMetadataStringField,
   splitCsv,
   toggleCsvValue,
   TRANSPORT_OPTIONS,
@@ -158,7 +155,6 @@ export default function AiBackendEditorDialog(props: {
                           hosting === 'local' && nodes.length === 1 ? nodes[0].uuid : '',
                         placement_node_uuids: '',
                         model_url: '',
-                        metadata: setMetadataStringField(current.metadata, 'model_url', ''),
                       }
                     })
                   }
@@ -377,30 +373,6 @@ export default function AiBackendEditorDialog(props: {
                   setForm((current) => ({
                     ...current,
                     metadata: event.target.value,
-                    model_url:
-                      current.hosting === 'local' && current.provider === 'llamacpp'
-                        ? metadataStringField(event.target.value, 'model_url')
-                        : current.model_url,
-                    model_path:
-                      current.hosting === 'local' && current.provider === 'llamacpp'
-                        ? metadataStringField(event.target.value, 'model_path')
-                        : current.model_path,
-                    skip_download:
-                      current.hosting === 'local' && current.provider === 'llamacpp'
-                        ? metadataBooleanField(event.target.value, 'skip_download')
-                        : current.skip_download,
-                    download_timeout_s:
-                      current.hosting === 'local' && current.provider === 'llamacpp'
-                        ? metadataStringField(event.target.value, 'download_timeout_s')
-                        : current.download_timeout_s,
-                    threads:
-                      current.hosting === 'local' && current.provider === 'llamacpp'
-                        ? metadataStringField(event.target.value, 'threads')
-                        : current.threads,
-                    ctx_size:
-                      current.hosting === 'local' && current.provider === 'llamacpp'
-                        ? metadataStringField(event.target.value, 'ctx_size')
-                        : current.ctx_size,
                   }))
                 }
                 placeholder={'{\n  "region": "us-east-1"\n}'}

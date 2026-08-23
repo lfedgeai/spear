@@ -24,7 +24,7 @@ SUBDIRS := $(shell find $(REPO_ROOT) -mindepth 1 -maxdepth 3 -type d -exec test 
 
 1. **Filtering Mechanism**: Added `| grep -v spear-next` filter to the `SUBDIRS` variable definition
 2. **Excluded Directory**: The `spear-next` directory is now excluded from the automatic build workflow
-3. **Compatibility**: Build workflows for other subprojects (like `sdk/python`, `sdk/cpp`) remain unchanged
+3. **Compatibility**: Build workflows for other subprojects remain unchanged
 
 ## Affected Targets
 

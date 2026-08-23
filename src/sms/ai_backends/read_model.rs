@@ -28,9 +28,13 @@ pub fn build_ai_model_views(
             .entry(key)
             .or_insert_with(|| AggregationState::new(backend));
         state.backend_ids.insert(backend.backend_id.clone());
-        state.operations.extend(backend.spec.operations.iter().cloned());
+        state
+            .operations
+            .extend(backend.spec.operations.iter().cloned());
         state.features.extend(backend.spec.features.iter().cloned());
-        state.transports.extend(backend.spec.transports.iter().cloned());
+        state
+            .transports
+            .extend(backend.spec.transports.iter().cloned());
 
         if let Some(backend_placements) = placements_by_backend.get(&backend.backend_id) {
             for placement in backend_placements {
@@ -66,7 +70,11 @@ pub fn build_ai_model_views(
         .map(AggregationState::into_view)
         .collect::<Vec<_>>();
     result.sort_by(|left, right| {
-        (&left.provider, &left.model, left.hosting).cmp(&(&right.provider, &right.model, right.hosting))
+        (&left.provider, &left.model, left.hosting).cmp(&(
+            &right.provider,
+            &right.model,
+            right.hosting,
+        ))
     });
     result
 }

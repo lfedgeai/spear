@@ -72,10 +72,7 @@ fn build_signals(req: &CanonicalRequestEnvelope) -> RequestSignals {
     }
 }
 
-fn build_candidates(
-    candidates: &[&BackendInstance],
-    max_candidates_sent: usize,
-) -> Vec<Candidate> {
+fn build_candidates(candidates: &[&BackendInstance], max_candidates_sent: usize) -> Vec<Candidate> {
     let mut proto_candidates: Vec<Candidate> = Vec::new();
     for c in candidates.iter().take(max_candidates_sent.max(1)) {
         let ops = c

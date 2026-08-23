@@ -93,7 +93,9 @@ impl BackendAdapter for OpenAIRealtimeWsBackendAdapter {
             CredentialResolution::Ready(secret) => Some(secret),
             CredentialResolution::Disabled
             | CredentialResolution::NotSynced
-            | CredentialResolution::Missing if self.credential_ref.is_some() => {
+            | CredentialResolution::Missing
+                if self.credential_ref.is_some() =>
+            {
                 return Err(CanonicalError {
                     code: credential_state.code().to_string(),
                     message: credential_state
@@ -107,10 +109,7 @@ impl BackendAdapter for OpenAIRealtimeWsBackendAdapter {
             | CredentialResolution::Missing => None,
         };
         if let Some(api_key) = api_key.as_deref() {
-            headers.push((
-                "authorization".to_string(),
-                format!("Bearer {}", api_key),
-            ));
+            headers.push(("authorization".to_string(), format!("Bearer {}", api_key)));
         }
 
         Ok(StreamingPlan::Websocket(StreamingWebsocketPlan {
@@ -195,7 +194,9 @@ fn normalize_transcription_ws_url(ws_url: &str) -> Result<String, CanonicalError
         pairs.push(("intent".to_string(), "transcription".to_string()));
     }
     pairs.retain(|(k, _)| k != "model");
-    u.query_pairs_mut().clear().extend_pairs(pairs.iter().map(|(k, v)| (&**k, &**v)));
+    u.query_pairs_mut()
+        .clear()
+        .extend_pairs(pairs.iter().map(|(k, v)| (&**k, &**v)));
     Ok(u.to_string())
 }
 
@@ -209,7 +210,8 @@ mod tests {
 
     #[test]
     fn streaming_plan_allows_missing_api_key_env() {
-        let adapter = OpenAIRealtimeWsBackendAdapter::new("b1", "https://api.openai.com", None, None);
+        let adapter =
+            OpenAIRealtimeWsBackendAdapter::new("b1", "https://api.openai.com", None, None);
         let req = CanonicalRequestEnvelope {
             version: 1,
             request_id: "r1".to_string(),
@@ -232,9 +234,10 @@ mod tests {
 
     #[test]
     fn streaming_plan_returns_credential_disabled_for_disabled_dynamic_credential() {
-        let _guard = crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
-            .lock()
-            .expect("lock");
+        let _guard =
+            crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials_test_lock()
+                .lock()
+                .expect("lock");
         let store = crate::spearlet::ai::dynamic_credential_store::global_dynamic_credentials();
         store.clear();
         store.set_credentials(vec![CredentialMaterial {

@@ -1,16 +1,19 @@
 use std::sync::Arc;
 
+use crate::ai_backend_types::{
+    CanonicalBackendHosting, CanonicalBackendKind, CanonicalBackendOrigin, CanonicalBackendProvider,
+};
 use crate::proto::sms::{BackendHosting, BackendInfo, BackendOrigin, BackendSpec, BackendStatus};
 use crate::spearlet::ai::credential_resolver::CredentialResolver;
-use crate::spearlet::config::AiBackendConfig;
+use crate::spearlet::config::{
+    AiBackendConfig, AiBackendProviderView, AiBackendTypedView, LocalBackendConfigView,
+    LocalBackendProviderView, RemoteBackendConfigView, RemoteBackendProviderView,
+};
 use crate::spearlet::execution::ai::backends::ollama_chat::OllamaChatBackendAdapter;
 use crate::spearlet::execution::ai::backends::openai_chat_completion::OpenAIChatCompletionBackendAdapter;
 use crate::spearlet::execution::ai::backends::openai_realtime_ws::OpenAIRealtimeWsBackendAdapter;
 use crate::spearlet::execution::ai::backends::stub::StubBackendAdapter;
-use crate::spearlet::execution::ai::backends::{
-    BackendAdapter, KIND_OLLAMA_CHAT, KIND_OPENAI_CHAT_COMPLETION, KIND_OPENAI_REALTIME_WS,
-    KIND_STUB,
-};
+use crate::spearlet::execution::ai::backends::BackendAdapter;
 use crate::spearlet::execution::ai::ir::Operation;
 use crate::spearlet::execution::ai::router::capabilities::Capabilities;
 use crate::spearlet::execution::ai::router::registry::{BackendInstance, Hosting};
@@ -34,33 +37,21 @@ pub struct BackendSpecParts {
 }
 
 pub fn infer_provider(kind: &str) -> String {
-    let k = kind.trim();
-    if k.starts_with("openai_") {
-        "openai".to_string()
-    } else if k == KIND_OLLAMA_CHAT {
-        "ollama".to_string()
-    } else if k == KIND_STUB {
-        "internal".to_string()
-    } else {
-        "unknown".to_string()
-    }
+    CanonicalBackendKind::parse(kind)
+        .inferred_provider()
+        .as_str()
+        .to_string()
 }
 
 pub fn parse_origin(v: Option<&str>) -> BackendOrigin {
-    match v.map(|s| s.trim().to_ascii_lowercase()) {
-        Some(s) if s == "sms" => BackendOrigin::Sms,
-        Some(s) if s == "static_config" => BackendOrigin::StaticConfig,
-        Some(s) if s == "local_controller" => BackendOrigin::LocalController,
-        _ => BackendOrigin::StaticConfig,
-    }
+    CanonicalBackendOrigin::parse_optional(v).to_proto_enum()
 }
 
 pub fn parse_hosting(s: &str) -> Hosting {
-    let v = s.trim().to_ascii_lowercase();
-    match v.as_str() {
-        "local" => Hosting::Local,
-        "remote" => Hosting::Remote,
-        _ => Hosting::Unknown,
+    match CanonicalBackendHosting::parse(s) {
+        CanonicalBackendHosting::Local => Hosting::Local,
+        CanonicalBackendHosting::Remote => Hosting::Remote,
+        CanonicalBackendHosting::Unknown(_) => Hosting::Unknown,
     }
 }
 
@@ -106,13 +97,54 @@ fn optional_string(v: &str) -> Option<String> {
     }
 }
 
-pub fn origin_to_config_value(origin: i32) -> Option<String> {
-    match BackendOrigin::try_from(origin).ok() {
-        Some(BackendOrigin::Sms) => Some("sms".to_string()),
-        Some(BackendOrigin::StaticConfig) => Some("static_config".to_string()),
-        Some(BackendOrigin::LocalController) => Some("local_controller".to_string()),
-        _ => None,
+/// Runtime backend family used to centralize capability and adapter selection.
+/// 用于集中 capability 与 adapter 选择的运行时 backend 家族。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeBackendFamily {
+    /// OpenAI chat-completions adapter family / OpenAI chat-completions 适配器家族
+    OpenAiChatCompletion,
+    /// OpenAI realtime websocket adapter family / OpenAI realtime websocket 适配器家族
+    OpenAiRealtimeWs,
+    /// Ollama chat adapter family / Ollama chat 适配器家族
+    OllamaChat,
+    /// Internal stub adapter family / 内部 stub 适配器家族
+    Stub,
+    /// Unsupported runtime backend family / 不支持的运行时 backend 家族
+    Unknown(String),
+}
+
+impl RuntimeBackendFamily {
+    /// Classify one runtime backend kind into a canonical adapter family.
+    /// 将运行时 backend kind 分类为规范 adapter 家族。
+    fn from_kind(kind: &str) -> Self {
+        match CanonicalBackendKind::parse(kind) {
+            CanonicalBackendKind::OpenAiChatCompletion => Self::OpenAiChatCompletion,
+            CanonicalBackendKind::OpenAiRealtimeWs => Self::OpenAiRealtimeWs,
+            CanonicalBackendKind::OllamaChat => Self::OllamaChat,
+            CanonicalBackendKind::Stub => Self::Stub,
+            other => Self::Unknown(other.as_str().to_string()),
+        }
     }
+
+    /// Return the supported operation set for one runtime family when it is fixed.
+    /// 返回一个运行时家族在固定情况下支持的 operation 集合。
+    fn supported_operations(&self) -> Option<&'static [Operation]> {
+        match self {
+            Self::OpenAiChatCompletion | Self::OllamaChat | Self::Stub => {
+                Some(&[Operation::ChatCompletions])
+            }
+            Self::OpenAiRealtimeWs => Some(&[Operation::SpeechToText]),
+            Self::Unknown(_) => None,
+        }
+    }
+}
+
+pub fn origin_to_config_value(origin: i32) -> Option<String> {
+    Some(
+        CanonicalBackendOrigin::from_proto_i32(origin)
+            .as_str()
+            .to_string(),
+    )
 }
 
 pub fn hosting_to_config_value(hosting: i32) -> Option<String> {
@@ -130,13 +162,15 @@ pub fn backend_spec_from_parts(parts: BackendSpecParts) -> BackendSpec {
     let provider = parts
         .provider
         .as_deref()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
+        .map(CanonicalBackendProvider::parse)
+        .filter(|provider| !matches!(provider, CanonicalBackendProvider::Unknown(_)))
+        .map(|provider| provider.as_str().to_string())
         .unwrap_or_else(|| infer_provider(&parts.kind));
     BackendSpec {
         name: parts.name,
-        kind: parts.kind,
+        kind: CanonicalBackendKind::parse(&parts.kind)
+            .as_str()
+            .to_string(),
         operations: parts.operations,
         features: parts.features,
         transports: parts.transports,
@@ -180,6 +214,9 @@ pub fn available_backend_info(spec: BackendSpec) -> BackendInfo {
 /// Convert config-layer backend definition into the shared `BackendSpec`.
 /// 将配置层 backend 定义转换为统一的 `BackendSpec`。
 pub fn backend_spec_from_config(b: &AiBackendConfig) -> BackendSpec {
+    if let Ok(view) = b.typed_view() {
+        return backend_spec_from_typed_config(&view);
+    }
     let hosting = resolve_hosting(b.hosting.as_deref());
     let origin = parse_origin(b.origin.as_deref());
     backend_spec_from_parts(BackendSpecParts {
@@ -198,6 +235,130 @@ pub fn backend_spec_from_config(b: &AiBackendConfig) -> BackendSpec {
         origin,
         deployment_id: b.deployment_id.clone(),
     })
+}
+
+/// Convert typed config view into the shared `BackendSpec`.
+/// 将强类型配置视图转换为统一的 `BackendSpec`。
+pub fn backend_spec_from_typed_config(view: &AiBackendTypedView) -> BackendSpec {
+    match view.provider_view() {
+        AiBackendProviderView::Local(local) => backend_spec_from_local_provider_typed_config(local),
+        AiBackendProviderView::Remote(remote) => {
+            backend_spec_from_remote_provider_typed_config(remote)
+        }
+    }
+}
+
+fn backend_spec_from_local_provider_typed_config(
+    view: LocalBackendProviderView<'_>,
+) -> BackendSpec {
+    match view {
+        LocalBackendProviderView::Ollama(local) => {
+            backend_spec_from_local_ollama_typed_config(local)
+        }
+        LocalBackendProviderView::LlamaCpp(local) => {
+            backend_spec_from_local_llamacpp_typed_config(local)
+        }
+        LocalBackendProviderView::Vllm(local) => backend_spec_from_local_vllm_typed_config(local),
+        LocalBackendProviderView::Internal(local) => {
+            backend_spec_from_local_internal_typed_config(local)
+        }
+        LocalBackendProviderView::Unknown(local) => {
+            backend_spec_from_local_unknown_typed_config(local)
+        }
+    }
+}
+
+fn backend_spec_from_local_typed_config(view: &LocalBackendConfigView) -> BackendSpec {
+    backend_spec_from_parts(BackendSpecParts {
+        name: view.common.name.clone(),
+        kind: view.common.kind.as_str().to_string(),
+        operations: view.common.ops.clone(),
+        features: view.common.features.clone(),
+        transports: view.common.transports.clone(),
+        weight: view.common.weight,
+        priority: view.common.priority,
+        base_url: view.base_url.clone(),
+        provider: Some(view.common.provider.as_str().to_string()),
+        model: view.model.clone(),
+        hosting: parse_hosting("local"),
+        credential_ref: view.credential_ref.clone(),
+        origin: view.common.origin.to_proto_enum(),
+        deployment_id: view.common.deployment_id.clone(),
+    })
+}
+
+fn backend_spec_from_local_ollama_typed_config(view: &LocalBackendConfigView) -> BackendSpec {
+    backend_spec_from_local_typed_config(view)
+}
+
+fn backend_spec_from_local_llamacpp_typed_config(view: &LocalBackendConfigView) -> BackendSpec {
+    backend_spec_from_local_typed_config(view)
+}
+
+fn backend_spec_from_local_vllm_typed_config(view: &LocalBackendConfigView) -> BackendSpec {
+    backend_spec_from_local_typed_config(view)
+}
+
+fn backend_spec_from_local_internal_typed_config(view: &LocalBackendConfigView) -> BackendSpec {
+    backend_spec_from_local_typed_config(view)
+}
+
+fn backend_spec_from_local_unknown_typed_config(view: &LocalBackendConfigView) -> BackendSpec {
+    backend_spec_from_local_typed_config(view)
+}
+
+fn backend_spec_from_remote_provider_typed_config(
+    view: RemoteBackendProviderView<'_>,
+) -> BackendSpec {
+    match view {
+        RemoteBackendProviderView::OpenAi(remote) => {
+            backend_spec_from_remote_openai_typed_config(remote)
+        }
+        RemoteBackendProviderView::Ollama(remote) => {
+            backend_spec_from_remote_ollama_typed_config(remote)
+        }
+        RemoteBackendProviderView::Internal(remote) => {
+            backend_spec_from_remote_internal_typed_config(remote)
+        }
+        RemoteBackendProviderView::Unknown(remote) => {
+            backend_spec_from_remote_unknown_typed_config(remote)
+        }
+    }
+}
+
+fn backend_spec_from_remote_typed_config(view: &RemoteBackendConfigView) -> BackendSpec {
+    backend_spec_from_parts(BackendSpecParts {
+        name: view.common.name.clone(),
+        kind: view.common.kind.as_str().to_string(),
+        operations: view.common.ops.clone(),
+        features: view.common.features.clone(),
+        transports: view.common.transports.clone(),
+        weight: view.common.weight,
+        priority: view.common.priority,
+        base_url: view.base_url.clone(),
+        provider: Some(view.common.provider.as_str().to_string()),
+        model: view.model.clone(),
+        hosting: parse_hosting("remote"),
+        credential_ref: view.credential_ref.clone(),
+        origin: view.common.origin.to_proto_enum(),
+        deployment_id: view.common.deployment_id.clone(),
+    })
+}
+
+fn backend_spec_from_remote_openai_typed_config(view: &RemoteBackendConfigView) -> BackendSpec {
+    backend_spec_from_remote_typed_config(view)
+}
+
+fn backend_spec_from_remote_ollama_typed_config(view: &RemoteBackendConfigView) -> BackendSpec {
+    backend_spec_from_remote_typed_config(view)
+}
+
+fn backend_spec_from_remote_internal_typed_config(view: &RemoteBackendConfigView) -> BackendSpec {
+    backend_spec_from_remote_typed_config(view)
+}
+
+fn backend_spec_from_remote_unknown_typed_config(view: &RemoteBackendConfigView) -> BackendSpec {
+    backend_spec_from_remote_typed_config(view)
 }
 
 /// Convert the shared `BackendSpec` into config-layer backend definition.
@@ -233,13 +394,7 @@ pub fn parse_operation(s: &str) -> Option<Operation> {
 }
 
 fn supported_operations_for_kind(kind: &str) -> Option<&'static [Operation]> {
-    match kind {
-        KIND_OPENAI_CHAT_COMPLETION | KIND_OLLAMA_CHAT | KIND_STUB => {
-            Some(&[Operation::ChatCompletions])
-        }
-        KIND_OPENAI_REALTIME_WS => Some(&[Operation::SpeechToText]),
-        _ => None,
-    }
+    RuntimeBackendFamily::from_kind(kind).supported_operations()
 }
 
 fn kind_supports_operation(kind: &str, operation: &Operation) -> bool {
@@ -323,8 +478,8 @@ pub fn build_adapter_from_spec(
     } else {
         Some(spec.credential_ref.as_str())
     };
-    match spec.kind.as_str() {
-        KIND_OPENAI_CHAT_COMPLETION => {
+    match RuntimeBackendFamily::from_kind(&spec.kind) {
+        RuntimeBackendFamily::OpenAiChatCompletion => {
             let mut a = OpenAIChatCompletionBackendAdapter::new(
                 spec.name.clone(),
                 spec.base_url.clone(),
@@ -336,7 +491,7 @@ pub fn build_adapter_from_spec(
             }
             Some(Arc::new(a))
         }
-        KIND_OPENAI_REALTIME_WS => {
+        RuntimeBackendFamily::OpenAiRealtimeWs => {
             Some(Arc::new(OpenAIRealtimeWsBackendAdapter::new(
                 spec.name.clone(),
                 spec.base_url.clone(),
@@ -344,7 +499,7 @@ pub fn build_adapter_from_spec(
                 credential_resolver.cloned(),
             )))
         }
-        KIND_OLLAMA_CHAT => Some(Arc::new(OllamaChatBackendAdapter::new(
+        RuntimeBackendFamily::OllamaChat => Some(Arc::new(OllamaChatBackendAdapter::new(
             spec.name.clone(),
             spec.base_url.clone(),
             if spec.model.trim().is_empty() {
@@ -353,13 +508,13 @@ pub fn build_adapter_from_spec(
                 Some(spec.model.clone())
             },
         ))),
-        KIND_STUB => {
+        RuntimeBackendFamily::Stub => {
             if !allow_stub {
                 return None;
             }
             Some(Arc::new(StubBackendAdapter::new(&spec.name)))
         }
-        _ => None,
+        RuntimeBackendFamily::Unknown(_) => None,
     }
 }
 
@@ -367,6 +522,52 @@ pub fn build_adapter_from_spec(
 mod tests {
     use super::*;
     use crate::proto::sms::BackendOrigin;
+    use crate::spearlet::config::{
+        AiBackendCommonView, AiBackendTypedView, LocalBackendConfigView, RemoteBackendConfigView,
+    };
+
+    #[test]
+    fn runtime_backend_family_classifies_supported_runtime_kinds() {
+        assert_eq!(
+            RuntimeBackendFamily::from_kind("OPENAI_CHAT_COMPLETION"),
+            RuntimeBackendFamily::OpenAiChatCompletion
+        );
+        assert_eq!(
+            RuntimeBackendFamily::from_kind("openai_realtime_ws"),
+            RuntimeBackendFamily::OpenAiRealtimeWs
+        );
+        assert_eq!(
+            RuntimeBackendFamily::from_kind("ollama_chat"),
+            RuntimeBackendFamily::OllamaChat
+        );
+        assert_eq!(
+            RuntimeBackendFamily::from_kind("stub"),
+            RuntimeBackendFamily::Stub
+        );
+    }
+
+    #[test]
+    fn capabilities_from_spec_uses_runtime_family_selector() {
+        let spec = backend_spec_from_parts(BackendSpecParts {
+            name: "rt".to_string(),
+            kind: "openai_realtime_ws".to_string(),
+            operations: vec!["speech_to_text".to_string()],
+            features: vec![],
+            transports: vec!["websocket".to_string()],
+            weight: 100,
+            priority: 0,
+            base_url: "https://api.openai.com/v1".to_string(),
+            provider: None,
+            model: None,
+            hosting: Hosting::Remote,
+            credential_ref: None,
+            origin: BackendOrigin::Sms,
+            deployment_id: None,
+        });
+
+        let capabilities = capabilities_from_spec(&spec).expect("capabilities should exist");
+        assert_eq!(capabilities.ops, vec![Operation::SpeechToText]);
+    }
 
     #[test]
     fn build_instance_from_spec_infers_provider_and_hosting() {
@@ -395,6 +596,94 @@ mod tests {
         assert_eq!(inst.spec.provider, "openai");
         assert_eq!(inst.hosting, Hosting::Remote);
         assert_eq!(inst.spec.kind, "openai_realtime_ws");
+    }
+
+    #[test]
+    fn backend_spec_from_parts_normalizes_provider_and_kind_aliases() {
+        let spec = backend_spec_from_parts(BackendSpecParts {
+            name: "local-llama".to_string(),
+            kind: "llama.cpp".to_string(),
+            operations: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["http".to_string()],
+            weight: 100,
+            priority: 0,
+            base_url: String::new(),
+            provider: Some("llama_cpp".to_string()),
+            model: Some("qwen".to_string()),
+            hosting: Hosting::Local,
+            credential_ref: None,
+            origin: BackendOrigin::StaticConfig,
+            deployment_id: None,
+        });
+
+        assert_eq!(spec.kind, "llamacpp");
+        assert_eq!(spec.provider, "llamacpp");
+    }
+
+    #[test]
+    fn parse_origin_and_config_value_use_canonical_origin_helper() {
+        assert_eq!(
+            parse_origin(Some("local_controller")),
+            BackendOrigin::LocalController
+        );
+        assert_eq!(
+            origin_to_config_value(BackendOrigin::Sms as i32),
+            Some("sms".to_string())
+        );
+    }
+
+    #[test]
+    fn backend_spec_from_typed_config_supports_local_variant() {
+        let spec =
+            backend_spec_from_typed_config(&AiBackendTypedView::Local(LocalBackendConfigView {
+                common: AiBackendCommonView {
+                    name: "ollama-local".to_string(),
+                    kind: CanonicalBackendKind::parse("ollama_chat"),
+                    provider: CanonicalBackendProvider::parse("ollama"),
+                    origin: CanonicalBackendOrigin::parse_optional(Some("local_controller")),
+                    deployment_id: None,
+                    weight: 100,
+                    priority: 0,
+                    ops: vec!["chat_completions".to_string()],
+                    features: vec![],
+                    transports: vec!["http".to_string()],
+                },
+                model: Some("llama3.1:8b".to_string()),
+                credential_ref: None,
+                base_url: "http://127.0.0.1:11434".to_string(),
+            }));
+
+        assert_eq!(spec.kind, "ollama_chat");
+        assert_eq!(spec.provider, "ollama");
+        assert_eq!(spec.hosting, BackendHosting::NodeLocal as i32);
+    }
+
+    #[test]
+    fn backend_spec_from_typed_config_supports_remote_variant() {
+        let spec =
+            backend_spec_from_typed_config(&AiBackendTypedView::Remote(RemoteBackendConfigView {
+                common: AiBackendCommonView {
+                    name: "openai-remote".to_string(),
+                    kind: CanonicalBackendKind::parse("openai_chat_completion"),
+                    provider: CanonicalBackendProvider::parse("openai"),
+                    origin: CanonicalBackendOrigin::parse_optional(Some("sms")),
+                    deployment_id: Some("deploy-1".to_string()),
+                    weight: 100,
+                    priority: 0,
+                    ops: vec!["chat_completions".to_string()],
+                    features: vec![],
+                    transports: vec!["http".to_string()],
+                },
+                model: Some("gpt-4o-mini".to_string()),
+                credential_ref: Some("openai-key".to_string()),
+                base_url: "https://api.openai.com/v1".to_string(),
+            }));
+
+        assert_eq!(spec.kind, "openai_chat_completion");
+        assert_eq!(spec.provider, "openai");
+        assert_eq!(spec.hosting, BackendHosting::Remote as i32);
+        assert_eq!(spec.credential_ref, "openai-key");
     }
 
     #[test]
@@ -428,4 +717,26 @@ mod tests {
         assert!(inst.is_none());
     }
 
+    #[test]
+    fn build_adapter_from_spec_respects_stub_family_gate() {
+        let spec = backend_spec_from_parts(BackendSpecParts {
+            name: "stub-backend".to_string(),
+            kind: "stub".to_string(),
+            operations: vec!["chat_completions".to_string()],
+            features: vec![],
+            transports: vec!["memory".to_string()],
+            weight: 100,
+            priority: 0,
+            base_url: String::new(),
+            provider: Some("internal".to_string()),
+            model: None,
+            hosting: Hosting::Local,
+            credential_ref: None,
+            origin: BackendOrigin::StaticConfig,
+            deployment_id: None,
+        });
+
+        assert!(build_adapter_from_spec(&spec, None, false).is_none());
+        assert!(build_adapter_from_spec(&spec, None, true).is_some());
+    }
 }

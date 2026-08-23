@@ -40,7 +40,9 @@ pub(super) async fn resolve_node_channel(
     };
 
     let Some(channel) = connect_lazy_node_channel(&node.ip_address, node.port) else {
-        return Err(Json(json!({"success": false, "message": "invalid node url"})));
+        return Err(Json(
+            json!({"success": false, "message": "invalid node url"}),
+        ));
     };
 
     Ok(ResolvedNodeTarget {

@@ -68,8 +68,9 @@ impl FilterWorker {
             }
 
             if client.is_none() {
-                let connect_timeout = Duration::from_millis(job.req.decision_timeout_ms.max(1) as u64)
-                    .min(Duration::from_millis(200));
+                let connect_timeout =
+                    Duration::from_millis(job.req.decision_timeout_ms.max(1) as u64)
+                        .min(Duration::from_millis(200));
                 client = self.build_client(connect_timeout).await.ok();
             }
             let Some(mut c) = client.clone() else {

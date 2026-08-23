@@ -120,7 +120,10 @@ fn parse_audio_spec(audio: RawAudioSpecV1, op: &'static str) -> Result<AudioSpec
 
 pub fn parse_ctrl_meta_v1(meta_json: &[u8]) -> Result<CtrlMetaV1, SpearError> {
     let raw = parse_raw_meta_v1(meta_json, "ssf_ctrl_meta_v1_parse")?;
-    let kind = raw.kind.map(parse_kind).ok_or_else(|| invalid_meta("ssf_ctrl_meta_v1_parse"))?;
+    let kind = raw
+        .kind
+        .map(parse_kind)
+        .ok_or_else(|| invalid_meta("ssf_ctrl_meta_v1_parse"))?;
     let modality = raw
         .modality
         .map(parse_modality)
@@ -132,7 +135,9 @@ pub fn parse_ctrl_meta_v1(meta_json: &[u8]) -> Result<CtrlMetaV1, SpearError> {
             trace_id: raw.trace_id,
         }),
         (MetaKindV1::Open, MetaModalityV1::Audio) => {
-            let audio = raw.audio.ok_or_else(|| invalid_meta("ssf_ctrl_meta_v1_parse"))?;
+            let audio = raw
+                .audio
+                .ok_or_else(|| invalid_meta("ssf_ctrl_meta_v1_parse"))?;
             let audio = parse_audio_spec(audio, "ssf_ctrl_meta_v1_parse")?;
             Ok(CtrlMetaV1::OpenAudio {
                 audio,
@@ -155,7 +160,8 @@ pub fn parse_ctrl_meta_v1(meta_json: &[u8]) -> Result<CtrlMetaV1, SpearError> {
 }
 
 pub fn parse_data_meta_v1(meta_json: &[u8]) -> Result<DataMetaV1, SpearError> {
-    let value: serde_json::Value = serde_json::from_slice(meta_json).map_err(|_| invalid_meta("ssf_data_meta_v1_parse"))?;
+    let value: serde_json::Value =
+        serde_json::from_slice(meta_json).map_err(|_| invalid_meta("ssf_data_meta_v1_parse"))?;
     let obj = value
         .as_object()
         .ok_or_else(|| invalid_meta("ssf_data_meta_v1_parse"))?;
@@ -168,7 +174,8 @@ pub fn parse_data_meta_v1(meta_json: &[u8]) -> Result<DataMetaV1, SpearError> {
         return Err(invalid_meta("ssf_data_meta_v1_parse"));
     }
 
-    let raw: RawMetaV1 = serde_json::from_value(value).map_err(|_| invalid_meta("ssf_data_meta_v1_parse"))?;
+    let raw: RawMetaV1 =
+        serde_json::from_value(value).map_err(|_| invalid_meta("ssf_data_meta_v1_parse"))?;
     Ok(DataMetaV1 {
         v: 1,
         ts_ms: raw.ts_ms,

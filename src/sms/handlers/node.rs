@@ -7,10 +7,9 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::Json,
+    response::{IntoResponse, Json, Response},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::HashMap;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -20,6 +19,10 @@ use crate::proto::sms::{
     RegisterNodeRequest, UpdateNodeRequest,
 };
 use crate::sms::gateway::GatewayState;
+use crate::sms::node_api::{
+    node_to_response, PublicNodeActionResponse, PublicNodeEnvelope, PublicNodeListResponse,
+    PublicNodeRegistrationResponse,
+};
 
 /// Node registration request for HTTP API / HTTP API的节点注册请求
 #[derive(Debug, Serialize, Deserialize)]
@@ -52,11 +55,26 @@ pub struct ListNodesQuery {
     pub status: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct PublicNodeErrorResponse {
+    success: bool,
+    error: String,
+    message: String,
+}
+
+fn node_not_found_response() -> Json<PublicNodeErrorResponse> {
+    Json(PublicNodeErrorResponse {
+        success: false,
+        error: "Node not found".to_string(),
+        message: "Node not found".to_string(),
+    })
+}
+
 /// Register a new node / 注册新节点
 pub async fn register_node(
     State(state): State<GatewayState>,
     Json(req): Json<HttpRegisterNodeRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), StatusCode> {
+) -> Result<(StatusCode, Json<PublicNodeRegistrationResponse>), StatusCode> {
     let mut client = state.node_client.clone();
 
     let node = Node {
@@ -79,20 +97,21 @@ pub async fn register_node(
                 info!("Node registered successfully via HTTP: {}", resp.node_uuid);
                 Ok((
                     StatusCode::CREATED,
-                    Json(json!({
-                        "success": true,
-                        "message": resp.message,
-                        "node_uuid": resp.node_uuid
-                    })),
+                    Json(PublicNodeRegistrationResponse {
+                        success: true,
+                        message: resp.message,
+                        node_uuid: resp.node_uuid,
+                    }),
                 ))
             } else {
                 warn!("Failed to register node via HTTP: {}", resp.message);
                 Ok((
                     StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": resp.message
-                    })),
+                    Json(PublicNodeRegistrationResponse {
+                        success: false,
+                        message: resp.message,
+                        node_uuid: String::new(),
+                    }),
                 ))
             }
         }
@@ -107,7 +126,7 @@ pub async fn register_node(
 pub async fn list_nodes(
     State(state): State<GatewayState>,
     Query(query): Query<ListNodesQuery>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<PublicNodeListResponse>, StatusCode> {
     let mut client = state.node_client.clone();
 
     let status_filter = query.status.unwrap_or_default();
@@ -122,27 +141,11 @@ pub async fn list_nodes(
         Ok(response) => {
             let resp = response.into_inner();
             info!("Listed {} nodes via HTTP", resp.nodes.len());
-            // 手动构建节点数组以避免 serde 版本冲突 / Manually build node array to avoid serde version conflicts
-            let nodes_json: Vec<serde_json::Value> = resp
-                .nodes
-                .into_iter()
-                .map(|node| {
-                    json!({
-                        "uuid": node.uuid,
-                        "ip_address": node.ip_address,
-                        "port": node.port,
-                        "http_port": node.http_port,
-                        "status": node.status,
-                        "last_heartbeat": node.last_heartbeat,
-                        "registered_at": node.registered_at,
-                        "metadata": node.metadata
-                    })
-                })
-                .collect();
-            Ok(Json(json!({
-                "success": true,
-                "nodes": nodes_json
-            })))
+            let nodes = resp.nodes.into_iter().map(node_to_response).collect();
+            Ok(Json(PublicNodeListResponse {
+                success: true,
+                nodes,
+            }))
         }
         Err(e) => {
             warn!("gRPC error during node listing: {}", e);
@@ -155,7 +158,7 @@ pub async fn list_nodes(
 pub async fn get_node(
     State(state): State<GatewayState>,
     Path(uuid): Path<String>,
-) -> Result<(StatusCode, Json<serde_json::Value>), StatusCode> {
+) -> Result<Response, StatusCode> {
     let mut client = state.node_client.clone();
     if Uuid::parse_str(&uuid).is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
@@ -167,47 +170,24 @@ pub async fn get_node(
         Ok(response) => {
             let resp = response.into_inner();
             if resp.found {
-                // 手动构建节点对象以避免 serde 版本冲突 / Manually build node object to avoid serde version conflicts
-                let node_json = if let Some(node) = resp.node {
-                    json!({
-                        "uuid": node.uuid,
-                        "ip_address": node.ip_address,
-                        "port": node.port,
-                        "http_port": node.http_port,
-                        "status": node.status,
-                        "last_heartbeat": node.last_heartbeat,
-                        "registered_at": node.registered_at,
-                        "metadata": node.metadata
-                    })
-                } else {
-                    serde_json::Value::Null
+                let Some(node) = resp.node else {
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
                 };
                 Ok((
                     StatusCode::OK,
-                    Json(json!({
-                        "success": true,
-                        "node": node_json
-                    })),
-                ))
+                    Json(PublicNodeEnvelope {
+                        success: true,
+                        node: node_to_response(node),
+                    }),
+                )
+                    .into_response())
             } else {
-                Ok((
-                    StatusCode::NOT_FOUND,
-                    Json(json!({
-                        "success": false,
-                        "error": "Node not found"
-                    })),
-                ))
+                Ok((StatusCode::NOT_FOUND, node_not_found_response()).into_response())
             }
         }
         Err(e) => {
             if e.code() == tonic::Code::NotFound {
-                Ok((
-                    StatusCode::NOT_FOUND,
-                    Json(json!({
-                        "success": false,
-                        "error": "Node not found"
-                    })),
-                ))
+                Ok((StatusCode::NOT_FOUND, node_not_found_response()).into_response())
             } else {
                 warn!("gRPC error during node retrieval: {}", e);
                 Err(StatusCode::INTERNAL_SERVER_ERROR)
@@ -221,7 +201,7 @@ pub async fn update_node(
     State(state): State<GatewayState>,
     Path(uuid): Path<String>,
     Json(req): Json<HttpUpdateNodeRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), StatusCode> {
+) -> Result<Response, StatusCode> {
     let mut client = state.node_client.clone();
 
     // First get the existing node / 首先获取现有节点
@@ -233,24 +213,12 @@ pub async fn update_node(
             if resp.found {
                 resp.node.unwrap()
             } else {
-                return Ok((
-                    StatusCode::NOT_FOUND,
-                    Json(json!({
-                        "success": false,
-                        "error": "Node not found"
-                    })),
-                ));
+                return Ok((StatusCode::NOT_FOUND, node_not_found_response()).into_response());
             }
         }
         Err(e) => {
             if e.code() == tonic::Code::NotFound {
-                return Ok((
-                    StatusCode::NOT_FOUND,
-                    Json(json!({
-                        "success": false,
-                        "error": "Node not found"
-                    })),
-                ));
+                return Ok((StatusCode::NOT_FOUND, node_not_found_response()).into_response());
             } else {
                 warn!("gRPC error during node retrieval for update: {}", e);
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
@@ -280,11 +248,12 @@ pub async fn update_node(
             let resp = response.into_inner();
             Ok((
                 StatusCode::OK,
-                Json(json!({
-                    "success": resp.success,
-                    "message": resp.message
-                })),
-            ))
+                Json(PublicNodeActionResponse {
+                    success: resp.success,
+                    message: resp.message,
+                }),
+            )
+                .into_response())
         }
         Err(e) => {
             warn!("gRPC error during node update: {}", e);
@@ -297,7 +266,7 @@ pub async fn update_node(
 pub async fn delete_node(
     State(state): State<GatewayState>,
     Path(uuid): Path<String>,
-) -> Result<(StatusCode, Json<serde_json::Value>), StatusCode> {
+) -> Result<Response, StatusCode> {
     let mut client = state.node_client.clone();
 
     let grpc_req = DeleteNodeRequest { uuid };
@@ -307,23 +276,18 @@ pub async fn delete_node(
             let resp = response.into_inner();
             Ok((
                 StatusCode::OK,
-                Json(json!({
-                    "success": resp.success,
-                    "message": resp.message
-                })),
-            ))
+                Json(PublicNodeActionResponse {
+                    success: resp.success,
+                    message: resp.message,
+                }),
+            )
+                .into_response())
         }
         Err(e) => {
             warn!("gRPC error during node deletion: {}", e);
             // Handle specific gRPC error codes / 处理特定的gRPC错误码
             if e.code() == tonic::Code::NotFound {
-                Ok((
-                    StatusCode::NOT_FOUND,
-                    Json(json!({
-                        "success": false,
-                        "error": "Node not found"
-                    })),
-                ))
+                Ok((StatusCode::NOT_FOUND, node_not_found_response()).into_response())
             } else {
                 Err(StatusCode::INTERNAL_SERVER_ERROR)
             }
@@ -336,7 +300,7 @@ pub async fn heartbeat(
     State(state): State<GatewayState>,
     Path(uuid): Path<String>,
     Json(req): Json<HttpHeartbeatRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), StatusCode> {
+) -> Result<Response, StatusCode> {
     let mut client = state.node_client.clone();
 
     let grpc_req = HeartbeatRequest {
@@ -350,23 +314,18 @@ pub async fn heartbeat(
             let resp = response.into_inner();
             Ok((
                 StatusCode::OK,
-                Json(json!({
-                    "success": resp.success,
-                    "message": resp.message
-                })),
-            ))
+                Json(PublicNodeActionResponse {
+                    success: resp.success,
+                    message: resp.message,
+                }),
+            )
+                .into_response())
         }
         Err(e) => {
             warn!("gRPC error during heartbeat: {}", e);
             // Handle specific gRPC error codes / 处理特定的gRPC错误码
             if e.code() == tonic::Code::NotFound {
-                Ok((
-                    StatusCode::NOT_FOUND,
-                    Json(json!({
-                        "success": false,
-                        "error": "Node not found"
-                    })),
-                ))
+                Ok((StatusCode::NOT_FOUND, node_not_found_response()).into_response())
             } else {
                 Err(StatusCode::INTERNAL_SERVER_ERROR)
             }

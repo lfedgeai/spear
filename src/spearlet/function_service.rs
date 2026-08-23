@@ -20,8 +20,9 @@ use crate::proto::spearlet::{
 use crate::spearlet::execution::{
     execution_status::ExecutionPublicStatus,
     runtime::{ResourcePoolConfig, RuntimeConfig, RuntimeFactory, RuntimeManager},
-    ExecutionError, InstancePool, InstancePoolConfig, InstanceScheduler, SchedulingPolicy,
-    TaskExecutionManager, TaskExecutionManagerConfig, DEFAULT_ENTRY_FUNCTION_NAME,
+    ExecutionError, ExecutionResponse, InstancePool, InstancePoolConfig, InstanceScheduler,
+    SchedulingPolicy, TaskExecutionManager, TaskExecutionManagerConfig,
+    DEFAULT_ENTRY_FUNCTION_NAME,
 };
 use crate::spearlet::SpearletConfig;
 
@@ -39,6 +40,7 @@ pub struct FunctionServiceStats {
 }
 
 /// Function service implementation / 函数服务实现
+#[derive(Clone)]
 pub struct FunctionServiceImpl {
     /// Task execution manager / 任务执行管理器
     execution_manager: Arc<TaskExecutionManager>,
@@ -112,6 +114,13 @@ impl FunctionServiceImpl {
         ExecutionPublicStatus::from_public_str(status).to_spearlet_proto()
     }
 
+    fn execution_error_to_proto(error_message: Option<String>) -> Option<ProtoError> {
+        error_message.map(|message| ProtoError {
+            code: "EXECUTION_ERROR".to_string(),
+            message,
+        })
+    }
+
     fn system_time_to_timestamp(t: SystemTime) -> Option<prost_types::Timestamp> {
         let d = t.duration_since(UNIX_EPOCH).ok()?;
         Some(prost_types::Timestamp {
@@ -120,7 +129,7 @@ impl FunctionServiceImpl {
         })
     }
 
-    async fn invoke_once(&self, mut req: InvokeRequest) -> Result<InvokeResponse, Status> {
+    fn normalize_invoke_request(&self, mut req: InvokeRequest) -> Result<InvokeRequest, Status> {
         if req.invocation_id.is_empty() {
             req.invocation_id = Uuid::new_v4().to_string();
         }
@@ -136,7 +145,91 @@ impl FunctionServiceImpl {
         if req.mode == 0 {
             req.mode = ExecutionMode::Sync as i32;
         }
+        Ok(req)
+    }
 
+    fn payload_with_content_type(
+        content_type: String,
+        data: Vec<u8>,
+        include_output: bool,
+    ) -> Option<Payload> {
+        Some(Payload {
+            content_type,
+            data: if include_output { data } else { Vec::new() },
+        })
+    }
+
+    fn invoke_response_from_execution(
+        &self,
+        invocation_id: String,
+        execution_id: String,
+        input_content_type: String,
+        execution: ExecutionResponse,
+    ) -> InvokeResponse {
+        let completed = execution.is_completed();
+        let timestamp = execution.timestamp;
+        InvokeResponse {
+            invocation_id,
+            execution_id,
+            instance_id: execution.instance_id,
+            status: Self::to_proto_status(execution.status.as_str()),
+            output: Self::payload_with_content_type(
+                input_content_type,
+                execution.output_data,
+                true,
+            ),
+            error: Self::execution_error_to_proto(execution.error_message),
+            started_at: Self::system_time_to_timestamp(timestamp),
+            completed_at: if completed {
+                Self::system_time_to_timestamp(timestamp)
+            } else {
+                None
+            },
+        }
+    }
+
+    fn execution_to_proto(
+        execution: ExecutionResponse,
+        include_output: bool,
+        output_content_type: &str,
+    ) -> Execution {
+        let completed = execution.is_completed();
+        let timestamp = execution.timestamp;
+        Execution {
+            invocation_id: execution.invocation_id,
+            execution_id: execution.execution_id,
+            task_id: execution.task_id,
+            function_name: execution.function_name,
+            instance_id: execution.instance_id,
+            status: Self::to_proto_status(execution.status.as_str()),
+            output: Self::payload_with_content_type(
+                output_content_type.to_string(),
+                execution.output_data,
+                include_output,
+            ),
+            error: Self::execution_error_to_proto(execution.error_message),
+            started_at: Self::system_time_to_timestamp(timestamp),
+            completed_at: if completed {
+                Self::system_time_to_timestamp(timestamp)
+            } else {
+                None
+            },
+        }
+    }
+
+    fn map_terminate_execution_error(error: ExecutionError) -> Status {
+        match error {
+            ExecutionError::InvalidRequest { message }
+                if message.starts_with("execution not found:") =>
+            {
+                Status::not_found(message)
+            }
+            other => Status::internal(other.to_string()),
+        }
+    }
+
+    async fn invoke_once(&self, req: InvokeRequest) -> Result<InvokeResponse, Status> {
+        let req = self.normalize_invoke_request(req)?;
         let execution_id = req.execution_id.clone();
         let invocation_id = req.invocation_id.clone();
         let input_ct = req
@@ -151,33 +244,7 @@ impl FunctionServiceImpl {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let instance_id = resp.instance_id.clone();
-        let status = Self::to_proto_status(resp.status.as_str());
-        let error = resp.error_message.clone().map(|m| ProtoError {
-            code: "EXECUTION_ERROR".to_string(),
-            message: m,
-        });
-        let completed = resp.is_completed();
-        let timestamp = resp.timestamp;
-        let output_data = resp.output_data;
-
-        Ok(InvokeResponse {
-            invocation_id,
-            execution_id,
-            instance_id,
-            status,
-            output: Some(Payload {
-                content_type: input_ct,
-                data: output_data,
-            }),
-            error,
-            started_at: Self::system_time_to_timestamp(timestamp),
-            completed_at: if completed {
-                Self::system_time_to_timestamp(timestamp)
-            } else {
-                None
-            },
-        })
+        Ok(self.invoke_response_from_execution(invocation_id, execution_id, input_ct, resp))
     }
 
     /// Get service statistics / 获取服务统计信息
@@ -202,6 +269,12 @@ impl FunctionServiceImpl {
     }
 }
 
+impl From<Arc<FunctionServiceImpl>> for FunctionServiceImpl {
+    fn from(value: Arc<FunctionServiceImpl>) -> Self {
+        value.as_ref().clone()
+    }
+}
+
 #[tonic::async_trait]
 impl InvocationService for FunctionServiceImpl {
     async fn invoke(
@@ -220,49 +293,17 @@ impl ExecutionService for FunctionServiceImpl {
         request: Request<GetExecutionRequest>,
     ) -> Result<Response<Execution>, Status> {
         let req = request.into_inner();
-        let Some(resp) = self.execution_manager.get_execution_status(&req.execution_id) else {
+        let Some(resp) = self
+            .execution_manager
+            .get_execution_status(&req.execution_id)
+        else {
             return Err(Status::not_found("execution not found"));
         };
-
-        let invocation_id = resp.invocation_id.clone();
-        let task_id = resp.task_id.clone();
-        let function_name = resp.function_name.clone();
-        let instance_id = resp.instance_id.clone();
-
-        let output = if req.include_output {
-            Some(Payload {
-                content_type: "application/octet-stream".to_string(),
-                data: resp.output_data.clone(),
-            })
-        } else {
-            Some(Payload {
-                content_type: "application/octet-stream".to_string(),
-                data: Vec::new(),
-            })
-        };
-
-        let status = Self::to_proto_status(resp.status.as_str());
-        let error = resp.error_message.clone().map(|m| ProtoError {
-            code: "EXECUTION_ERROR".to_string(),
-            message: m,
-        });
-
-        Ok(Response::new(Execution {
-            invocation_id,
-            execution_id: resp.execution_id.clone(),
-            task_id,
-            function_name,
-            instance_id,
-            status,
-            output,
-            error,
-            started_at: Self::system_time_to_timestamp(resp.timestamp),
-            completed_at: if resp.is_completed() {
-                Self::system_time_to_timestamp(resp.timestamp)
-            } else {
-                None
-            },
-        }))
+        Ok(Response::new(Self::execution_to_proto(
+            resp,
+            req.include_output,
+            "application/octet-stream",
+        )))
     }
 
     async fn terminate_execution(
@@ -278,14 +319,7 @@ impl ExecutionService for FunctionServiceImpl {
         self.execution_manager
             .request_execution_termination(&req.execution_id, reason)
             .await
-            .map_err(|e| match e {
-                ExecutionError::InvalidRequest { message }
-                    if message.starts_with("execution not found:") =>
-                {
-                    Status::not_found(message)
-                }
-                _ => Status::internal(e.to_string()),
-            })?;
+            .map_err(Self::map_terminate_execution_error)?;
 
         Ok(Response::new(TerminateExecutionResponse {
             success: true,
@@ -316,28 +350,7 @@ impl ExecutionService for FunctionServiceImpl {
 
         let executions = items
             .into_iter()
-            .map(|r| Execution {
-                invocation_id: r.invocation_id.clone(),
-                execution_id: r.execution_id.clone(),
-                task_id: r.task_id.clone(),
-                function_name: r.function_name.clone(),
-                instance_id: r.instance_id.clone(),
-                status: Self::to_proto_status(r.status.as_str()),
-                output: Some(Payload {
-                    content_type: "application/octet-stream".to_string(),
-                    data: Vec::new(),
-                }),
-                error: r.error_message.clone().map(|m| ProtoError {
-                    code: "EXECUTION_ERROR".to_string(),
-                    message: m,
-                }),
-                started_at: Self::system_time_to_timestamp(r.timestamp),
-                completed_at: if r.is_completed() {
-                    Self::system_time_to_timestamp(r.timestamp)
-                } else {
-                    None
-                },
-            })
+            .map(|execution| Self::execution_to_proto(execution, false, "application/octet-stream"))
             .collect();
 
         Ok(Response::new(ListExecutionsResponse {
@@ -347,43 +360,11 @@ impl ExecutionService for FunctionServiceImpl {
     }
 }
 
-#[tonic::async_trait]
-impl InvocationService for Arc<FunctionServiceImpl> {
-    async fn invoke(
-        &self,
-        request: Request<InvokeRequest>,
-    ) -> Result<Response<InvokeResponse>, Status> {
-        (**self).invoke(request).await
-    }
-}
-
-#[tonic::async_trait]
-impl ExecutionService for Arc<FunctionServiceImpl> {
-    async fn get_execution(
-        &self,
-        request: Request<GetExecutionRequest>,
-    ) -> Result<Response<Execution>, Status> {
-        (**self).get_execution(request).await
-    }
-
-    async fn terminate_execution(
-        &self,
-        request: Request<TerminateExecutionRequest>,
-    ) -> Result<Response<TerminateExecutionResponse>, Status> {
-        (**self).terminate_execution(request).await
-    }
-
-    async fn list_executions(
-        &self,
-        request: Request<ListExecutionsRequest>,
-    ) -> Result<Response<ListExecutionsResponse>, Status> {
-        (**self).list_executions(request).await
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::time::SystemTime;
 
     #[tokio::test]
     async fn test_function_service_initializes_runtimes() {
@@ -396,5 +377,61 @@ mod tests {
         assert!(types.contains(&crate::spearlet::execution::RuntimeType::Process));
         assert!(types.contains(&crate::spearlet::execution::RuntimeType::Wasm));
         assert!(types.contains(&crate::spearlet::execution::RuntimeType::Kubernetes));
+    }
+
+    #[tokio::test]
+    async fn test_normalize_invoke_request_applies_defaults() {
+        let service =
+            FunctionServiceImpl::new(Arc::new(crate::spearlet::SpearletConfig::default()), None)
+                .await
+                .unwrap();
+
+        let normalized = service
+            .normalize_invoke_request(InvokeRequest {
+                invocation_id: String::new(),
+                execution_id: String::new(),
+                task_id: "task-a".to_string(),
+                function_name: String::new(),
+                input: None,
+                headers: HashMap::new(),
+                environment: HashMap::new(),
+                mode: 0,
+                session_id: String::new(),
+                force_new_instance: false,
+                metadata: HashMap::new(),
+                timeout_ms: 0,
+            })
+            .unwrap();
+
+        assert!(!normalized.invocation_id.is_empty());
+        assert!(!normalized.execution_id.is_empty());
+        assert_eq!(
+            normalized.function_name,
+            DEFAULT_ENTRY_FUNCTION_NAME.to_string()
+        );
+        assert_eq!(normalized.mode, ExecutionMode::Sync as i32);
+    }
+
+    #[test]
+    fn test_execution_to_proto_hides_output_when_not_requested() {
+        let execution = ExecutionResponse {
+            execution_id: "exec-1".to_string(),
+            invocation_id: "inv-1".to_string(),
+            task_id: "task-1".to_string(),
+            function_name: "run".to_string(),
+            instance_id: "inst-1".to_string(),
+            output_data: b"payload".to_vec(),
+            status: "completed".to_string(),
+            error_message: None,
+            execution_time_ms: 12,
+            metadata: HashMap::new(),
+            timestamp: SystemTime::now(),
+        };
+
+        let proto =
+            FunctionServiceImpl::execution_to_proto(execution, false, "application/octet-stream");
+
+        assert_eq!(proto.output.unwrap().data, Vec::<u8>::new());
+        assert_eq!(proto.status, ExecutionStatus::Completed as i32);
     }
 }

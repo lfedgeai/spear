@@ -7,7 +7,9 @@ use crate::sms::config::SmsConfig;
 pub(crate) const MAX_TASK_INSTANCE_SCAN_PAGES: usize = 10;
 
 pub(crate) fn instance_projection_stale_after_ms(config: &SmsConfig) -> i64 {
-    (config.heartbeat_timeout as i64).saturating_mul(2_000).max(1)
+    (config.heartbeat_timeout as i64)
+        .saturating_mul(2_000)
+        .max(1)
 }
 
 pub(crate) fn instance_is_active_and_fresh(

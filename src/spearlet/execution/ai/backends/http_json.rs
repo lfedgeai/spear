@@ -151,23 +151,23 @@ where
         Ok(_) => {
             let op_for_spawn = operation.clone();
             std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().map_err(|e| CanonicalError {
-                code: "runtime_error".to_string(),
-                message: e.to_string(),
-                retryable: false,
-                operation: Some(op_for_spawn.clone()),
-            })?;
-            rt.block_on(fut)
-        })
-        .join()
-        .unwrap_or_else(|_| {
-            Err(CanonicalError {
-                code: "runtime_error".to_string(),
-                message: "thread join failed".to_string(),
-                retryable: false,
-                operation: Some(operation),
+                let rt = tokio::runtime::Runtime::new().map_err(|e| CanonicalError {
+                    code: "runtime_error".to_string(),
+                    message: e.to_string(),
+                    retryable: false,
+                    operation: Some(op_for_spawn.clone()),
+                })?;
+                rt.block_on(fut)
             })
-        })
+            .join()
+            .unwrap_or_else(|_| {
+                Err(CanonicalError {
+                    code: "runtime_error".to_string(),
+                    message: "thread join failed".to_string(),
+                    retryable: false,
+                    operation: Some(operation),
+                })
+            })
         }
         Err(_) => {
             let rt = tokio::runtime::Runtime::new().map_err(|e| CanonicalError {

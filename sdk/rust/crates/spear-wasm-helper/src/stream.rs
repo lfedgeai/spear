@@ -5,8 +5,8 @@ use std::collections::VecDeque;
 
 use spear_ssf::{build_v1_frame, MsgType};
 use spear_wasm::{
-    constants,
-    user_stream_close, user_stream_open, user_stream_write, Fd, SpearError, UserStreamDirection,
+    constants, user_stream_close, user_stream_open, user_stream_write, Fd, SpearError,
+    UserStreamDirection,
 };
 
 use crate::event_loop::EpollDriver;
@@ -115,7 +115,11 @@ impl StreamEndpoint {
         self.stream.can_write_data()
     }
 
-    pub fn attach_runtime_fd(&mut self, epoll: &EpollDriver, writable: bool) -> Result<Fd, SpearError> {
+    pub fn attach_runtime_fd(
+        &mut self,
+        epoll: &EpollDriver,
+        writable: bool,
+    ) -> Result<Fd, SpearError> {
         let fd = self.stream.open_from_runtime()?;
         epoll.add(fd.raw(), self.default_interest_mask(writable))?;
         Ok(fd)
@@ -133,7 +137,8 @@ impl StreamEndpoint {
     }
 
     fn default_interest_mask(&self, writable: bool) -> i32 {
-        let mut mask = constants::SPEAR_EPOLLIN | constants::SPEAR_EPOLLERR | constants::SPEAR_EPOLLHUP;
+        let mut mask =
+            constants::SPEAR_EPOLLIN | constants::SPEAR_EPOLLERR | constants::SPEAR_EPOLLHUP;
         if writable {
             mask |= constants::SPEAR_EPOLLOUT;
         }
@@ -181,7 +186,8 @@ impl BufferedTextOutput {
         }
 
         while let Some(action) = self.pending.front() {
-            let frame = encode_action_frame(stream.stream_id, self.out_seq, self.meta_v1_json, action);
+            let frame =
+                encode_action_frame(stream.stream_id, self.out_seq, self.meta_v1_json, action);
             match user_stream_write(fd, &frame) {
                 Ok(()) => {
                     self.pending.pop_front();

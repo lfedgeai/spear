@@ -167,13 +167,8 @@ mod tests {
         let a = mk_inst("a", 1);
         let mut overrides = HashMap::new();
         overrides.insert("a".to_string(), 999);
-        let selected = select_backend(
-            SelectionPolicy::WeightedRandom,
-            &req,
-            vec![&a],
-            &overrides,
-        )
-        .expect("selection should succeed");
+        let selected = select_backend(SelectionPolicy::WeightedRandom, &req, vec![&a], &overrides)
+            .expect("selection should succeed");
         assert_eq!(selected.spec.name, "a");
     }
 }

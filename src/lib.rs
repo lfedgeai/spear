@@ -4,6 +4,7 @@
 #![recursion_limit = "512"]
 
 // Shared modules / 共享模块
+pub mod ai_backend_types;
 pub mod config;
 pub mod network;
 pub mod proto;

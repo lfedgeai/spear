@@ -12,9 +12,9 @@ use std::sync::Arc;
 use crate::spearlet::execution::ai::ir::{
     CanonicalRequestEnvelope, CanonicalResponseEnvelope, Payload,
 };
+use crate::spearlet::execution::ai::router::debug::RouterDebugSnapshot;
 use crate::spearlet::execution::ai::router::Router;
 use crate::spearlet::execution::ai::streaming::StreamingInvocation;
-use crate::spearlet::execution::ai::router::debug::RouterDebugSnapshot;
 
 #[derive(Clone)]
 pub struct AiEngine {

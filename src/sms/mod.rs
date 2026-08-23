@@ -38,26 +38,31 @@
 //! - `http_gateway`: HTTP gateway implementation / HTTP网关实现
 //! - `service`: Main SMS service implementation / 主要SMS服务实现
 
-pub mod config;
+pub(crate) mod admin_api;
+pub mod admin_credentials;
+pub(crate) mod ai_admin_api;
+mod ai_backend_rpc;
 pub mod ai_backends;
+pub mod config;
 pub mod execution_logs;
 pub mod gateway;
 pub mod grpc_server;
 pub mod handlers;
 pub mod http_gateway;
 pub mod instance_execution_index;
+pub(crate) mod node_api;
 pub mod placement;
 pub mod projectors;
 pub(crate) mod query_support;
-pub mod admin_credentials;
-pub mod registry_watch;
 pub mod registry;
+pub mod registry_watch;
 pub mod routes;
 pub(crate) mod runtime;
+pub(crate) mod runtime_api;
 pub mod service;
 pub mod services;
 pub mod stream_mux;
-mod ai_backend_rpc;
+pub(crate) mod task_api;
 mod task_assignment_rpc;
 mod task_rpc;
 pub(crate) mod task_semantics;

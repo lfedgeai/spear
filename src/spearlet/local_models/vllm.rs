@@ -18,10 +18,33 @@ use crate::spearlet::config::SpearletConfig;
 pub enum VllmPreparedAssignment {
     /// Use an already-running node-local HTTP endpoint.
     /// 使用节点上已经运行的本地 HTTP 端点。
-    ExternalEndpoint,
+    ExternalEndpoint(VllmExternalEndpoint),
     /// Process orchestration is intentionally not implemented yet.
     /// 进程编排目前刻意不实现。
     Placeholder { reason: String },
+}
+
+/// Typed vLLM external endpoint source.
+/// 强类型 vLLM 外部端点来源。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VllmEndpointSource {
+    /// Metadata explicitly requests external endpoint mode.
+    /// metadata 显式要求 external endpoint 模式。
+    MetadataMode,
+    /// Metadata says the process is already managed externally.
+    /// metadata 表示该进程已由外部托管。
+    ManagedExternally,
+    /// `spec.base_url` implies an existing node-local endpoint.
+    /// `spec.base_url` 隐含已有节点本地端点。
+    SpecBaseUrl,
+}
+
+/// Typed vLLM external endpoint resolved from spec and metadata.
+/// 从 spec 与 metadata 解析出的强类型 vLLM 外部端点。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VllmExternalEndpoint {
+    pub base_url: String,
+    pub source: VllmEndpointSource,
 }
 
 /// Lightweight vLLM supervisor skeleton.
@@ -43,10 +66,9 @@ impl VllmSupervisor {
         spec: &BackendSpec,
         params: &HashMap<String, String>,
     ) -> VllmPreparedAssignment {
-        let mode = resolve_vllm_assignment_mode(spec, params);
-        match mode {
-            VllmAssignmentMode::ExternalEndpoint => VllmPreparedAssignment::ExternalEndpoint,
-            VllmAssignmentMode::Placeholder => VllmPreparedAssignment::Placeholder {
+        match resolve_vllm_external_endpoint(spec, params) {
+            Some(endpoint) => VllmPreparedAssignment::ExternalEndpoint(endpoint),
+            None => VllmPreparedAssignment::Placeholder {
                 reason: "placeholder: vLLM local backend process orchestration is not implemented yet; set metadata.mode=external_endpoint with spec.base_url to use an existing node-local vLLM service".to_string(),
             },
         }
@@ -56,7 +78,7 @@ impl VllmSupervisor {
 /// vLLM assignment execution mode resolved from backend metadata.
 /// 从 backend metadata 解析出的 vLLM assignment 执行模式。
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum VllmAssignmentMode {
+pub enum VllmAssignmentMode {
     /// Use an already-running node-local HTTP endpoint.
     /// 使用节点上已经存在的 HTTP 服务端点。
     ExternalEndpoint,
@@ -67,37 +89,67 @@ enum VllmAssignmentMode {
 
 /// Resolve the execution mode for a vLLM assignment.
 /// 解析 vLLM assignment 的执行模式。
-fn resolve_vllm_assignment_mode(
+pub fn infer_vllm_assignment_mode(
     spec: &BackendSpec,
     params: &HashMap<String, String>,
 ) -> VllmAssignmentMode {
+    if resolve_vllm_external_endpoint(spec, params).is_some() {
+        VllmAssignmentMode::ExternalEndpoint
+    } else {
+        VllmAssignmentMode::Placeholder
+    }
+}
+
+/// Resolve the typed vLLM external endpoint, if one is available.
+/// 解析强类型 vLLM 外部端点；若当前没有可用端点则返回空。
+pub fn resolve_vllm_external_endpoint(
+    spec: &BackendSpec,
+    params: &HashMap<String, String>,
+) -> Option<VllmExternalEndpoint> {
+    let base_url = spec.base_url.trim();
+    if base_url.is_empty() {
+        return None;
+    }
+
     let mode = params
         .get("mode")
         .map(|value| value.trim().to_ascii_lowercase())
         .unwrap_or_default();
+    if mode == "external_endpoint" {
+        return Some(VllmExternalEndpoint {
+            base_url: base_url.to_string(),
+            source: VllmEndpointSource::MetadataMode,
+        });
+    }
+
     let managed_externally = params
         .get("managed_externally")
         .map(|value| parse_truthy(value))
         .unwrap_or(false);
-
-    if mode == "external_endpoint" || managed_externally {
-        return VllmAssignmentMode::ExternalEndpoint;
+    if managed_externally {
+        return Some(VllmExternalEndpoint {
+            base_url: base_url.to_string(),
+            source: VllmEndpointSource::ManagedExternally,
+        });
     }
 
-    if !spec.base_url.trim().is_empty() && params.get("mode").is_none() {
-        return VllmAssignmentMode::ExternalEndpoint;
+    if params.get("mode").is_none() {
+        return Some(VllmExternalEndpoint {
+            base_url: base_url.to_string(),
+            source: VllmEndpointSource::SpecBaseUrl,
+        });
     }
 
-    VllmAssignmentMode::Placeholder
+    None
 }
 
 /// Parse a truthy string used by metadata params.
 /// 解析 metadata 参数中使用的布尔真值字符串。
 fn parse_truthy(value: &str) -> bool {
-    matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "1" | "true" | "yes" | "on"
-    )
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => true,
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -129,10 +181,18 @@ mod tests {
         let supervisor = VllmSupervisor::new(&SpearletConfig::default());
         let mut params = HashMap::new();
         params.insert("mode".to_string(), "external_endpoint".to_string());
+        let mut spec = sample_spec();
+        spec.base_url = "http://127.0.0.1:8000/v1".to_string();
 
-        let prepared = supervisor.prepare_assignment(&sample_spec(), &params);
+        let prepared = supervisor.prepare_assignment(&spec, &params);
 
-        assert_eq!(prepared, VllmPreparedAssignment::ExternalEndpoint);
+        assert_eq!(
+            prepared,
+            VllmPreparedAssignment::ExternalEndpoint(VllmExternalEndpoint {
+                base_url: "http://127.0.0.1:8000/v1".to_string(),
+                source: VllmEndpointSource::MetadataMode,
+            })
+        );
     }
 
     #[test]
@@ -146,5 +206,29 @@ mod tests {
             }
             other => panic!("expected placeholder, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn resolve_external_endpoint_uses_spec_base_url_implicitly() {
+        let mut spec = sample_spec();
+        spec.base_url = "http://127.0.0.1:8001/v1".to_string();
+
+        let endpoint =
+            resolve_vllm_external_endpoint(&spec, &HashMap::new()).expect("external endpoint");
+        assert_eq!(endpoint.base_url, "http://127.0.0.1:8001/v1");
+        assert_eq!(endpoint.source, VllmEndpointSource::SpecBaseUrl);
+    }
+
+    #[test]
+    fn resolve_external_endpoint_uses_managed_externally_flag() {
+        let mut spec = sample_spec();
+        spec.base_url = "http://127.0.0.1:8002/v1".to_string();
+        let mut params = HashMap::new();
+        params.insert("managed_externally".to_string(), "true".to_string());
+
+        let endpoint =
+            resolve_vllm_external_endpoint(&spec, &params).expect("external endpoint");
+        assert_eq!(endpoint.base_url, "http://127.0.0.1:8002/v1");
+        assert_eq!(endpoint.source, VllmEndpointSource::ManagedExternally);
     }
 }

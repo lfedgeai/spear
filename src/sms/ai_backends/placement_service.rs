@@ -40,7 +40,12 @@ impl AiBackendPlacementService {
         &self,
         input: UpsertPlacementInput,
     ) -> Result<AiBackendPlacementRecordModel, SmsError> {
-        if self.repository.get_backend(&input.backend_id).await?.is_none() {
+        if self
+            .repository
+            .get_backend(&input.backend_id)
+            .await?
+            .is_none()
+        {
             return Err(SmsError::NotFound(format!(
                 "backend {} not found",
                 input.backend_id

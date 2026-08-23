@@ -68,10 +68,7 @@ impl Runtime for DummyRuntime {
     ) -> super::ExecutionResult<()> {
         Ok(())
     }
-    fn validate_config(
-        &self,
-        _config: &instance::InstanceConfig,
-    ) -> super::ExecutionResult<()> {
+    fn validate_config(&self, _config: &instance::InstanceConfig) -> super::ExecutionResult<()> {
         Ok(())
     }
     fn get_capabilities(&self) -> RuntimeCapabilities {
@@ -148,10 +145,7 @@ impl Runtime for DelayedRuntime {
     ) -> super::ExecutionResult<()> {
         Ok(())
     }
-    fn validate_config(
-        &self,
-        _config: &instance::InstanceConfig,
-    ) -> super::ExecutionResult<()> {
+    fn validate_config(&self, _config: &instance::InstanceConfig) -> super::ExecutionResult<()> {
         Ok(())
     }
     fn get_capabilities(&self) -> RuntimeCapabilities {
@@ -399,10 +393,7 @@ async fn test_invocation_requires_preprovisioned_instance() {
         })
         .await
         .unwrap_err();
-    assert!(matches!(
-        error,
-        ExecutionError::SchedulingError { .. }
-    ));
+    assert!(matches!(error, ExecutionError::SchedulingError { .. }));
 }
 
 #[tokio::test]
@@ -566,10 +557,15 @@ async fn test_underprovisioned_task_is_reconciled_back_to_desired_replicas() {
     .unwrap();
 
     let task = manager.get_task_by_id("task-self-heal").unwrap();
-    let current_instances: Vec<_> =
-        task.instances.iter().map(|entry| entry.key().clone()).collect();
+    let current_instances: Vec<_> = task
+        .instances
+        .iter()
+        .map(|entry| entry.key().clone())
+        .collect();
     assert_eq!(current_instances.len(), 2);
-    assert!(!current_instances.iter().any(|id| id == &initial_instances[0]));
+    assert!(!current_instances
+        .iter()
+        .any(|id| id == &initial_instances[0]));
 }
 
 #[tokio::test]
@@ -638,7 +634,10 @@ async fn test_stop_instance_removes_from_task_and_manager() {
     assert_eq!(task.instance_count(), 1);
     assert!(manager.get_instance(&instance.id().to_string()).is_some());
 
-    manager.stop_and_unregister_instance(&instance).await.unwrap();
+    manager
+        .stop_and_unregister_instance(&instance)
+        .await
+        .unwrap();
 
     assert_eq!(task.instance_count(), 0);
     assert!(task.get_instance(instance.id()).is_none());
@@ -745,7 +744,9 @@ async fn test_destroy_instance_clears_active_execution_registry() {
         Some("instance destroyed: test destroy")
     );
     assert!(manager.get_instance(&instance.id().to_string()).is_none());
-    assert!(manager.active_execution_ids_for_instance(instance.id()).is_empty());
+    assert!(manager
+        .active_execution_ids_for_instance(instance.id())
+        .is_empty());
 }
 
 #[tokio::test]

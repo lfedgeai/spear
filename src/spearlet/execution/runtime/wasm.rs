@@ -541,9 +541,12 @@ impl WasmRuntime {
         function_name: &str,
         timeout_ms: Option<u64>,
         context_data: &std::collections::HashMap<String, serde_json::Value>,
-        _input_data: &[u8],
+        input_data: &[u8],
     ) -> ExecutionResult<Vec<u8>> {
         let start_time = Instant::now();
+
+        #[cfg(feature = "wasmedge")]
+        let _ = input_data;
 
         #[cfg(feature = "wasmedge")]
         let output = {
@@ -608,6 +611,7 @@ impl WasmRuntime {
                 function_name,
                 input_data.len()
             )
+            .into_bytes()
         };
 
         let execution_time = start_time.elapsed();

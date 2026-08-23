@@ -19,17 +19,17 @@ use super::{
         RuntimeManager,
     },
     scheduler::{InstanceScheduler, SchedulingPolicy},
+    sms_reporter::{SmsAppendLogLine, SmsReporter},
     sms_status_adapter::{
         local_instance_status_to_sms, local_task_status_to_sms, observed_instance_status_to_sms,
         runtime_execution_status_to_sms,
     },
-    sms_reporter::{SmsAppendLogLine, SmsReporter},
+    task::{Task, TaskId},
     task_materializer::{
         fetch_sms_task, materialize_local_artifact_from_sms_task,
         materialize_local_task_from_sms_task, materialize_sms_task,
     },
     task_runtime_cleanup::finalize_local_task_removal,
-    task::{Task, TaskId},
     ExecutionError, ExecutionResult, DEFAULT_ENTRY_FUNCTION_NAME,
 };
 use crate::proto::spearlet::{ExecutionMode as ProtoExecutionMode, InvokeRequest};
@@ -554,13 +554,15 @@ impl TaskExecutionManager {
             .collect();
         for task_id in &local_task_ids {
             let desired = desired_by_task.get(task_id).copied().unwrap_or(0);
-            self.reconcile_task_replica_assignment(task_id, desired).await?;
+            self.reconcile_task_replica_assignment(task_id, desired)
+                .await?;
         }
         for (task_id, desired) in desired_by_task {
             if local_task_ids.iter().any(|local| local == task_id) {
                 continue;
             }
-            self.reconcile_task_replica_assignment(task_id, *desired).await?;
+            self.reconcile_task_replica_assignment(task_id, *desired)
+                .await?;
         }
         Ok(())
     }
@@ -617,10 +619,7 @@ impl TaskExecutionManager {
         Ok(())
     }
 
-    pub async fn ensure_task_meets_desired_replicas(
-        &self,
-        task_id: &str,
-    ) -> ExecutionResult<()> {
+    pub async fn ensure_task_meets_desired_replicas(&self, task_id: &str) -> ExecutionResult<()> {
         let Some(task) = self.get_task_by_id(task_id) else {
             return Ok(());
         };
@@ -659,9 +658,12 @@ impl TaskExecutionManager {
         &self,
         task_id_filter: Option<&str>,
     ) -> ExecutionResult<()> {
-        let channel = self.sms_channel.clone().ok_or_else(|| ExecutionError::RuntimeError {
-            message: "sms_grpc_addr is empty".to_string(),
-        })?;
+        let channel = self
+            .sms_channel
+            .clone()
+            .ok_or_else(|| ExecutionError::RuntimeError {
+                message: "sms_grpc_addr is empty".to_string(),
+            })?;
         let node_uuid = self.spearlet_config.compute_node_uuid();
         let mut client =
             crate::proto::sms::task_placement_assignment_service_client::TaskPlacementAssignmentServiceClient::new(
@@ -684,7 +686,8 @@ impl TaskExecutionManager {
 
         if let Some(task_id) = task_id_filter {
             let desired = desired_by_task.get(task_id).copied().unwrap_or(0);
-            self.reconcile_task_replica_assignment(task_id, desired).await
+            self.reconcile_task_replica_assignment(task_id, desired)
+                .await
         } else {
             self.reconcile_node_task_assignments(&desired_by_task).await
         }
@@ -783,7 +786,10 @@ impl TaskExecutionManager {
                 .map(|entry| entry.key().clone())
                 .collect();
             for instance_id in instance_ids {
-                match self.drain_and_destroy_instance(&instance_id, reason.clone()).await {
+                match self
+                    .drain_and_destroy_instance(&instance_id, reason.clone())
+                    .await
+                {
                     Ok(_) => {}
                     Err(ExecutionError::InstanceNotFound { .. }) => {}
                     Err(e) => return Err(e),
@@ -801,7 +807,8 @@ impl TaskExecutionManager {
         self.desired_task_instances.remove(task_id);
         self.task_reconcile_locks.remove(task_id);
 
-        self.sms_reporter.acknowledge_task_deletion(task_id.to_string());
+        self.sms_reporter
+            .acknowledge_task_deletion(task_id.to_string());
         Ok(())
     }
 
@@ -1039,8 +1046,13 @@ impl TaskExecutionManager {
                         _ => "failed",
                     }
                     .to_string();
-                    self.sms_reporter
-                        .update_task_result(&task_id, "".to_string(), status, completed_at, meta);
+                    self.sms_reporter.update_task_result(
+                        &task_id,
+                        "".to_string(),
+                        status,
+                        completed_at,
+                        meta,
+                    );
                 }
             }
             _ => {}
@@ -1171,7 +1183,10 @@ impl TaskExecutionManager {
                 )],
             )
             .await;
-        let _ = self.sms_reporter.finalize_execution_logs(execution_id).await;
+        let _ = self
+            .sms_reporter
+            .finalize_execution_logs(execution_id)
+            .await;
     }
 
     /// Report the final execution and instance state after completion. / 在完成后上报最终执行态与实例态。
@@ -1308,7 +1323,10 @@ impl TaskExecutionManager {
 
         self.flush_wasm_logs_if_needed(instance, execution_id, log_next_seq, wasm_last_seq)
             .await;
-        let _ = self.sms_reporter.finalize_execution_logs(execution_id).await;
+        let _ = self
+            .sms_reporter
+            .finalize_execution_logs(execution_id)
+            .await;
 
         let mut metadata = std::collections::HashMap::new();
         metadata.insert("error_message".to_string(), error_message.to_string());
@@ -1387,7 +1405,7 @@ impl TaskExecutionManager {
                     &mut wasm_last_seq,
                     &msg,
                 )
-                    .await;
+                .await;
                 return Err(e);
             }
         };
@@ -1451,8 +1469,13 @@ impl TaskExecutionManager {
             final_meta,
         );
 
-        self.flush_wasm_logs_if_needed(&instance, &execution_id, &mut log_next_seq, &mut wasm_last_seq)
-            .await;
+        self.flush_wasm_logs_if_needed(
+            &instance,
+            &execution_id,
+            &mut log_next_seq,
+            &mut wasm_last_seq,
+        )
+        .await;
         debug!(
             execution_id = %execution_id,
             invocation_id = %invocation_id,
@@ -1467,7 +1490,7 @@ impl TaskExecutionManager {
             duration_ms,
             &mut log_next_seq,
         )
-            .await;
+        .await;
 
         Ok(self.build_finished_execution_response(
             execution_id,
@@ -1525,28 +1548,21 @@ impl TaskExecutionManager {
             if batch.len() >= 200 {
                 let _ = self
                     .sms_reporter
-                    .append_execution_logs(
-                        execution_id,
-                        next_seq,
-                        std::mem::take(&mut batch),
-                    )
+                    .append_execution_logs(execution_id, next_seq, std::mem::take(&mut batch))
                     .await;
             }
         }
         if !batch.is_empty() {
-            let _ = self.sms_reporter.append_execution_logs(execution_id, next_seq, batch).await;
+            let _ = self
+                .sms_reporter
+                .append_execution_logs(execution_id, next_seq, batch)
+                .await;
         }
         Ok(())
     }
 
     pub fn get_artifact_by_id(&self, artifact_id: &str) -> Option<Arc<Artifact>> {
         self.artifacts.get(artifact_id).map(|a| a.clone())
-    }
-
-    /// Compatibility getter retained for external tests and callers.
-    /// 为外部测试和调用方保留的兼容查询入口。
-    pub fn get_artifact(&self, artifact_id: &ArtifactId) -> Option<Arc<Artifact>> {
-        self.get_artifact_by_id(artifact_id)
     }
 
     pub fn create_artifact_with_id(
@@ -1667,8 +1683,10 @@ impl TaskExecutionManager {
         &self,
         task_id: &str,
     ) -> ExecutionResult<Arc<Task>> {
-        let sms_task = fetch_sms_task(self.sms_channel.clone(), &self.spearlet_config, task_id).await?;
-        self.materialize_local_task_from_sms_snapshot(&sms_task).await
+        let sms_task =
+            fetch_sms_task(self.sms_channel.clone(), &self.spearlet_config, task_id).await?;
+        self.materialize_local_task_from_sms_snapshot(&sms_task)
+            .await
     }
 
     /// Sync a task from an SMS create event into local runtime state and mark it ready.
@@ -1709,10 +1727,7 @@ impl TaskExecutionManager {
     }
 
     /// Build instance config and inject artifact snapshot when available. / 构建实例配置，并在可用时注入 artifact 快照。
-    fn prepare_instance_config(
-        &self,
-        task: &Arc<Task>,
-    ) -> super::instance::InstanceConfig {
+    fn prepare_instance_config(&self, task: &Arc<Task>) -> super::instance::InstanceConfig {
         let mut instance_config = task.create_instance_config();
         if let Some(artifact_entry) = self.artifacts.get(task.artifact_id()) {
             let artifact = artifact_entry.value();
@@ -1806,7 +1821,10 @@ impl TaskExecutionManager {
     }
 
     /// Stop instance / 停止实例
-    async fn stop_and_unregister_instance(&self, instance: &Arc<TaskInstance>) -> ExecutionResult<()> {
+    async fn stop_and_unregister_instance(
+        &self,
+        instance: &Arc<TaskInstance>,
+    ) -> ExecutionResult<()> {
         let runtime = self
             .runtime_manager
             .get_runtime(&instance.config.runtime_type)
@@ -1977,9 +1995,7 @@ impl TaskExecutionManager {
         let instance_status = self
             .instances
             .get(&inflight_execution.instance_id)
-            .map(|instance| {
-                observed_instance_status_to_sms(&instance.status(), false) as i32
-            })
+            .map(|instance| observed_instance_status_to_sms(&instance.status(), false) as i32)
             .unwrap_or(crate::proto::sms::InstanceStatus::Unknown as i32);
         self.report_final_execution_state(
             &inflight_execution.invocation_id,
@@ -2028,7 +2044,8 @@ impl TaskExecutionManager {
         &self,
         ev: ExecutionCompletionEvent,
     ) -> ExecutionResult<()> {
-        let Some((_, inflight_execution)) = self.inflight_async_executions.remove(&ev.execution_id) else {
+        let Some((_, inflight_execution)) = self.inflight_async_executions.remove(&ev.execution_id)
+        else {
             return Ok(());
         };
 
@@ -2289,16 +2306,16 @@ impl TaskExecutionManager {
         match error {
             RuntimeExecutionError::InstanceNotFound { instance_id } => {
                 format!("Instance not found: {}", instance_id)
-            },
+            }
             RuntimeExecutionError::InstanceNotReady { instance_id } => {
                 format!("Instance not ready: {}", instance_id)
-            },
+            }
             RuntimeExecutionError::ExecutionTimeout { timeout_ms } => {
                 format!("Execution timeout after {} ms", timeout_ms)
-            },
+            }
             RuntimeExecutionError::ResourceLimitExceeded { resource, limit } => {
                 format!("Resource limit exceeded: {} (limit: {})", resource, limit)
-            },
+            }
             RuntimeExecutionError::ConfigurationError { message } => message.clone(),
             RuntimeExecutionError::RuntimeError { message } => message.clone(),
             RuntimeExecutionError::IoError { message } => message.clone(),

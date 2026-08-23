@@ -22,11 +22,11 @@ pub struct GrpcServer {
     /// Server configuration / 服务器配置
     config: Arc<SpearletConfig>,
     /// Object service implementation / 对象服务实现
-    object_service: Arc<ObjectServiceImpl>,
+    object_service: ObjectServiceImpl,
     /// Function service implementation / 函数服务实现
-    function_service: Arc<FunctionServiceImpl>,
+    function_service: FunctionServiceImpl,
     /// Instance service implementation / 实例服务实现
-    instance_service: Arc<InstanceServiceImpl>,
+    instance_service: InstanceServiceImpl,
 }
 
 impl GrpcServer {
@@ -35,12 +35,9 @@ impl GrpcServer {
         config: Arc<SpearletConfig>,
         sms_channel: Option<Channel>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let object_service = Arc::new(ObjectServiceImpl::new_with_memory(
-            config.storage.max_object_size,
-        ));
-        let function_service =
-            Arc::new(FunctionServiceImpl::new(config.clone(), sms_channel).await?);
-        let instance_service = Arc::new(InstanceServiceImpl::new(function_service.clone()));
+        let object_service = ObjectServiceImpl::new_with_memory(config.storage.max_object_size);
+        let function_service = FunctionServiceImpl::new(config.clone(), sms_channel).await?;
+        let instance_service = InstanceServiceImpl::new(function_service.clone());
 
         Ok(Self {
             config,
@@ -50,13 +47,13 @@ impl GrpcServer {
         })
     }
 
-    /// Get object service reference / 获取对象服务引用
-    pub fn get_object_service(&self) -> Arc<ObjectServiceImpl> {
+    /// Get object service snapshot / 获取对象服务快照
+    pub fn get_object_service(&self) -> ObjectServiceImpl {
         self.object_service.clone()
     }
 
-    /// Get function service reference / 获取函数服务引用
-    pub fn get_function_service(&self) -> Arc<FunctionServiceImpl> {
+    /// Get function service snapshot / 获取函数服务快照
+    pub fn get_function_service(&self) -> FunctionServiceImpl {
         self.function_service.clone()
     }
 
@@ -117,10 +114,10 @@ impl GrpcServer {
     ) -> Result<
         (
             SocketAddr,
-            ObjectServiceServer<Arc<ObjectServiceImpl>>,
-            InvocationServiceServer<Arc<FunctionServiceImpl>>,
-            ExecutionServiceServer<Arc<FunctionServiceImpl>>,
-            InstanceServiceServer<Arc<InstanceServiceImpl>>,
+            ObjectServiceServer<ObjectServiceImpl>,
+            InvocationServiceServer<FunctionServiceImpl>,
+            ExecutionServiceServer<FunctionServiceImpl>,
+            InstanceServiceServer<InstanceServiceImpl>,
         ),
         Box<dyn std::error::Error + Send + Sync>,
     > {
@@ -155,18 +152,19 @@ impl GrpcServer {
 
 /// Health service for monitoring / 用于监控的健康服务
 pub struct HealthService {
-    object_service: Arc<ObjectServiceImpl>,
-    function_service: Arc<FunctionServiceImpl>,
+    object_service: ObjectServiceImpl,
+    function_service: FunctionServiceImpl,
 }
 
 impl HealthService {
-    pub fn new(
-        object_service: Arc<ObjectServiceImpl>,
-        function_service: Arc<FunctionServiceImpl>,
-    ) -> Self {
+    pub fn new<T, U>(object_service: T, function_service: U) -> Self
+    where
+        T: Into<ObjectServiceImpl>,
+        U: Into<FunctionServiceImpl>,
+    {
         Self {
-            object_service,
-            function_service,
+            object_service: object_service.into(),
+            function_service: function_service.into(),
         }
     }
 

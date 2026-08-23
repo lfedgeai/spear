@@ -82,7 +82,19 @@ impl ExecutionStreamRouter {
         let up_stream_id = match inner.client_to_up.get(&key).copied() {
             Some(v) => v,
             None => {
-                let v = self.alloc_up_stream_id(&inner);
+                // Prefer the original client stream id when it is free so single-client
+                // user-stream workloads keep their expected stream semantics through the
+                // endpoint gateway. When there is a collision, fall back to remapping.
+                // 优先保留原始 client stream id，这样单客户端 user-stream 任务在
+                // endpoint gateway 下仍能保持预期的流语义；只有冲突时才回退到重写。
+                let preferred_stream_id = if client_stream_id == 0 {
+                    None
+                } else if inner.up_to_client.contains_key(&client_stream_id) {
+                    None
+                } else {
+                    Some(client_stream_id)
+                };
+                let v = self.alloc_up_stream_id(&inner, preferred_stream_id);
                 if v == 0 {
                     return Err("no available upstream stream_id".to_string());
                 }
@@ -134,7 +146,12 @@ impl ExecutionStreamRouter {
         inner.client_to_up.is_empty() && inner.up_to_client.is_empty()
     }
 
-    fn alloc_up_stream_id(&self, inner: &RouterInner) -> u32 {
+    fn alloc_up_stream_id(&self, inner: &RouterInner, preferred_stream_id: Option<u32>) -> u32 {
+        if let Some(preferred_stream_id) = preferred_stream_id {
+            if !inner.up_to_client.contains_key(&preferred_stream_id) {
+                return preferred_stream_id;
+            }
+        }
         for _ in 0..1024 {
             let id = self.next_up_stream_id.fetch_add(1, Ordering::Relaxed);
             let id = if id == 0 { 1 } else { id };
@@ -213,6 +230,7 @@ mod tests {
         let b = r.route_client_to_upstream("c2", &f).await.unwrap();
         let (sa, _) = parse_ssf_v1_header(&a).unwrap();
         let (sb, _) = parse_ssf_v1_header(&b).unwrap();
+        assert_eq!(sa, 1);
         assert_ne!(sa, sb);
 
         let back_a = r.route_upstream_to_client(&a).await.unwrap().unwrap();
@@ -223,6 +241,15 @@ mod tests {
         let (csb, _) = parse_ssf_v1_header(&back_b.1).unwrap();
         assert_eq!(csa, 1);
         assert_eq!(csb, 1);
+    }
+
+    #[tokio::test]
+    async fn first_client_keeps_original_stream_id_when_available() {
+        let r = ExecutionStreamRouter::new();
+        let f = build_frame(2, 2, b"{}", b"voice");
+        let upstream = r.route_client_to_upstream("c1", &f).await.unwrap();
+        let (stream_id, _) = parse_ssf_v1_header(&upstream).unwrap();
+        assert_eq!(stream_id, 2);
     }
 
     #[tokio::test]
